@@ -621,3 +621,56 @@ Details:
   - PasswordValidationResult interface with errors array provides descriptive feedback to clients
   - validatePasswordStrength collects all errors (doesn't short-circuit) so users see all issues at once
 ---
+
+## US-026: Create auth middleware for JWT verification
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created src/middleware/auth.ts with authMiddleware function
+  - Extracts Bearer token from Authorization header
+  - Verifies JWT signature and expiry using verifyAccessToken() from utils/jwt.ts
+  - Attaches user info { id, email, tier } to Hono context via c.set('user', ...)
+  - Returns 401 AUTH_REQUIRED if no token or invalid token
+  - Returns 401 AUTH_EXPIRED if token has expired (checks error.name === 'TokenExpiredError')
+- Exported AuthUser interface for type-safe context access across routes
+- Updated src/app.ts Variables type to include `user: AuthUser` for type-safe c.get('user')
+- Imported AuthUser type in app.ts for context variable type definition
+- npm run build passes with zero errors
+- Files changed: src/middleware/auth.ts (created), src/app.ts (modified)
+- **Learnings for future iterations:**
+  - Hono middleware signature: (c: Context, next: Next) => Promise<void>
+  - Use error.name === 'TokenExpiredError' instead of instanceof for CJS/ESM interop safety with jsonwebtoken
+  - AuthUser interface maps JWT payload.sub to id for cleaner route handler API
+  - Variables type in app.ts must include all context variables used by middleware (requestId, user)
+  - Bearer token extraction: authHeader.slice(7) after verifying startsWith('Bearer ')
+  - Re-throw AppError instances in catch block to avoid wrapping known errors
+  - Routes use c.get('user') to access authenticated user — type-safe via Variables type
+---
+
+## US-027: Create auth service for user management
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created src/services/auth.service.ts with comprehensive user management and token operations
+  - createUser(input): Creates new user, checks for email uniqueness, throws ConflictError on duplicate
+  - findByEmail(email): Looks up user by email, returns UserRow or null
+  - findByProviderId(provider, providerId): Looks up user by OAuth provider ID (Google, Apple), returns UserRow or null
+  - updateUser(userId, input): Updates user profile fields (displayName, avatarUrl, tier), sets updatedAt
+  - storeRefreshToken(userId): Generates refresh token via signRefreshToken(), hashes with bcrypt cost 12, stores in refresh_tokens table
+  - verifyRefreshToken(userId, rawToken): Iterates user's non-revoked, non-expired tokens and bcrypt.compare() against stored hashes
+  - revokeRefreshToken(tokenId): Sets is_revoked=true for a specific token
+  - revokeAllRefreshTokens(userId): Revokes all tokens for a user (for password change/compromise scenarios)
+- Exported TypeScript interfaces: CreateUserInput, UpdateUserInput, UserRow (inferred from schema)
+- All functions check for null db instance and throw InternalError if unavailable
+- Uses Drizzle ORM with eq() filter, .returning() for insert/update results
+- npm run build passes with zero errors
+- Files changed: src/services/auth.service.ts (created), scripts/ralph/prd.json (modified), scripts/ralph/progress.txt (modified)
+- **Learnings for future iterations:**
+  - Drizzle's .$inferSelect type utility provides TypeScript types from schema definitions without manual interface duplication
+  - .returning() on insert/update returns the full row including generated columns (id, created_at, etc.)
+  - Refresh token verification requires iterating and bcrypt.compare() on each — no way to query by hash directly
+  - ConflictError (409) is the appropriate error for duplicate email registration
+  - Pattern: check-then-insert for uniqueness (race condition acceptable for email registration use case)
+  - bcrypt import requires `import bcrypt from 'bcrypt'` (default export) in ESM
+  - Service functions are pure functions that accept parameters and return typed results, no class needed
+---
