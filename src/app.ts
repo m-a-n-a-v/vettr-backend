@@ -17,6 +17,7 @@ import {
   redFlagStockRoutes,
   redFlagGlobalRoutes,
   alertRoutes,
+  watchlistRoutes,
 } from './routes/index.js';
 import type { AuthUser } from './middleware/auth.js';
 
@@ -101,5 +102,6 @@ app.route('/executives', executiveRoutes);
 app.route('/users', userRoutes);
 app.route('/subscription', subscriptionRoutes);
 app.route('/alerts', alertRoutes);
+app.route('/watchlist', watchlistRoutes);
 
 export { app };
