@@ -1,4 +1,4 @@
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, and, gte } from 'drizzle-orm';
 import { db } from '../config/database.js';
 import { executives, filings, stocks, vetrScoreHistory } from '../db/schema/index.js';
 import { InternalError, NotFoundError } from '../utils/errors.js';
@@ -541,4 +541,64 @@ async function saveScoreToHistory(ticker: string, result: VetrScoreResult): Prom
   } catch (error) {
     console.error(`Failed to save VETR score history for ${ticker}:`, error);
   }
+}
+
+// --- Score History Retrieval ---
+
+export interface ScoreHistoryEntry {
+  id: string;
+  stock_ticker: string;
+  overall_score: number;
+  pedigree_score: number;
+  filing_velocity_score: number;
+  red_flag_score: number;
+  growth_score: number;
+  governance_score: number;
+  bonus_points: number;
+  penalty_points: number;
+  calculated_at: string;
+}
+
+/**
+ * Retrieve VETR Score history for a stock ticker from the database.
+ *
+ * @param ticker - Stock ticker symbol
+ * @param months - Number of months of history to retrieve (default 6)
+ * @returns Array of ScoreHistoryEntry ordered by calculated_at descending
+ */
+export async function getScoreHistory(ticker: string, months: number = 6): Promise<ScoreHistoryEntry[]> {
+  if (!db) {
+    throw new InternalError('Database not available');
+  }
+
+  const upperTicker = ticker.toUpperCase();
+
+  // Calculate the date threshold
+  const since = new Date();
+  since.setMonth(since.getMonth() - months);
+
+  const rows = await db
+    .select()
+    .from(vetrScoreHistory)
+    .where(
+      and(
+        eq(vetrScoreHistory.stockTicker, upperTicker),
+        gte(vetrScoreHistory.calculatedAt, since)
+      )
+    )
+    .orderBy(desc(vetrScoreHistory.calculatedAt));
+
+  return rows.map((row) => ({
+    id: row.id,
+    stock_ticker: row.stockTicker,
+    overall_score: row.overallScore,
+    pedigree_score: row.pedigreeScore,
+    filing_velocity_score: row.filingVelocityScore,
+    red_flag_score: row.redFlagScore,
+    growth_score: row.growthScore,
+    governance_score: row.governanceScore,
+    bonus_points: row.bonusPoints,
+    penalty_points: row.penaltyPoints,
+    calculated_at: row.calculatedAt.toISOString(),
+  }));
 }

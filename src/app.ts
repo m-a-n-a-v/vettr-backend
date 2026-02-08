@@ -13,6 +13,7 @@ import {
   executiveRoutes,
   userRoutes,
   subscriptionRoutes,
+  vetrScoreRoutes,
 } from './routes/index.js';
 import type { AuthUser } from './middleware/auth.js';
 
@@ -89,6 +90,7 @@ app.use('*', rateLimitMiddleware);
 app.route('/health', healthRoutes);
 app.route('/auth', authRoutes);
 app.route('/stocks', stockRoutes);
+app.route('/stocks', vetrScoreRoutes);
 app.route('/filings', filingRoutes);
 app.route('/executives', executiveRoutes);
 app.route('/users', userRoutes);
