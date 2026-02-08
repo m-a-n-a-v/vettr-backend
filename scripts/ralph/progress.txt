@@ -374,3 +374,30 @@ Details:
   - Middleware factory pattern allows reusable validation logic across all routes
   - Always await next() to continue middleware chain after successful validation
 ---
+
+## US-016: Register all middleware on Hono app
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Updated src/app.ts to register all middleware in proper order:
+  1. Request ID generation middleware (crypto.randomUUID())
+  2. Logger middleware (Hono's built-in logger)
+  3. CORS middleware with environment-based configuration
+  4. Error handler (registered via app.onError())
+- Added CORS_ORIGIN environment variable to src/config/env.ts with default value '*'
+- Configured CORS middleware to use env.CORS_ORIGIN with credentials: true
+- Added Hono context type extension (Variables type) to support requestId in context
+- Request ID stored in context via c.set('requestId', ...) for use in response builders and logging
+- Verified /v1/health endpoint works correctly after middleware registration
+- npm run build passes with zero errors
+- Files changed: src/app.ts (modified), src/config/env.ts (modified), scripts/ralph/prd.json (modified)
+- **Learnings for future iterations:**
+  - Hono requires explicit type definition for context variables via Variables type parameter: `Hono<{ Variables: VariablesType }>`
+  - Middleware order matters: request ID should be first so it's available for logger and error handler
+  - CORS middleware accepts origin parameter that can be string (single origin), array (multiple origins), or '*' (all origins)
+  - credentials: true in CORS config allows cookies and authorization headers in cross-origin requests
+  - crypto.randomUUID() is Node.js built-in (Node 20+), no external dependency needed
+  - Context variables set via c.set() are available in subsequent middleware and route handlers via c.get()
+  - Type safety for context variables prevents runtime errors from typos in variable names
+  - Environment-based CORS config enables different origins for dev/staging/production environments
+---

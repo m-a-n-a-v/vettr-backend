@@ -20,6 +20,9 @@ const envSchema = z.object({
   // OAuth Configuration (optional)
   GOOGLE_CLIENT_ID: z.string().optional(),
   APPLE_CLIENT_ID: z.string().optional(),
+
+  // CORS Configuration
+  CORS_ORIGIN: z.string().default('*'),
 });
 
 const parseEnv = () => {
