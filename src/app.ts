@@ -10,6 +10,7 @@ import { authRoutes } from './routes/auth.routes.js';
 import { stockRoutes } from './routes/stocks.routes.js';
 import { filingRoutes } from './routes/filings.routes.js';
 import { executiveRoutes } from './routes/executives.routes.js';
+import { userRoutes } from './routes/users.routes.js';
 import type { AuthUser } from './middleware/auth.js';
 
 // Define context variables type
@@ -86,5 +87,6 @@ app.route('/auth', authRoutes);
 app.route('/stocks', stockRoutes);
 app.route('/filings', filingRoutes);
 app.route('/executives', executiveRoutes);
+app.route('/users', userRoutes);
 
 export { app };
