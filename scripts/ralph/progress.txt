@@ -1989,3 +1989,26 @@ Details:
   - snake_case used consistently in all API responses (composite_score, flag_type, detected_at, etc.)
   - Tests verify both data shape and service function call signatures
 ---
+
+## US-077: Write integration tests for watchlist and tier limits
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created tests/integration/watchlist.test.ts with comprehensive test coverage
+- Implemented 14 test cases covering all watchlist functionality:
+  - GET /watchlist returns empty array for new users (3 tests including auth)
+  - POST /watchlist/:ticker adds stocks with ticker normalization (4 tests)
+  - DELETE /watchlist/:ticker removes stocks (3 tests)
+  - Tier limit enforcement for FREE (5 stocks), PRO (25 stocks), and PREMIUM (unlimited) tiers (4 tests)
+- All tests pass: 14/14 successful
+- Tests verify proper error responses (404 for non-existent stocks, 403 for tier limits, 401 for auth)
+- Tests use mocked watchlist service to avoid database dependencies
+- Files changed: tests/integration/watchlist.test.ts (created), scripts/ralph/prd.json (updated)
+- **Learnings for future iterations:**
+  - Watchlist service has TIER_LIMITS constant: { free: 5, pro: 25, premium: Infinity }
+  - Service normalizes tickers to uppercase internally
+  - TierLimitError includes helpful details (current_count, max_allowed, tier)
+  - Tests follow existing pattern from auth.test.ts and stocks.test.ts with vi.mock()
+  - Error logs in stderr are expected for error test cases (404, 401, 403)
+  - All 14 tests completed successfully, exceeding the "at least 5 test cases" requirement
+---
