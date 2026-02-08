@@ -1045,7 +1045,7 @@
         "Test protected endpoint returns 401 without token"
       ],
       "priority": 74,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-075",

@@ -1908,3 +1908,31 @@ Details:
   - Mock types should match the actual schema inference types for type safety
   - 30 tests provide thorough coverage of all detector logic, scoring, and edge cases
 ---
+
+## US-074: Write integration tests for auth endpoints
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created tests/integration/auth.test.ts with comprehensive integration tests for all auth endpoints
+- Implemented 17 test cases covering the full authentication flow:
+  - POST /auth/signup: user creation with tokens, weak password rejection, invalid email rejection, duplicate email rejection
+  - POST /auth/login: valid credentials, invalid email, invalid password, OAuth-only accounts
+  - POST /auth/refresh: valid token rotation, invalid token rejection, expired token rejection
+  - POST /auth/logout: successful token revocation, invalid token handling, authentication requirement
+  - Protected endpoints: missing token, invalid token format, malformed JWT
+- All tests use mocked auth service functions to avoid database dependencies
+- Tests verify proper HTTP status codes, response structure, and error codes
+- npm run test passes with all 17 tests passing
+- npm run build passes with zero errors
+- Files changed: tests/integration/auth.test.ts (created)
+- **Learnings for future iterations:**
+  - Integration tests use Hono's app.request() to make HTTP requests directly to the app instance
+  - vi.mock() is used to mock service functions while preserving the rest of the implementation
+  - Password validation errors return 422 (VALIDATION_ERROR), not 400
+  - Error handler logs are expected in stderr during tests - they're part of normal error handling
+  - Test structure: beforeEach clears mocks, afterEach restores them
+  - Mocked functions need proper return types matching the actual service signatures
+  - JWT tokens can be created using the actual signAccessToken utility for auth testing
+  - Protected endpoints require Bearer token in Authorization header
+  - Token enumeration attacks prevented by returning success even for invalid tokens in logout
+---
