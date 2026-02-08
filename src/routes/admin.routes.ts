@@ -3,7 +3,7 @@ import { adminAuthMiddleware } from '../middleware/admin-auth.js';
 import { adminService } from '../services/admin.service.js';
 import { success } from '../utils/response.js';
 import { createAdminCrudRoutes } from './admin-crud.factory.js';
-import { users, stocks, executives, filings, alertRules, alerts, vetrScoreHistory, redFlagHistory, syncHistory } from '../db/schema/index.js';
+import { users, stocks, executives, filings, alertRules, alerts, vetrScoreHistory, redFlagHistory, syncHistory, userSettings } from '../db/schema/index.js';
 
 const adminRoutes = new Hono();
 
@@ -223,5 +223,27 @@ const syncHistoryRoutes = createAdminCrudRoutes({
 });
 
 adminRoutes.route('/sync-history', syncHistoryRoutes);
+
+/**
+ * CRUD routes for userSettings table
+ * - GET /admin/user-settings - List user settings with pagination, search, sort, and filters
+ * - GET /admin/user-settings/:id - Get a single user settings record by ID
+ * - POST /admin/user-settings - Create a new user settings record
+ * - PUT /admin/user-settings/:id - Update a user settings record
+ * - DELETE /admin/user-settings/:id - Delete a user settings record
+ * - GET /admin/user-settings/export - Export user settings as CSV or JSON
+ * - POST /admin/user-settings/bulk - Bulk create user settings records
+ * - DELETE /admin/user-settings/bulk - Bulk delete user settings records
+ */
+const userSettingsRoutes = createAdminCrudRoutes({
+  tableName: 'user-settings',
+  table: userSettings,
+  primaryKey: 'id',
+  searchableColumns: [],
+  filterableColumns: ['userId'],
+  sortableColumns: ['updatedAt'],
+});
+
+adminRoutes.route('/user-settings', userSettingsRoutes);
 
 export { adminRoutes };
