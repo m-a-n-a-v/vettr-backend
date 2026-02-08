@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { validateBody } from '../middleware/validator.js';
 import { authMiddleware } from '../middleware/auth.js';
+import { authRateLimitMiddleware } from '../middleware/rate-limit.js';
 import {
   createUser,
   findByEmail,
@@ -19,6 +20,9 @@ import { AuthInvalidCredentialsError, ValidationError } from '../utils/errors.js
 import { success } from '../utils/response.js';
 
 const authRoutes = new Hono();
+
+// Apply auth-specific rate limiting to all auth routes
+authRoutes.use('*', authRateLimitMiddleware);
 
 // Zod schema for signup request body
 const signupSchema = z.object({

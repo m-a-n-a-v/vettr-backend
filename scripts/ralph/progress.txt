@@ -884,3 +884,27 @@ Details:
   - Two separate middleware exports allow different rate limit strategies for auth vs general endpoints
   - getTierFromContext() uses try/catch for c.get('user') since it may not be set for unauthenticated requests
 ---
+
+## US-035: Apply rate limiting to all route groups
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Applied `authRateLimitMiddleware` to all `/auth/*` routes via `authRoutes.use('*', authRateLimitMiddleware)` in auth.routes.ts
+- Applied `rateLimitMiddleware` globally in app.ts via `app.use('*', rateLimitMiddleware)`
+  - Global middleware auto-detects read/write from HTTP method (GET/HEAD/OPTIONS = read, others = write)
+  - Tier detection from auth context (user.tier) with fallback to 'unauth' for unauthenticated requests
+- Auth routes get BOTH the global rate limit (read/write) AND the auth-specific rate limit (stricter)
+- Rate limiting gracefully skips when Redis is unavailable (dev mode) — both middlewares check `if (!redis)` first
+- Fail-open pattern: Redis errors caught and request allowed through
+- Rate limit headers (X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset) set on all responses
+- Retry-After header set on 429 responses
+- npm run build passes with zero errors
+- Files changed: src/app.ts (modified), src/routes/auth.routes.ts (modified)
+- **Learnings for future iterations:**
+  - Global rate limiting in app.ts covers all current AND future route groups automatically
+  - Auth routes use separate authRateLimitMiddleware with stricter limits (5/min unauth, 10/min auth)
+  - Middleware order: request ID → logger → CORS → error handler → rate limit → routes
+  - Rate limit middleware placed after CORS so rate-limited responses include CORS headers
+  - When future route groups are added (stocks, filings, etc.), they automatically get rate limiting from the global middleware
+  - Auth routes effectively have dual rate limiting: global (read/write) + auth-specific — this is intentional as auth endpoints should be extra protected
+---

@@ -3,6 +3,7 @@ import { swaggerUI } from '@hono/swagger-ui';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { errorHandler } from './middleware/error-handler.js';
+import { rateLimitMiddleware } from './middleware/rate-limit.js';
 import { env } from './config/env.js';
 import { healthRoutes } from './routes/health.routes.js';
 import { authRoutes } from './routes/auth.routes.js';
@@ -69,6 +70,12 @@ app.use(
 
 // Global error handler
 app.onError(errorHandler);
+
+// Tier-based rate limiting middleware
+// Applied globally - auto-detects read/write from HTTP method
+// Auth routes have their own stricter auth-specific rate limiting
+// Gracefully skips when Redis is unavailable (dev mode)
+app.use('*', rateLimitMiddleware);
 
 // Register routes
 app.route('/health', healthRoutes);
