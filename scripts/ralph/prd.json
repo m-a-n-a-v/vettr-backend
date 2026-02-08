@@ -403,7 +403,7 @@
         "Return AUTH_INVALID_CREDENTIALS on failure"
       ],
       "priority": 29,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-030",
