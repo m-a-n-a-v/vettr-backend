@@ -1585,3 +1585,23 @@ Details:
   - All timestamps converted to ISO strings in response
   - Pattern follows users.routes.ts structure with validateBody middleware
 ---
+
+## US-062: Implement alert rule enable/disable and stock-specific endpoints
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Added POST /alerts/rules/:id/enable endpoint - sets is_active=true
+- Added POST /alerts/rules/:id/disable endpoint - sets is_active=false
+- Added GET /stocks/:ticker/alerts/rules endpoint - returns rules for specific stock filtered to current user
+- All endpoints use existing service functions (toggleActive, getRulesForStock) that were already implemented
+- All endpoints properly validate ownership and return proper snake_case JSON responses
+- npm run build passes with zero errors
+- Files changed: src/routes/alerts.routes.ts
+- **Learnings for future iterations:**
+  - The alert-rule.service.ts already had toggleActive(ruleId, userId, isActive) and getRulesForStock(userId, ticker) helper functions
+  - Service functions properly validate ownership with ForbiddenError
+  - Service functions properly handle database unavailability with InternalError
+  - Alert routes pattern is consistent: extract user from context, call service, convert to DTO, return success response
+  - The GET /stocks/:ticker/alerts/rules endpoint follows the pattern of nesting under /stocks for stock-specific queries but is mounted on alertRoutes (not stockRoutes)
+  - All alert routes are already registered on main app at /v1/alerts, so no additional registration needed
+---
