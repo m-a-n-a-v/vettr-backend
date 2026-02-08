@@ -6,6 +6,7 @@ import { InternalError } from '../utils/errors.js';
 // Types for component inputs
 type ExecutiveRow = typeof executives.$inferSelect;
 type FilingRow = typeof filings.$inferSelect;
+type StockRow = typeof stocks.$inferSelect;
 
 /**
  * Pedigree Score Component (weight: 25%)
@@ -120,6 +121,149 @@ export function filingVelocityScore(filingList: FilingRow[]): number {
 export function redFlagComponent(redFlagCompositeScore: number): number {
   const clamped = Math.max(0, Math.min(100, redFlagCompositeScore));
   return Math.round(100 - clamped);
+}
+
+/**
+ * Growth Metrics Score Component (weight: 15%)
+ *
+ * Calculates the growth metrics score based on three sub-components:
+ * - Revenue Growth (40pts max): Based on price change as a proxy for revenue growth momentum.
+ *   50%+ price change = full score, linearly scaled. Negative change = 0.
+ * - Capital Raised (30pts max): Based on market cap as a proxy for capital-raising ability.
+ *   $100M+ market cap = full score, linearly scaled.
+ * - Momentum (30pts max): Based on positive price trajectory and market cap size.
+ *   Combines price change direction (15pts) and relative market cap strength (15pts).
+ *
+ * Note: Uses available stock data fields (price_change, market_cap) as proxies since
+ * the database doesn't store explicit revenue growth or capital raised figures.
+ *
+ * @param stock - Stock record with market data
+ * @returns Score 0-100
+ */
+export function growthMetricsScore(stock: StockRow): number {
+  // Revenue Growth (40pts max at 50%+ price change)
+  // Use price_change percentage as a proxy for revenue growth momentum
+  const priceChangePct = stock.priceChange ?? 0;
+  let revenueGrowthScore = 0;
+  if (priceChangePct > 0) {
+    revenueGrowthScore = Math.min(Math.round((priceChangePct / 50) * 40), 40);
+  }
+
+  // Capital Raised (30pts max at $100M+ market cap)
+  // Use market_cap as a proxy for total capital raised
+  const marketCap = stock.marketCap ?? 0;
+  const capitalRaisedScore = Math.min(
+    Math.round((marketCap / 100_000_000) * 30),
+    30
+  );
+
+  // Momentum (30pts max)
+  // Positive price change direction (15pts) + relative market cap strength (15pts)
+  let momentumScore = 0;
+
+  // Price direction component (15pts): positive change = up to 15pts
+  if (priceChangePct > 0) {
+    momentumScore += Math.min(Math.round((priceChangePct / 25) * 15), 15);
+  }
+
+  // Market cap strength component (15pts): $500M+ = full score
+  momentumScore += Math.min(Math.round((marketCap / 500_000_000) * 15), 15);
+
+  return revenueGrowthScore + capitalRaisedScore + momentumScore;
+}
+
+/**
+ * Governance Score Component (weight: 15%)
+ *
+ * Calculates the governance score based on three sub-components:
+ * - Board Independence (40pts max): Based on executive team size and diversity of titles.
+ *   Having multiple distinct leadership roles suggests independent oversight.
+ *   5+ distinct titles = full score, 8pts per unique title.
+ * - Audit Committee (30pts max): Based on presence of financial oversight roles
+ *   (CFO, VP Finance, Controller, etc.) and proportion of audited financial filings.
+ *   Financial roles (15pts) + audited financials proportion (15pts).
+ * - Disclosure Quality (30pts max): Based on filing regularity and type coverage.
+ *   12+ filings in last year (15pts) + 4+ unique filing types (15pts).
+ *
+ * @param execList - Array of executive records for a stock
+ * @param filingList - Array of filing records for a stock
+ * @returns Score 0-100
+ */
+export function governanceScore(execList: ExecutiveRow[], filingList: FilingRow[]): number {
+  if (execList.length === 0 && filingList.length === 0) {
+    return 0;
+  }
+
+  // Board Independence (40pts max)
+  // More distinct leadership titles suggest broader governance structure
+  const uniqueTitles = new Set(
+    execList
+      .map((e) => e.title?.toLowerCase().trim())
+      .filter((t): t is string => t !== null && t !== undefined && t.length > 0)
+  );
+  const boardIndependenceScore = Math.min(uniqueTitles.size * 8, 40);
+
+  // Audit Committee (30pts max)
+  // Financial oversight roles (15pts) + audited financials proportion (15pts)
+  const financialRoles = [
+    'cfo',
+    'chief financial officer',
+    'vp finance',
+    'controller',
+    'treasurer',
+    'audit',
+    'vp corporate finance',
+  ];
+  const hasFinancialRoles = execList.some((e) =>
+    financialRoles.some((role) => e.title?.toLowerCase().includes(role))
+  );
+  const financialRoleScore = hasFinancialRoles ? 15 : 0;
+
+  // Audited financials: count "Financial Statements" filings as a proxy for audited financials
+  const financialStatements = filingList.filter((f) =>
+    f.type?.toLowerCase().includes('financial')
+  );
+  const auditedProportion =
+    filingList.length > 0 ? financialStatements.length / filingList.length : 0;
+  const auditedScore = Math.min(Math.round(auditedProportion * 15), 15);
+  const auditCommitteeScore = financialRoleScore + auditedScore;
+
+  // Disclosure Quality (30pts max)
+  // Filing regularity (15pts) + filing type coverage (15pts)
+  const now = new Date();
+  const oneYearAgo = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+  const recentFilings = filingList.filter((f) => f.date >= oneYearAgo);
+
+  // Regularity: 12+ filings in last year = full 15pts
+  const regularityScore = Math.min(Math.round((recentFilings.length / 12) * 15), 15);
+
+  // Type coverage: 4+ unique filing types = full 15pts
+  const uniqueFilingTypes = new Set(recentFilings.map((f) => f.type));
+  const typeCoverageScore = Math.min(
+    Math.round((uniqueFilingTypes.size / 4) * 15),
+    15
+  );
+  const disclosureQualityScore = regularityScore + typeCoverageScore;
+
+  return boardIndependenceScore + auditCommitteeScore + disclosureQualityScore;
+}
+
+/**
+ * Get a stock record by ticker from the database.
+ * Helper used by the VETR Score calculation pipeline.
+ */
+export async function getStockByTicker(ticker: string): Promise<StockRow | null> {
+  if (!db) {
+    throw new InternalError('Database not available');
+  }
+
+  const result = await db
+    .select()
+    .from(stocks)
+    .where(eq(stocks.ticker, ticker.toUpperCase()))
+    .limit(1);
+
+  return result.length > 0 ? result[0] : null;
 }
 
 /**

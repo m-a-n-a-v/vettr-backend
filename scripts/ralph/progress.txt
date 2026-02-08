@@ -1252,3 +1252,60 @@ Details:
   - All existing route registrations were already in place from US-037 through US-048 — this story consolidates imports
   - OpenAPI tags already defined for all planned route groups (including vetr-score, red-flags, alerts, watchlist, sync)
 ---
+
+## US-050: Create VETR Score calculation service - component calculators
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created src/services/vetr-score.service.ts with three component calculator functions
+- Implemented pedigreeScore(executives):
+  - Experience score (50pts max at 20yr avg): uses yearsAtCompany + estimated previous experience (~3yr per previous company)
+  - Tenure stability (30pts max at 10yr avg): based on average yearsAtCompany
+  - Specialization (20pts max at 5+ unique): counts unique non-null specializations, 4pts per unique spec
+- Implemented filingVelocityScore(filings):
+  - Regularity (40pts max at 12+ filings/year): counts filings from last 12 months
+  - Timeliness (30pts max): most recent filing 0-7 days = full, 30+ days = 0, linear interpolation between
+  - Quality (30pts max): material filing proportion (15pts) + filing type diversity (15pts, 4+ types = full)
+- Implemented redFlagComponent(compositeScore): returns 100 - clamped score (0-100)
+- Added helper functions getExecutivesForTicker() and getFilingsForTicker() for database lookups by stock ticker
+- All functions are pure (except DB helpers) and accept typed inputs, making them independently testable
+- npm run build passes with zero errors
+- Files changed: src/services/vetr-score.service.ts (created)
+- **Learnings for future iterations:**
+  - Component calculators are pure functions (no DB calls) — accept data arrays and return scores
+  - Database lookup helpers separated from scoring logic for clean testability
+  - Experience estimation: ~3 years per previous company is a reasonable heuristic for mining industry
+  - Filing timeliness uses linear interpolation between 7-day (full) and 30-day (zero) thresholds
+  - Quality score combines two sub-components: material filing proportion + type diversity
+  - redFlagComponent is a simple inversion: 100 - score, so low red flags = high VETR score
+  - Type inference from Drizzle schema: `typeof executives.$inferSelect` provides full type for executive rows
+  - All scores are 0-100 range, clamped with Math.min/Math.max as needed
+---
+
+## US-051: Implement growth and governance score components
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Added growthMetricsScore(stock) to src/services/vetr-score.service.ts
+  - Revenue Growth (40pts max at 50%+ price change): uses priceChange as proxy for revenue growth momentum
+  - Capital Raised (30pts max at $100M+ market cap): uses marketCap as proxy for capital-raising ability
+  - Momentum (30pts max): combines price direction (15pts) and relative market cap strength (15pts)
+- Added governanceScore(executives, filings) to src/services/vetr-score.service.ts
+  - Board Independence (40pts max): counts unique executive titles, 8pts per unique title (5+ = full)
+  - Audit Committee (30pts max): financial oversight roles (15pts) + audited financials proportion (15pts)
+  - Disclosure Quality (30pts max): filing regularity (15pts) + filing type coverage (15pts)
+- Added getStockByTicker() helper function for database lookup by ticker (returns full StockRow)
+- Added StockRow type alias: `typeof stocks.$inferSelect`
+- Each component returns a score 0-100
+- npm run build passes with zero errors
+- Files changed: src/services/vetr-score.service.ts (modified), scripts/ralph/prd.json (modified)
+- **Learnings for future iterations:**
+  - Stock schema lacks explicit revenue growth, capital raised, debt ratio fields — used price_change and market_cap as proxies
+  - growthMetricsScore accepts StockRow type (not just ticker) for flexibility and testability
+  - governanceScore combines executive data and filing data for a holistic governance assessment
+  - Financial role detection uses substring matching on exec titles (includes 'cfo', 'chief financial officer', etc.)
+  - Disclosure quality reuses similar logic to filingVelocityScore but with different point allocation
+  - getStockByTicker helper is useful for US-052 (full VETR Score calculation) pipeline
+  - All component calculators are pure functions (no DB calls) — accept data arrays/objects and return scores
+  - Math.min capping ensures no sub-component exceeds its allocated points
+---
