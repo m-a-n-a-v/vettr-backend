@@ -1,11 +1,11 @@
 import { OpenAPIHono } from '@hono/zod-openapi';
 import { swaggerUI } from '@hono/swagger-ui';
 import { cors } from 'hono/cors';
-import { logger } from 'hono/logger';
 import { secureHeaders } from 'hono/secure-headers';
 import { bodyLimit } from 'hono/body-limit';
 import { errorHandler } from './middleware/error-handler.js';
 import { rateLimitMiddleware } from './middleware/rate-limit.js';
+import { requestLogger } from './middleware/request-logger.js';
 import { env } from './config/env.js';
 import {
   healthRoutes,
@@ -72,8 +72,8 @@ app.use('*', async (c, next) => {
   await next();
 });
 
-// Logger middleware
-app.use('*', logger());
+// Structured request timing logger
+app.use('*', requestLogger);
 
 // Security headers middleware
 // Adds X-Content-Type-Options, X-Frame-Options, X-XSS-Protection, and more
