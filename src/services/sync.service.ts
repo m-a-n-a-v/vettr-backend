@@ -555,3 +555,192 @@ async function processAlertRuleChange(
 
   return { applied: false };
 }
+
+export type ConflictResolutionStrategy = 'local_wins' | 'server_wins' | 'last_write_wins';
+
+export interface ConflictResolution {
+  entity: EntityType;
+  id: string;
+  strategy: ConflictResolutionStrategy;
+  local_data?: any;
+  server_data?: any;
+  local_timestamp?: string | Date;
+  server_timestamp?: string | Date;
+}
+
+export interface ResolveConflictsResult {
+  resolved: Array<{
+    entity: EntityType;
+    id: string;
+    strategy: ConflictResolutionStrategy;
+    applied_data: any;
+  }>;
+  failed: Array<{
+    entity: EntityType;
+    id: string;
+    strategy: ConflictResolutionStrategy;
+    reason: string;
+  }>;
+}
+
+/**
+ * Resolve sync conflicts using specified strategies
+ * Strategies:
+ * - local_wins: Apply client's local data, overwrite server
+ * - server_wins: Keep server data, discard client changes
+ * - last_write_wins: Apply data with most recent timestamp
+ */
+export async function resolveConflicts(
+  userId: string,
+  resolutions: ConflictResolution[]
+): Promise<ResolveConflictsResult> {
+  if (!db) {
+    throw new InternalError('Database not available');
+  }
+
+  const resolved: ResolveConflictsResult['resolved'] = [];
+  const failed: ResolveConflictsResult['failed'] = [];
+
+  for (const resolution of resolutions) {
+    const { entity, id, strategy, local_data, server_data, local_timestamp, server_timestamp } = resolution;
+
+    try {
+      if (entity === 'alert_rules') {
+        // Determine which data to apply based on strategy
+        let dataToApply: any;
+
+        if (strategy === 'local_wins') {
+          dataToApply = local_data;
+        } else if (strategy === 'server_wins') {
+          dataToApply = server_data;
+        } else if (strategy === 'last_write_wins') {
+          // Compare timestamps to determine winner
+          const localTime = local_timestamp
+            ? (typeof local_timestamp === 'string' ? new Date(local_timestamp) : local_timestamp)
+            : new Date(0);
+          const serverTime = server_timestamp
+            ? (typeof server_timestamp === 'string' ? new Date(server_timestamp) : server_timestamp)
+            : new Date(0);
+
+          dataToApply = localTime > serverTime ? local_data : server_data;
+        }
+
+        if (!dataToApply) {
+          failed.push({
+            entity,
+            id,
+            strategy,
+            reason: 'No data available to apply for chosen strategy',
+          });
+          continue;
+        }
+
+        // Verify the alert rule exists and belongs to the user
+        const existing = await db
+          .select()
+          .from(alertRules)
+          .where(
+            and(
+              eq(alertRules.id, id),
+              eq(alertRules.userId, userId)
+            )
+          )
+          .limit(1);
+
+        if (existing.length === 0) {
+          // Rule doesn't exist - try to create it if we have local_data
+          if (strategy === 'local_wins' || (strategy === 'last_write_wins' && dataToApply === local_data)) {
+            await db.insert(alertRules).values({
+              id,
+              userId,
+              stockTicker: dataToApply.stock_ticker,
+              ruleType: dataToApply.rule_type,
+              triggerConditions: dataToApply.trigger_conditions ?? {},
+              conditionOperator: dataToApply.condition_operator ?? 'AND',
+              frequency: dataToApply.frequency ?? 'instant',
+              threshold: dataToApply.threshold,
+              isActive: dataToApply.is_active ?? true,
+            });
+
+            resolved.push({
+              entity,
+              id,
+              strategy,
+              applied_data: dataToApply,
+            });
+          } else {
+            // Server wins but rule doesn't exist - nothing to do
+            resolved.push({
+              entity,
+              id,
+              strategy,
+              applied_data: null, // Resolved by keeping it deleted
+            });
+          }
+          continue;
+        }
+
+        // Rule exists - update it with resolved data
+        if (strategy === 'server_wins') {
+          // Keep server data - no action needed
+          resolved.push({
+            entity,
+            id,
+            strategy,
+            applied_data: server_data,
+          });
+        } else {
+          // Apply local_wins or last_write_wins data
+          await db
+            .update(alertRules)
+            .set({
+              stockTicker: dataToApply.stock_ticker,
+              ruleType: dataToApply.rule_type,
+              triggerConditions: dataToApply.trigger_conditions ?? {},
+              conditionOperator: dataToApply.condition_operator ?? 'AND',
+              frequency: dataToApply.frequency ?? 'instant',
+              threshold: dataToApply.threshold,
+              isActive: dataToApply.is_active ?? true,
+            })
+            .where(eq(alertRules.id, id));
+
+          resolved.push({
+            entity,
+            id,
+            strategy,
+            applied_data: dataToApply,
+          });
+        }
+      } else if (entity === 'stocks' || entity === 'filings') {
+        // Stocks and filings are read-only - server always wins
+        if (strategy === 'server_wins' || strategy === 'last_write_wins') {
+          resolved.push({
+            entity,
+            id,
+            strategy: 'server_wins', // Force server_wins for read-only entities
+            applied_data: server_data,
+          });
+        } else {
+          failed.push({
+            entity,
+            id,
+            strategy,
+            reason: `${entity} are read-only and cannot accept local changes`,
+          });
+        }
+      }
+    } catch (error) {
+      failed.push({
+        entity,
+        id,
+        strategy,
+        reason: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+
+  return {
+    resolved,
+    failed,
+  };
+}
