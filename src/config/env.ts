@@ -23,6 +23,9 @@ const envSchema = z.object({
 
   // CORS Configuration
   CORS_ORIGIN: z.string().default('*'),
+
+  // Admin Configuration
+  ADMIN_SECRET: z.string().optional(),
 });
 
 const parseEnv = () => {

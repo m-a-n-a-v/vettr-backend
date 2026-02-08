@@ -6,6 +6,7 @@ import { bodyLimit } from 'hono/body-limit';
 import { errorHandler } from './middleware/error-handler.js';
 import { rateLimitMiddleware } from './middleware/rate-limit.js';
 import { requestLogger } from './middleware/request-logger.js';
+import { metricsTracker } from './middleware/metrics-tracker.js';
 import { env } from './config/env.js';
 import {
   healthRoutes,
@@ -21,6 +22,7 @@ import {
   alertRoutes,
   watchlistRoutes,
   syncRoutes,
+  adminRoutes,
 } from './routes/index.js';
 import type { AuthUser } from './middleware/auth.js';
 
@@ -75,6 +77,9 @@ app.use('*', async (c, next) => {
 // Structured request timing logger
 app.use('*', requestLogger);
 
+// Metrics tracking (tracks requests and response times)
+app.use('*', metricsTracker);
+
 // Security headers middleware
 // Adds X-Content-Type-Options, X-Frame-Options, X-XSS-Protection, and more
 app.use('*', secureHeaders());
@@ -114,5 +119,6 @@ app.route('/subscription', subscriptionRoutes);
 app.route('/alerts', alertRoutes);
 app.route('/watchlist', watchlistRoutes);
 app.route('/sync', syncRoutes);
+app.route('/admin', adminRoutes);
 
 export { app };
