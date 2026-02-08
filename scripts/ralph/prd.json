@@ -1,0 +1,1207 @@
+{
+  "project": "VETTR Backend",
+  "phase": "Phase 1",
+  "branchName": "ralph/vettr-backend",
+  "description": "VETTR Backend API - TypeScript/Hono/Drizzle REST API serving standardized endpoints for iOS and Android clients. Includes auth, stock CRUD, VETR Score engine, Red Flag detector, alerts, watchlist, sync, and full test coverage.",
+  "totalStories": 85,
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Initialize project with TypeScript, Hono, and essential dependencies",
+      "description": "As a developer, I want to initialize the project with TypeScript, Hono, and essential dependencies so that I have a working foundation to build upon.",
+      "acceptanceCriteria": [
+        "Run npm install to install all dependencies from package.json",
+        "src/index.ts starts Hono server on PORT 3000 via @hono/node-server",
+        "src/app.ts exports configured Hono app with /v1 base path",
+        "npm run build compiles without errors",
+        "npm run dev starts server and GET /v1/health returns JSON"
+      ],
+      "priority": 1,
+      "passes": false
+    },
+    {
+      "id": "US-002",
+      "title": "Configure environment variable validation with Zod",
+      "description": "As a developer, I want to configure environment variable validation with Zod so that invalid configuration is caught at startup.",
+      "acceptanceCriteria": [
+        "Create src/config/env.ts with Zod schema validating PORT, NODE_ENV, DATABASE_URL, JWT_SECRET",
+        "Export typed env object with validated values",
+        "Use defaults for optional vars (PORT=3000, NODE_ENV=development)",
+        "For development mode, make DATABASE_URL and UPSTASH vars optional",
+        "npm run build passes"
+      ],
+      "priority": 2,
+      "passes": false
+    },
+    {
+      "id": "US-003",
+      "title": "Set up Drizzle ORM with Neon PostgreSQL connection",
+      "description": "As a developer, I want to set up Drizzle ORM with Neon PostgreSQL so that I have a typed database layer for all queries.",
+      "acceptanceCriteria": [
+        "Create src/config/database.ts exporting Drizzle db instance",
+        "Use @neondatabase/serverless driver with DATABASE_URL",
+        "Export db singleton for use across services",
+        "Handle connection errors gracefully with logging",
+        "npm run build passes"
+      ],
+      "priority": 3,
+      "passes": false
+    },
+    {
+      "id": "US-004",
+      "title": "Set up Upstash Redis client",
+      "description": "As a developer, I want to set up Upstash Redis client so that I can cache frequently accessed data and implement rate limiting.",
+      "acceptanceCriteria": [
+        "Create src/config/redis.ts exporting Redis client instance",
+        "Use @upstash/redis with REST URL and token from env",
+        "Create src/services/cache.service.ts with get/set/del helpers with TTL",
+        "Handle missing Redis config gracefully (disable caching in dev)",
+        "npm run build passes"
+      ],
+      "priority": 4,
+      "passes": false
+    },
+    {
+      "id": "US-005",
+      "title": "Create standardized API response builder utilities",
+      "description": "As a developer, I want standardized API response builders so that all endpoints return consistent response shapes.",
+      "acceptanceCriteria": [
+        "Create src/utils/response.ts with success(), error(), paginated() builder functions",
+        "Create src/types/api.ts with ApiResponse, PaginatedResponse, ErrorResponse types",
+        "Create src/types/pagination.ts with PaginationParams and PaginationMeta types",
+        "All responses include meta: { timestamp, request_id (UUID) }",
+        "npm run build passes"
+      ],
+      "priority": 5,
+      "passes": false
+    },
+    {
+      "id": "US-006",
+      "title": "Create custom error classes and global error handler",
+      "description": "As a developer, I want custom error classes and a global error handler so that errors are caught and returned in a standardized format.",
+      "acceptanceCriteria": [
+        "Create src/utils/errors.ts with AppError base class and subclasses (NotFoundError, ValidationError, AuthError, ForbiddenError, RateLimitError, TierLimitError, ConflictError)",
+        "Create src/middleware/error-handler.ts that catches errors and returns standardized error responses",
+        "Error codes: AUTH_REQUIRED, AUTH_EXPIRED, FORBIDDEN, NOT_FOUND, VALIDATION_ERROR, RATE_LIMITED, TIER_LIMIT_EXCEEDED, CONFLICT, INTERNAL_ERROR",
+        "Register error handler on Hono app in app.ts",
+        "npm run build passes"
+      ],
+      "priority": 6,
+      "passes": false
+    },
+    {
+      "id": "US-007",
+      "title": "Create users and refresh_tokens database schema",
+      "description": "As a developer, I want to create the users and refresh_tokens database schema so that I can store user accounts and authentication tokens.",
+      "acceptanceCriteria": [
+        "Create src/db/schema/users.ts with users table (id UUID PK, email unique, display_name, avatar_url, tier default 'free', password_hash nullable, auth_provider default 'email', auth_provider_id, created_at, updated_at)",
+        "Add refresh_tokens table (id UUID PK, user_id FK, token_hash, expires_at, is_revoked default false, created_at)",
+        "Create src/db/schema/index.ts barrel export",
+        "npm run build passes"
+      ],
+      "priority": 7,
+      "passes": false
+    },
+    {
+      "id": "US-008",
+      "title": "Create stocks database schema",
+      "description": "As a developer, I want to create the stocks database schema so that I can store stock data for the VETTR platform.",
+      "acceptanceCriteria": [
+        "Create src/db/schema/stocks.ts with stocks table (id UUID PK, ticker unique, name, exchange, sector, market_cap double, price double, price_change double, vetr_score integer, updated_at)",
+        "Add indexes on ticker, sector, exchange",
+        "Export from schema/index.ts",
+        "npm run build passes"
+      ],
+      "priority": 8,
+      "passes": false
+    },
+    {
+      "id": "US-009",
+      "title": "Create filings and filing_reads database schema",
+      "description": "As a developer, I want to create the filings and filing_reads database schema so that I can store regulatory filings and track per-user read status.",
+      "acceptanceCriteria": [
+        "Create src/db/schema/filings.ts with filings table (id UUID PK, stock_id FK CASCADE, type, title, date timestamp, summary text, is_material boolean, source_url nullable, created_at)",
+        "Add filing_reads join table (user_id + filing_id composite PK, read_at)",
+        "Add indexes on stock_id and date",
+        "Export from schema/index.ts",
+        "npm run build passes"
+      ],
+      "priority": 9,
+      "passes": false
+    },
+    {
+      "id": "US-010",
+      "title": "Create executives database schema",
+      "description": "As a developer, I want to create the executives database schema so that I can store executive team information for each stock.",
+      "acceptanceCriteria": [
+        "Create src/db/schema/executives.ts with executives table (id UUID PK, stock_id FK CASCADE, name, title, years_at_company double, previous_companies jsonb, education, specialization, social_linkedin nullable, social_twitter nullable, created_at, updated_at)",
+        "Add indexes on stock_id and name",
+        "Export from schema/index.ts",
+        "npm run build passes"
+      ],
+      "priority": 10,
+      "passes": false
+    },
+    {
+      "id": "US-011",
+      "title": "Create alert_rules and alerts database schema",
+      "description": "As a developer, I want to create the alert_rules and alerts database schema so that I can store user-configured alert rules and triggered alerts.",
+      "acceptanceCriteria": [
+        "Create src/db/schema/alert-rules.ts with alert_rules table (id UUID PK, user_id FK, stock_ticker, rule_type, trigger_conditions jsonb, condition_operator default 'AND', frequency default 'instant', threshold nullable double, is_active default true, created_at, last_triggered_at nullable)",
+        "Create src/db/schema/alerts.ts with alerts table (id UUID PK, user_id FK, stock_id FK, alert_rule_id FK nullable, alert_type, title, message, triggered_at, is_read default false)",
+        "Add indexes on user_id, stock_ticker",
+        "Export from schema/index.ts",
+        "npm run build passes"
+      ],
+      "priority": 11,
+      "passes": false
+    },
+    {
+      "id": "US-012",
+      "title": "Create watchlist_items database schema",
+      "description": "As a developer, I want to create the watchlist_items database schema so that users can maintain a personal watchlist of stocks.",
+      "acceptanceCriteria": [
+        "Create src/db/schema/watchlists.ts with watchlist_items table (user_id UUID + stock_id UUID composite PK, added_at timestamp)",
+        "Add index on user_id",
+        "Export from schema/index.ts",
+        "npm run build passes"
+      ],
+      "priority": 12,
+      "passes": false
+    },
+    {
+      "id": "US-013",
+      "title": "Create vetr_score_history database schema",
+      "description": "As a developer, I want to create the vetr_score_history database schema so that I can track historical VETR Score calculations over time.",
+      "acceptanceCriteria": [
+        "Create src/db/schema/vetr-scores.ts with vetr_score_history table (id UUID PK, stock_ticker, overall_score int, pedigree_score int, filing_velocity_score int, red_flag_score int, growth_score int, governance_score int, bonus_points int default 0, penalty_points int default 0, calculated_at)",
+        "Add indexes on stock_ticker and calculated_at",
+        "Export from schema/index.ts",
+        "npm run build passes"
+      ],
+      "priority": 13,
+      "passes": false
+    },
+    {
+      "id": "US-014",
+      "title": "Create red_flag_history, red_flag_acknowledgments, sync_history, user_settings schemas",
+      "description": "As a developer, I want to create the remaining database schemas (red flags, sync history, user settings) so that all data models are defined.",
+      "acceptanceCriteria": [
+        "Create src/db/schema/red-flags.ts with red_flag_history (id, stock_ticker, flag_type, severity, score double, description, detected_at) and red_flag_acknowledgments (user_id + red_flag_id composite PK, acknowledged_at)",
+        "Create src/db/schema/sync.ts with sync_history (id, user_id FK, started_at, completed_at nullable, items_synced int, status, errors nullable)",
+        "Create src/db/schema/user-settings.ts with user_settings (id, user_id unique FK, settings jsonb, updated_at)",
+        "Export all from schema/index.ts",
+        "npm run build passes"
+      ],
+      "priority": 14,
+      "passes": false
+    },
+    {
+      "id": "US-015",
+      "title": "Create Zod request validation middleware",
+      "description": "As a developer, I want Zod-based request validation middleware so that all incoming requests are validated against defined schemas.",
+      "acceptanceCriteria": [
+        "Create src/middleware/validator.ts with zValidator helper that validates request body/query/params against Zod schemas",
+        "Return 422 VALIDATION_ERROR with details on failure",
+        "Support body, query, and params validation",
+        "npm run build passes"
+      ],
+      "priority": 15,
+      "passes": false
+    },
+    {
+      "id": "US-016",
+      "title": "Register all middleware on Hono app",
+      "description": "As a developer, I want to register all middleware on the Hono app so that logging, CORS, error handling, and request IDs are applied to every request.",
+      "acceptanceCriteria": [
+        "Update src/app.ts to register: logger, CORS, error handler",
+        "Configure CORS to allow all origins (configurable via env)",
+        "Add request ID generation (UUID) to all requests via middleware",
+        "Ensure /v1/health still works after middleware registration",
+        "npm run build passes"
+      ],
+      "priority": 16,
+      "passes": false
+    },
+    {
+      "id": "US-017",
+      "title": "Create health check route with DB and Redis status",
+      "description": "As a developer, I want a health check endpoint that reports database and Redis connectivity so that I can monitor system health.",
+      "acceptanceCriteria": [
+        "Create src/routes/health.routes.ts with GET /health endpoint",
+        "Return status, version, uptime, timestamp",
+        "Check database connectivity (simple query) and report status",
+        "Check Redis connectivity and report status",
+        "Register health routes on main app",
+        "npm run build passes"
+      ],
+      "priority": 17,
+      "passes": false
+    },
+    {
+      "id": "US-018",
+      "title": "Set up OpenAPI spec generation with Zod schemas",
+      "description": "As a developer, I want OpenAPI spec generation from Zod schemas so that the API documentation stays in sync with the code.",
+      "acceptanceCriteria": [
+        "Install and configure @hono/zod-openapi for OpenAPI 3.0 spec generation",
+        "Create base OpenAPI config (title: VETTR API, version: 1.0.0, description)",
+        "Export OpenAPI JSON at GET /v1/openapi.json",
+        "npm run build passes"
+      ],
+      "priority": 18,
+      "passes": false
+    },
+    {
+      "id": "US-019",
+      "title": "Configure Swagger UI documentation endpoint",
+      "description": "As a developer, I want a Swagger UI endpoint so that I can interactively explore and test the API.",
+      "acceptanceCriteria": [
+        "Set up @hono/swagger-ui at GET /v1/docs",
+        "Point to /v1/openapi.json spec",
+        "Ensure Swagger UI loads and displays the API documentation",
+        "npm run build passes"
+      ],
+      "priority": 19,
+      "passes": false
+    },
+    {
+      "id": "US-020",
+      "title": "Create stock seed data (25 Canadian pilot stocks)",
+      "description": "As a developer, I want seed data for 25 Canadian pilot stocks so that I have realistic data to develop and test against.",
+      "acceptanceCriteria": [
+        "Create src/db/seed/stocks.ts with 25 Canadian TSX/TSXV/CSE stocks: NXE, ARIS, LUN, FM, TKO, ERO, CS, MAG, FVI, WPM, AEM, OR, ELD, SII, BTO, NGD, IMG, MND, LUG, KRR, RIO, SBB, GPL, FR, AG",
+        "Include realistic data: ticker, name, exchange, sector, market_cap, price, price_change, vetr_score",
+        "Export seed function that inserts into database",
+        "npm run build passes"
+      ],
+      "priority": 20,
+      "passes": false
+    },
+    {
+      "id": "US-021",
+      "title": "Create filing seed data",
+      "description": "As a developer, I want seed data for filings so that each stock has realistic regulatory filing history.",
+      "acceptanceCriteria": [
+        "Create src/db/seed/filings.ts with 3 filings per stock (75 total)",
+        "Filing types: MD&A, Press Release, Financial Statements, Technical Report",
+        "Include realistic titles, summaries, dates (last 6 months)",
+        "Export seed function",
+        "npm run build passes"
+      ],
+      "priority": 21,
+      "passes": false
+    },
+    {
+      "id": "US-022",
+      "title": "Create executive seed data",
+      "description": "As a developer, I want seed data for executives so that each stock has a realistic leadership team.",
+      "acceptanceCriteria": [
+        "Create src/db/seed/executives.ts with 3-5 executives per stock",
+        "Include CEO, CFO, VP Exploration, etc. with realistic data",
+        "Include previous_companies as JSON arrays, education, specialization",
+        "Export seed function",
+        "npm run build passes"
+      ],
+      "priority": 22,
+      "passes": false
+    },
+    {
+      "id": "US-023",
+      "title": "Create seed runner script and database initialization",
+      "description": "As a developer, I want a seed runner script so that I can populate the database with all seed data in one command.",
+      "acceptanceCriteria": [
+        "Create src/db/seed/index.ts that runs all seed functions in order (stocks first, then filings, then executives)",
+        "Create scripts/seed.ts entry point runnable via npm run db:seed",
+        "Handle existing data gracefully (upsert or clear-and-reseed)",
+        "Log progress and counts during seeding",
+        "npm run build passes"
+      ],
+      "priority": 23,
+      "passes": false
+    },
+    {
+      "id": "US-024",
+      "title": "Create JWT utility functions",
+      "description": "As a developer, I want JWT utility functions so that I can generate and verify access and refresh tokens for authentication.",
+      "acceptanceCriteria": [
+        "Create src/utils/jwt.ts with signAccessToken(payload), signRefreshToken(), verifyAccessToken(token), decodeToken(token)",
+        "Access token: 15min TTL, contains { sub (user ID), email, tier }",
+        "Refresh token: 30-day TTL, opaque UUID string",
+        "Use jsonwebtoken with HS256 algorithm and JWT_SECRET from env",
+        "npm run build passes"
+      ],
+      "priority": 24,
+      "passes": false
+    },
+    {
+      "id": "US-025",
+      "title": "Create password utility functions",
+      "description": "As a developer, I want password utility functions so that I can securely hash and compare passwords for email/password authentication.",
+      "acceptanceCriteria": [
+        "Create src/utils/password.ts with hashPassword(password), comparePassword(password, hash), validatePasswordStrength(password)",
+        "Use bcrypt with cost factor 12",
+        "Password validation: min 8 chars, at least 1 uppercase, 1 number",
+        "Return descriptive validation errors",
+        "npm run build passes"
+      ],
+      "priority": 25,
+      "passes": false
+    },
+    {
+      "id": "US-026",
+      "title": "Create auth middleware for JWT verification",
+      "description": "As a developer, I want an auth middleware that verifies JWT tokens so that protected routes are only accessible to authenticated users.",
+      "acceptanceCriteria": [
+        "Create src/middleware/auth.ts that extracts Bearer token from Authorization header",
+        "Verify JWT signature and expiry using jwt.ts utilities",
+        "Attach user info { id, email, tier } to Hono context via c.set('user', ...)",
+        "Return 401 AUTH_REQUIRED if no token, AUTH_EXPIRED if expired",
+        "npm run build passes"
+      ],
+      "priority": 26,
+      "passes": false
+    },
+    {
+      "id": "US-027",
+      "title": "Create auth service for user management",
+      "description": "As a developer, I want an auth service that handles user creation and lookup so that authentication flows have a clean data access layer.",
+      "acceptanceCriteria": [
+        "Create src/services/auth.service.ts with createUser(), findByEmail(), findByProviderId(), updateUser()",
+        "Use Drizzle to query users table",
+        "Handle email uniqueness constraint",
+        "Store refresh tokens hashed with bcrypt in refresh_tokens table",
+        "npm run build passes"
+      ],
+      "priority": 27,
+      "passes": false
+    },
+    {
+      "id": "US-028",
+      "title": "Implement POST /v1/auth/signup endpoint",
+      "description": "As a developer, I want a signup endpoint so that new users can create accounts with email and password.",
+      "acceptanceCriteria": [
+        "Create src/routes/auth.routes.ts with POST /auth/signup",
+        "Validate request body with Zod: { email, password, display_name }",
+        "Hash password, create user, generate access + refresh tokens",
+        "Return { access_token, refresh_token, token_type: \"Bearer\", expires_in: 900, user: UserDto }",
+        "Reject duplicate emails with appropriate error",
+        "npm run build passes"
+      ],
+      "priority": 28,
+      "passes": false
+    },
+    {
+      "id": "US-029",
+      "title": "Implement POST /v1/auth/login endpoint",
+      "description": "As a developer, I want a login endpoint so that existing users can authenticate with email and password.",
+      "acceptanceCriteria": [
+        "Add POST /auth/login to auth routes",
+        "Validate request body: { email, password }",
+        "Find user by email, compare password with bcrypt",
+        "Generate new access + refresh tokens on success",
+        "Return same shape as signup response",
+        "Return AUTH_INVALID_CREDENTIALS on failure"
+      ],
+      "priority": 29,
+      "passes": false
+    },
+    {
+      "id": "US-030",
+      "title": "Implement POST /v1/auth/google endpoint",
+      "description": "As a developer, I want a Google OAuth endpoint so that users can sign in with their Google accounts.",
+      "acceptanceCriteria": [
+        "Add POST /auth/google to auth routes",
+        "Accept { id_token } in request body",
+        "Verify Google id_token via https://oauth2.googleapis.com/tokeninfo endpoint",
+        "Extract email, name, picture from verified token",
+        "Upsert user (create if new with provider='google', update if existing)",
+        "Return access + refresh tokens"
+      ],
+      "priority": 30,
+      "passes": false
+    },
+    {
+      "id": "US-031",
+      "title": "Implement POST /v1/auth/apple endpoint",
+      "description": "As a developer, I want an Apple Sign In endpoint so that iOS users can authenticate with their Apple ID.",
+      "acceptanceCriteria": [
+        "Add POST /auth/apple to auth routes",
+        "Accept { identity_token, authorization_code, user?: { email, name } }",
+        "Verify Apple identity_token by fetching JWKS from https://appleid.apple.com/auth/keys",
+        "Validate token claims (iss, aud, exp)",
+        "Upsert user (create if new with provider='apple', update if existing)",
+        "Return access + refresh tokens"
+      ],
+      "priority": 31,
+      "passes": false
+    },
+    {
+      "id": "US-032",
+      "title": "Implement POST /v1/auth/refresh endpoint",
+      "description": "As a developer, I want a token refresh endpoint so that clients can obtain new access tokens without re-authenticating.",
+      "acceptanceCriteria": [
+        "Add POST /auth/refresh to auth routes",
+        "Accept { refresh_token } in request body",
+        "Look up hashed refresh token in DB, verify not revoked and not expired",
+        "Revoke old refresh token (token rotation)",
+        "Generate new access + refresh token pair",
+        "Return new tokens"
+      ],
+      "priority": 32,
+      "passes": false
+    },
+    {
+      "id": "US-033",
+      "title": "Implement POST /v1/auth/logout endpoint",
+      "description": "As a developer, I want a logout endpoint so that users can invalidate their refresh tokens.",
+      "acceptanceCriteria": [
+        "Add POST /auth/logout to auth routes (requires auth middleware)",
+        "Accept { refresh_token } in request body",
+        "Revoke the refresh token by setting is_revoked=true in DB",
+        "Return { success: true }",
+        "npm run build passes"
+      ],
+      "priority": 33,
+      "passes": false
+    },
+    {
+      "id": "US-034",
+      "title": "Create tier-based rate limiting middleware",
+      "description": "As a developer, I want tier-based rate limiting so that API usage is controlled based on user subscription tier.",
+      "acceptanceCriteria": [
+        "Create src/middleware/rate-limit.ts using @upstash/ratelimit with sliding window",
+        "Rate limits: Unauth 5/min, FREE reads 60/min writes 30/min, PRO reads 120/min writes 60/min, PREMIUM reads 300/min writes 120/min",
+        "Auth endpoints: 10/min for authenticated, 5/min for unauthenticated",
+        "Return 429 RATE_LIMITED when exceeded with retry-after header",
+        "npm run build passes"
+      ],
+      "priority": 34,
+      "passes": false
+    },
+    {
+      "id": "US-035",
+      "title": "Apply rate limiting to all route groups",
+      "description": "As a developer, I want rate limiting applied to all route groups so that every endpoint is protected against abuse.",
+      "acceptanceCriteria": [
+        "Apply auth-specific rate limits to /auth/* routes",
+        "Apply tier-based read limits to GET endpoints",
+        "Apply tier-based write limits to POST/PUT/DELETE endpoints",
+        "Gracefully skip rate limiting when Redis is unavailable (dev mode)",
+        "npm run build passes"
+      ],
+      "priority": 35,
+      "passes": false
+    },
+    {
+      "id": "US-036",
+      "title": "Create stock service with pagination and filtering",
+      "description": "As a developer, I want a stock service with pagination and filtering so that clients can efficiently browse and search stocks.",
+      "acceptanceCriteria": [
+        "Create src/services/stock.service.ts with getStocks({ limit, offset, sector, exchange, sort, order, search })",
+        "Support pagination with total count",
+        "Support filtering by sector and exchange",
+        "Support sorting by ticker, name, vetr_score, market_cap, price",
+        "Support search by name or ticker (ILIKE)",
+        "npm run build passes"
+      ],
+      "priority": 36,
+      "passes": false
+    },
+    {
+      "id": "US-037",
+      "title": "Implement GET /v1/stocks endpoint",
+      "description": "As a developer, I want a stocks list endpoint so that clients can retrieve paginated, filtered, and sorted stock data.",
+      "acceptanceCriteria": [
+        "Create src/routes/stocks.routes.ts with GET /stocks",
+        "Apply auth middleware",
+        "Accept query params: limit (default 20), offset (default 0), sector, exchange, sort, order, search",
+        "Validate query params with Zod",
+        "Return paginated response with stocks array and pagination meta",
+        "npm run build passes"
+      ],
+      "priority": 37,
+      "passes": false
+    },
+    {
+      "id": "US-038",
+      "title": "Implement GET /v1/stocks/:ticker endpoint",
+      "description": "As a developer, I want a stock detail endpoint so that clients can retrieve comprehensive data for a single stock.",
+      "acceptanceCriteria": [
+        "Add GET /stocks/:ticker to stock routes",
+        "Return stock detail with: stock data, executives summary (count + top 3), recent filings (last 5), vetr_score, is_favorite (per-user from watchlist)",
+        "Return 404 NOT_FOUND if ticker doesn't exist",
+        "npm run build passes"
+      ],
+      "priority": 38,
+      "passes": false
+    },
+    {
+      "id": "US-039",
+      "title": "Implement GET /v1/stocks/search endpoint with caching",
+      "description": "As a developer, I want a stock search endpoint with Redis caching so that search results are fast and reduce database load.",
+      "acceptanceCriteria": [
+        "Add GET /stocks/search to stock routes",
+        "Accept query param: q (search term), limit (default 10)",
+        "Search by name or ticker using ILIKE",
+        "Cache results in Redis for 2 minutes (key: search:{query})",
+        "Return array of matching StockDto",
+        "npm run build passes"
+      ],
+      "priority": 39,
+      "passes": false
+    },
+    {
+      "id": "US-040",
+      "title": "Create filing service",
+      "description": "As a developer, I want a filing service so that I have a clean data access layer for regulatory filings and per-user read tracking.",
+      "acceptanceCriteria": [
+        "Create src/services/filing.service.ts with getLatestFilings({ limit, offset }), getFilingsByStock(stockId, { limit, offset, type }), getFilingById(filingId, userId), markAsRead(filingId, userId)",
+        "Support per-user read status via filing_reads join table",
+        "Support filtering by filing type",
+        "npm run build passes"
+      ],
+      "priority": 40,
+      "passes": false
+    },
+    {
+      "id": "US-041",
+      "title": "Implement GET /v1/filings endpoint",
+      "description": "As a developer, I want a filings list endpoint so that clients can retrieve the latest filings across all stocks.",
+      "acceptanceCriteria": [
+        "Create src/routes/filings.routes.ts with GET /filings",
+        "Apply auth middleware",
+        "Accept query params: limit, offset",
+        "Return paginated list of latest filings across all stocks",
+        "Include stock ticker and name in each filing response",
+        "npm run build passes"
+      ],
+      "priority": 41,
+      "passes": false
+    },
+    {
+      "id": "US-042",
+      "title": "Implement GET /v1/filings/:id and POST /v1/filings/:id/read",
+      "description": "As a developer, I want filing detail and read-marking endpoints so that clients can view individual filings and track read status.",
+      "acceptanceCriteria": [
+        "Add GET /filings/:id returning filing detail with per-user is_read status",
+        "Add POST /filings/:id/read that upserts into filing_reads table",
+        "Return 404 if filing not found",
+        "npm run build passes"
+      ],
+      "priority": 42,
+      "passes": false
+    },
+    {
+      "id": "US-043",
+      "title": "Implement GET /v1/stocks/:ticker/filings",
+      "description": "As a developer, I want a stock-specific filings endpoint so that clients can view filings for a particular stock.",
+      "acceptanceCriteria": [
+        "Add GET /stocks/:ticker/filings to stock routes",
+        "Accept query params: limit, offset, type (filter by filing type)",
+        "Return paginated filings for the specific stock",
+        "Return 404 if stock ticker not found",
+        "npm run build passes"
+      ],
+      "priority": 43,
+      "passes": false
+    },
+    {
+      "id": "US-044",
+      "title": "Create executive service",
+      "description": "As a developer, I want an executive service so that I can query executive data and calculate executive team scores.",
+      "acceptanceCriteria": [
+        "Create src/services/executive.service.ts with getExecutivesForStock(stockId), searchByName(query), getExecutiveById(id), getExecutiveScore(stockId)",
+        "Executive score: team size (max 30pts) + avg tenure (max 40pts) + specialization diversity (max 30pts)",
+        "npm run build passes"
+      ],
+      "priority": 44,
+      "passes": false
+    },
+    {
+      "id": "US-045",
+      "title": "Implement executive endpoints",
+      "description": "As a developer, I want executive endpoints so that clients can search and view executive team data.",
+      "acceptanceCriteria": [
+        "Create src/routes/executives.routes.ts",
+        "GET /executives/search?q= - search executives by name",
+        "GET /executives/:id - get executive detail with full career history",
+        "GET /stocks/:ticker/executives - get all executives for a stock",
+        "Apply auth middleware to all routes",
+        "npm run build passes"
+      ],
+      "priority": 45,
+      "passes": false
+    },
+    {
+      "id": "US-046",
+      "title": "Create user service for profile and settings",
+      "description": "As a developer, I want a user service for profile and settings management so that users can customize their experience.",
+      "acceptanceCriteria": [
+        "Create src/services/user.service.ts with getProfile(userId), updateProfile(userId, data), getSettings(userId), updateSettings(userId, settings)",
+        "Settings stored as JSONB in user_settings table",
+        "Create default settings on first access",
+        "npm run build passes"
+      ],
+      "priority": 46,
+      "passes": false
+    },
+    {
+      "id": "US-047",
+      "title": "Implement user profile and settings endpoints",
+      "description": "As a developer, I want user profile and settings endpoints so that clients can view and update user data.",
+      "acceptanceCriteria": [
+        "Create src/routes/users.routes.ts",
+        "GET /users/me - return current user profile (from auth context)",
+        "PUT /users/me - update display_name, avatar_url",
+        "GET /users/me/settings - return user settings JSON",
+        "PUT /users/me/settings - merge/update settings JSON",
+        "Apply auth middleware"
+      ],
+      "priority": 47,
+      "passes": false
+    },
+    {
+      "id": "US-048",
+      "title": "Implement GET /v1/subscription endpoint",
+      "description": "As a developer, I want a subscription endpoint so that clients can retrieve the current user's tier and associated limits.",
+      "acceptanceCriteria": [
+        "Create src/routes/subscription.routes.ts (or add to users.routes.ts)",
+        "GET /subscription returns current tier info + all limits",
+        "Response: { tier, limits: { watchlist, sync_interval_hours, pulse_delay_hours, alert_rules_max } }",
+        "Apply auth middleware",
+        "npm run build passes"
+      ],
+      "priority": 48,
+      "passes": false
+    },
+    {
+      "id": "US-049",
+      "title": "Register all CRUD routes on main app",
+      "description": "As a developer, I want all CRUD routes registered on the main app so that the full API surface is accessible.",
+      "acceptanceCriteria": [
+        "Update src/routes/index.ts to export all route groups",
+        "Update src/app.ts to mount: auth, stocks, filings, executives, users, subscription, health routes",
+        "Ensure all routes are accessible under /v1/ prefix",
+        "Verify with GET /v1/health, test build",
+        "npm run build passes"
+      ],
+      "priority": 49,
+      "passes": false
+    },
+    {
+      "id": "US-050",
+      "title": "Create VETR Score calculation service - component calculators",
+      "description": "As a developer, I want VETR Score component calculators so that each scoring dimension is independently computed and testable.",
+      "acceptanceCriteria": [
+        "Create src/services/vetr-score.service.ts",
+        "Implement pedigreeScore(executives): experience (50pts max at 20yr avg), tenure stability (30pts), specialization (20pts at 5+ specialists)",
+        "Implement filingVelocityScore(filings): regularity (40pts), timeliness (30pts, 0-7d=full, 30+d=0), quality (30pts)",
+        "Implement redFlagComponent(redFlagCompositeScore): 100 - score",
+        "npm run build passes"
+      ],
+      "priority": 50,
+      "passes": false
+    },
+    {
+      "id": "US-051",
+      "title": "Implement growth and governance score components",
+      "description": "As a developer, I want growth and governance score components so that the VETR Score captures financial momentum and corporate governance quality.",
+      "acceptanceCriteria": [
+        "Add growthMetricsScore(stock): revenue growth (40pts, 50%+=full), capital raised (30pts, $100M+=full), momentum (30pts)",
+        "Add governanceScore(executives, filings): board independence (40pts), audit committee (30pts), disclosure quality (30pts)",
+        "Each component returns a score 0-100",
+        "npm run build passes"
+      ],
+      "priority": 51,
+      "passes": false
+    },
+    {
+      "id": "US-052",
+      "title": "Implement full VETR Score calculation with bonuses and caching",
+      "description": "As a developer, I want the full VETR Score calculation with weighted combination, bonuses, penalties, and caching so that scores are accurate and performant.",
+      "acceptanceCriteria": [
+        "Add calculateVetrScore(ticker): combines 5 components with weights (pedigree 25%, filing_velocity 20%, red_flag 25%, growth 15%, governance 15%)",
+        "Add bonuses (+5 audited financials, +5 board expertise) and penalties (-10 overdue filings, -10 regulatory issues)",
+        "Clamp final score to 0-100",
+        "Cache result in Redis with 24h TTL (key: vetr_score:{ticker})",
+        "Save to vetr_score_history table",
+        "npm run build passes"
+      ],
+      "priority": 52,
+      "passes": false
+    },
+    {
+      "id": "US-053",
+      "title": "Implement VETR Score API endpoints",
+      "description": "As a developer, I want VETR Score API endpoints so that clients can retrieve current scores and historical data.",
+      "acceptanceCriteria": [
+        "Create src/routes/vetr-score.routes.ts",
+        "GET /stocks/:ticker/vetr-score - return current score with all component breakdowns",
+        "GET /stocks/:ticker/vetr-score/history?months=6 - return score history from DB",
+        "Apply auth middleware",
+        "Return cached score if available, calculate fresh if cache miss",
+        "npm run build passes"
+      ],
+      "priority": 53,
+      "passes": false
+    },
+    {
+      "id": "US-054",
+      "title": "Implement VETR Score trend and comparison endpoints",
+      "description": "As a developer, I want VETR Score trend and comparison endpoints so that clients can analyze score changes and compare stocks to peers.",
+      "acceptanceCriteria": [
+        "GET /stocks/:ticker/vetr-score/trend - calculate trend direction (improving/stable/declining), momentum (-100 to +100), 30d and 90d change",
+        "GET /stocks/:ticker/vetr-score/compare - sector peer comparison with percentile rank and peer scores",
+        "Register routes on main app",
+        "npm run build passes"
+      ],
+      "priority": 54,
+      "passes": false
+    },
+    {
+      "id": "US-055",
+      "title": "Create Red Flag detection service - consolidation and financing",
+      "description": "As a developer, I want Red Flag detectors for consolidation and financing velocity so that concerning corporate activity patterns are identified.",
+      "acceptanceCriteria": [
+        "Create src/services/red-flag.service.ts",
+        "Implement detectConsolidationVelocity(stockTicker): 1->20pts, 2->40pts, 3-4->60-80pts, 5+->100pts, weight 30%",
+        "Implement detectFinancingVelocity(stockTicker): early-stage $50M / growth $100M thresholds, weight 25%",
+        "npm run build passes"
+      ],
+      "priority": 55,
+      "passes": false
+    },
+    {
+      "id": "US-056",
+      "title": "Implement executive churn, disclosure gaps, debt trend detectors",
+      "description": "As a developer, I want additional Red Flag detectors for executive churn, disclosure gaps, and debt trends so that all risk signals are covered.",
+      "acceptanceCriteria": [
+        "Add detectExecutiveChurn(stockTicker): 1->25pts, 2->50pts, 3->75pts, 4+->100pts, weight 20%",
+        "Add detectDisclosureGaps(stockTicker): overdue->100pts, 90+d->75pts, 60-89d->50pts, 30-59d->25pts, weight 15%",
+        "Add detectDebtTrend(stockTicker): 100%+ increase w/<20% rev growth->100pts, 75%+->75pts, 50%+->50pts, weight 10%",
+        "npm run build passes"
+      ],
+      "priority": 56,
+      "passes": false
+    },
+    {
+      "id": "US-057",
+      "title": "Implement composite red flag scoring with caching",
+      "description": "As a developer, I want composite red flag scoring with severity classification and caching so that the overall risk level is efficiently determined.",
+      "acceptanceCriteria": [
+        "Add detectRedFlags(ticker): run all 5 detectors, calculate weighted composite score",
+        "Determine severity: Low (<30), Moderate (30-60), High (60-85), Critical (>85)",
+        "Cache composite result in Redis with 24h TTL",
+        "Save individual flags to red_flag_history table",
+        "Return DetectedFlagResult with composite score, severity, and per-flag breakdown",
+        "npm run build passes"
+      ],
+      "priority": 57,
+      "passes": false
+    },
+    {
+      "id": "US-058",
+      "title": "Implement Red Flag API endpoints",
+      "description": "As a developer, I want Red Flag API endpoints so that clients can retrieve detected flags and historical data.",
+      "acceptanceCriteria": [
+        "Create src/routes/red-flags.routes.ts",
+        "GET /stocks/:ticker/red-flags - detect and return flags with composite score",
+        "GET /stocks/:ticker/red-flags/history - paginated flag history for stock",
+        "GET /red-flags/history?limit=20 - global recent red flags across all stocks",
+        "Apply auth middleware",
+        "npm run build passes"
+      ],
+      "priority": 58,
+      "passes": false
+    },
+    {
+      "id": "US-059",
+      "title": "Implement red flag acknowledgment and trend endpoints",
+      "description": "As a developer, I want red flag acknowledgment and trend endpoints so that users can mark flags as reviewed and view system-wide risk trends.",
+      "acceptanceCriteria": [
+        "POST /red-flags/:id/acknowledge - per-user acknowledgment (insert into red_flag_acknowledgments)",
+        "POST /stocks/:ticker/red-flags/acknowledge-all - acknowledge all flags for stock for current user",
+        "GET /red-flags/trend - global trend stats (total active, 30d change, by severity, by type)",
+        "Register all red flag routes on main app",
+        "npm run build passes"
+      ],
+      "priority": 59,
+      "passes": false
+    },
+    {
+      "id": "US-060",
+      "title": "Create alert rule service with tier limits",
+      "description": "As a developer, I want an alert rule service with tier limit enforcement so that users can manage alert rules within their subscription limits.",
+      "acceptanceCriteria": [
+        "Create src/services/alert-rule.service.ts",
+        "CRUD operations: createRule, updateRule, deleteRule, getRulesForUser, getRulesForStock, toggleActive",
+        "Enforce max 50 rules per user (TIER_LIMIT_EXCEEDED error)",
+        "Detect duplicate rules (same stock + type) with CONFLICT error",
+        "Validate ownership on update/delete",
+        "npm run build passes"
+      ],
+      "priority": 60,
+      "passes": false
+    },
+    {
+      "id": "US-061",
+      "title": "Implement alert rule CRUD endpoints",
+      "description": "As a developer, I want alert rule CRUD endpoints so that clients can create, read, update, and delete alert rules.",
+      "acceptanceCriteria": [
+        "Create src/routes/alerts.routes.ts",
+        "GET /alerts/rules - list user's alert rules",
+        "POST /alerts/rules - create rule (validates limit + duplicates)",
+        "PUT /alerts/rules/:id - update rule (validates ownership)",
+        "DELETE /alerts/rules/:id - delete rule (validates ownership)",
+        "npm run build passes"
+      ],
+      "priority": 61,
+      "passes": false
+    },
+    {
+      "id": "US-062",
+      "title": "Implement alert rule enable/disable and stock-specific endpoints",
+      "description": "As a developer, I want alert rule toggle and stock-specific endpoints so that users can manage rule state and view rules per stock.",
+      "acceptanceCriteria": [
+        "POST /alerts/rules/:id/enable - set is_active=true",
+        "POST /alerts/rules/:id/disable - set is_active=false",
+        "GET /stocks/:ticker/alerts/rules - get rules for specific stock (filtered to current user)",
+        "Register all alert routes on main app",
+        "npm run build passes"
+      ],
+      "priority": 62,
+      "passes": false
+    },
+    {
+      "id": "US-063",
+      "title": "Create watchlist service with tier limits",
+      "description": "As a developer, I want a watchlist service with tier limit enforcement so that users can manage their watchlist within subscription limits.",
+      "acceptanceCriteria": [
+        "Create src/services/watchlist.service.ts",
+        "getWatchlist(userId): return full stock data for watchlisted items",
+        "addToWatchlist(userId, ticker): enforce tier limits (FREE=5, PRO=25, PREMIUM=unlimited)",
+        "removeFromWatchlist(userId, ticker): remove item",
+        "Return TIER_LIMIT_EXCEEDED error when limit hit",
+        "npm run build passes"
+      ],
+      "priority": 63,
+      "passes": false
+    },
+    {
+      "id": "US-064",
+      "title": "Implement watchlist endpoints",
+      "description": "As a developer, I want watchlist endpoints so that clients can view and manage their stock watchlist.",
+      "acceptanceCriteria": [
+        "Create src/routes/watchlist.routes.ts",
+        "GET /watchlist - return user's watchlist with full stock data",
+        "POST /watchlist/:ticker - add stock (validates tier limit)",
+        "DELETE /watchlist/:ticker - remove stock",
+        "Apply auth middleware",
+        "Register on main app"
+      ],
+      "priority": 64,
+      "passes": false
+    },
+    {
+      "id": "US-065",
+      "title": "Create sync service - pull changes",
+      "description": "As a developer, I want a sync pull service so that clients can fetch changes since their last sync for offline-first functionality.",
+      "acceptanceCriteria": [
+        "Create src/services/sync.service.ts",
+        "pullChanges(userId, lastSyncedAt, entities): return updated/deleted items since timestamp",
+        "Support entity types: stocks, filings, alert_rules",
+        "Enforce tier-based sync frequency limits",
+        "Return sync_token and synced_at timestamp",
+        "npm run build passes"
+      ],
+      "priority": 65,
+      "passes": false
+    },
+    {
+      "id": "US-066",
+      "title": "Implement sync push with conflict detection",
+      "description": "As a developer, I want a sync push service with conflict detection so that clients can push local changes and be notified of conflicts.",
+      "acceptanceCriteria": [
+        "Add pushChanges(userId, changes): process array of { entity, action, data, timestamp }",
+        "Detect conflicts (local and server both modified same entity after last sync)",
+        "Return applied changes and conflicts list",
+        "Support actions: create, update, delete",
+        "npm run build passes"
+      ],
+      "priority": 66,
+      "passes": false
+    },
+    {
+      "id": "US-067",
+      "title": "Implement sync resolve endpoint",
+      "description": "As a developer, I want a sync conflict resolution service so that clients can resolve detected conflicts with a chosen strategy.",
+      "acceptanceCriteria": [
+        "Add resolveConflicts(userId, resolutions): process array of { entity, id, strategy }",
+        "Support strategies: local_wins, server_wins, last_write_wins",
+        "Apply resolution and return resolved items",
+        "npm run build passes"
+      ],
+      "priority": 67,
+      "passes": false
+    },
+    {
+      "id": "US-068",
+      "title": "Implement sync API endpoints",
+      "description": "As a developer, I want sync API endpoints so that clients can pull, push, and resolve sync conflicts via REST.",
+      "acceptanceCriteria": [
+        "Create src/routes/sync.routes.ts",
+        "POST /sync/pull - pull changes since timestamp",
+        "POST /sync/push - push local changes, return conflicts",
+        "POST /sync/resolve - resolve detected conflicts",
+        "Apply auth middleware + tier-based rate limiting",
+        "Register on main app"
+      ],
+      "priority": 68,
+      "passes": false
+    },
+    {
+      "id": "US-069",
+      "title": "Register all remaining routes and verify full API",
+      "description": "As a developer, I want all routes registered and verified so that the complete API surface is accessible and healthy.",
+      "acceptanceCriteria": [
+        "Ensure ALL route groups registered: auth, stocks, filings, executives, vetr-score, red-flags, alerts, watchlist, sync, users, subscription, health",
+        "GET /v1/health returns healthy with all checks",
+        "GET /v1/docs shows Swagger UI with all endpoints",
+        "npm run build passes with zero errors",
+        "npm run typecheck passes"
+      ],
+      "priority": 69,
+      "passes": false
+    },
+    {
+      "id": "US-070",
+      "title": "Set up test infrastructure",
+      "description": "As a developer, I want test infrastructure in place so that I can write and run unit and integration tests efficiently.",
+      "acceptanceCriteria": [
+        "Create tests/setup.ts with test database helpers (mock or in-memory)",
+        "Create tests/helpers/auth.helper.ts with createTestToken(user), createTestUser()",
+        "Create tests/helpers/db.helper.ts with mock database setup",
+        "Configure vitest.config.ts for test environment",
+        "npm run test runs without errors (even if no tests yet)",
+        "npm run build passes"
+      ],
+      "priority": 70,
+      "passes": false
+    },
+    {
+      "id": "US-071",
+      "title": "Write unit tests for auth service",
+      "description": "As a developer, I want unit tests for the auth service so that user creation, lookup, and token operations are verified.",
+      "acceptanceCriteria": [
+        "Create tests/unit/services/auth.service.test.ts",
+        "Test createUser with valid data",
+        "Test findByEmail returns user or null",
+        "Test password hashing and comparison",
+        "Test JWT token generation and verification",
+        "At least 6 test cases passing"
+      ],
+      "priority": 71,
+      "passes": false
+    },
+    {
+      "id": "US-072",
+      "title": "Write unit tests for VETR Score calculation",
+      "description": "As a developer, I want unit tests for VETR Score calculation so that each component and the composite score are verified.",
+      "acceptanceCriteria": [
+        "Create tests/unit/services/vetr-score.service.test.ts",
+        "Test each component calculator (pedigree, filing_velocity, red_flag, growth, governance)",
+        "Test bonus and penalty application",
+        "Test final score clamping to 0-100",
+        "Test weighted combination produces correct results",
+        "At least 8 test cases passing"
+      ],
+      "priority": 72,
+      "passes": false
+    },
+    {
+      "id": "US-073",
+      "title": "Write unit tests for Red Flag detection",
+      "description": "As a developer, I want unit tests for Red Flag detection so that each detector and the composite scoring are verified.",
+      "acceptanceCriteria": [
+        "Create tests/unit/services/red-flag.service.test.ts",
+        "Test each detector (consolidation, financing, executive churn, disclosure gaps, debt trend)",
+        "Test composite scoring with correct weights",
+        "Test severity classification (Low/Moderate/High/Critical)",
+        "At least 8 test cases passing"
+      ],
+      "priority": 73,
+      "passes": false
+    },
+    {
+      "id": "US-074",
+      "title": "Write integration tests for auth endpoints",
+      "description": "As a developer, I want integration tests for auth endpoints so that the full signup, login, refresh, and logout flows are verified end-to-end.",
+      "acceptanceCriteria": [
+        "Create tests/integration/auth.test.ts",
+        "Test POST /auth/signup creates user and returns tokens",
+        "Test POST /auth/login with valid and invalid credentials",
+        "Test POST /auth/refresh with valid and revoked tokens",
+        "Test POST /auth/logout revokes refresh token",
+        "Test protected endpoint returns 401 without token"
+      ],
+      "priority": 74,
+      "passes": false
+    },
+    {
+      "id": "US-075",
+      "title": "Write integration tests for stock and filing endpoints",
+      "description": "As a developer, I want integration tests for stock and filing endpoints so that listing, filtering, detail, and read-marking are verified.",
+      "acceptanceCriteria": [
+        "Create tests/integration/stocks.test.ts",
+        "Test GET /stocks returns paginated list",
+        "Test GET /stocks with search, sector filter, sort",
+        "Test GET /stocks/:ticker returns detail or 404",
+        "Test GET /filings returns list",
+        "Test POST /filings/:id/read marks as read"
+      ],
+      "priority": 75,
+      "passes": false
+    },
+    {
+      "id": "US-076",
+      "title": "Write integration tests for scoring endpoints",
+      "description": "As a developer, I want integration tests for scoring endpoints so that VETR Score and Red Flag APIs are verified end-to-end.",
+      "acceptanceCriteria": [
+        "Create tests/integration/scoring.test.ts",
+        "Test GET /stocks/:ticker/vetr-score returns score with components",
+        "Test GET /stocks/:ticker/vetr-score/history returns history array",
+        "Test GET /stocks/:ticker/red-flags returns flags with composite score",
+        "Test POST /red-flags/:id/acknowledge creates acknowledgment",
+        "At least 5 test cases passing"
+      ],
+      "priority": 76,
+      "passes": false
+    },
+    {
+      "id": "US-077",
+      "title": "Write integration tests for watchlist and tier limits",
+      "description": "As a developer, I want integration tests for watchlist and tier limits so that add, remove, and limit enforcement are verified.",
+      "acceptanceCriteria": [
+        "Create tests/integration/watchlist.test.ts",
+        "Test GET /watchlist returns empty for new user",
+        "Test POST /watchlist/:ticker adds stock",
+        "Test DELETE /watchlist/:ticker removes stock",
+        "Test FREE tier limit (6th add returns TIER_LIMIT_EXCEEDED)",
+        "At least 5 test cases passing"
+      ],
+      "priority": 77,
+      "passes": false
+    },
+    {
+      "id": "US-078",
+      "title": "Add input sanitization and security headers",
+      "description": "As a developer, I want input sanitization and security headers so that the API is protected against common web vulnerabilities.",
+      "acceptanceCriteria": [
+        "Add request body size limit (1MB) to Hono app",
+        "Add security headers via Hono middleware (X-Content-Type-Options, X-Frame-Options, X-XSS-Protection)",
+        "Sanitize string inputs to prevent XSS (strip HTML tags)",
+        "Ensure parameterized queries throughout (Drizzle handles this)",
+        "npm run build passes"
+      ],
+      "priority": 78,
+      "passes": false
+    },
+    {
+      "id": "US-079",
+      "title": "Add request timing and structured logging",
+      "description": "As a developer, I want request timing and structured JSON logging so that I can monitor API performance and debug issues in production.",
+      "acceptanceCriteria": [
+        "Add request timing middleware that logs duration for each request",
+        "Log format: JSON with timestamp, method, path, status, duration_ms, request_id",
+        "Log slow requests (>500ms) at warn level",
+        "Add startup logging with version, environment, port",
+        "npm run build passes"
+      ],
+      "priority": 79,
+      "passes": false
+    },
+    {
+      "id": "US-080",
+      "title": "Create comprehensive .env.example documentation",
+      "description": "As a developer, I want a comprehensive .env.example file so that new developers can quickly set up their local environment.",
+      "acceptanceCriteria": [
+        "Update .env.example with all environment variables and detailed comments",
+        "Document required vs optional variables",
+        "Document where to get credentials (Neon dashboard, Upstash console, Google Cloud Console, Apple Developer)",
+        "Include development defaults that work out of the box",
+        "npm run build passes"
+      ],
+      "priority": 80,
+      "passes": false
+    },
+    {
+      "id": "US-081",
+      "title": "Create GitHub Actions CI workflow",
+      "description": "As a developer, I want a GitHub Actions CI workflow so that every pull request is automatically validated with type checking, linting, and tests.",
+      "acceptanceCriteria": [
+        "Create .github/workflows/ci.yml",
+        "Trigger on pull request to main",
+        "Steps: checkout, setup Node 22, npm ci, npm run typecheck, npm run lint, npm run test",
+        "Cache node_modules for faster runs",
+        "npm run build passes"
+      ],
+      "priority": 81,
+      "passes": false
+    },
+    {
+      "id": "US-082",
+      "title": "Create GitHub Actions deploy workflow",
+      "description": "As a developer, I want a GitHub Actions deploy workflow so that merges to main are automatically deployed to production.",
+      "acceptanceCriteria": [
+        "Create .github/workflows/deploy.yml",
+        "Trigger on push to main branch",
+        "Deploy to Railway using railway CLI or GitHub integration",
+        "Add health check verification after deploy",
+        "npm run build passes"
+      ],
+      "priority": 82,
+      "passes": false
+    },
+    {
+      "id": "US-083",
+      "title": "Create admin metrics endpoint",
+      "description": "As a developer, I want an admin metrics endpoint so that I can monitor API usage and system health at a glance.",
+      "acceptanceCriteria": [
+        "Add GET /v1/admin/metrics (protected, could be behind basic auth or admin tier check)",
+        "Return: uptime, total requests (from in-memory counter), average response time, active users count, database stats (table row counts)",
+        "npm run build passes"
+      ],
+      "priority": 83,
+      "passes": false
+    },
+    {
+      "id": "US-084",
+      "title": "Add comprehensive API error documentation to OpenAPI spec",
+      "description": "As a developer, I want comprehensive error documentation in the OpenAPI spec so that API consumers understand all possible error responses.",
+      "acceptanceCriteria": [
+        "Ensure all error codes are documented in OpenAPI spec",
+        "Add example error responses for each endpoint",
+        "Document rate limit headers and tier restrictions",
+        "Ensure GET /v1/docs shows complete documentation",
+        "npm run build passes"
+      ],
+      "priority": 84,
+      "passes": false
+    },
+    {
+      "id": "US-085",
+      "title": "Final build verification and cleanup",
+      "description": "As a developer, I want a final build verification and cleanup pass so that the codebase is production-ready with zero errors.",
+      "acceptanceCriteria": [
+        "Run npm run build and verify zero errors",
+        "Run npm run typecheck and verify zero errors",
+        "Run npm run test and verify all tests pass",
+        "Remove any TODO comments or placeholder implementations",
+        "Ensure all routes return proper snake_case JSON",
+        "Verify GET /v1/health, GET /v1/docs, GET /v1/openapi.json all work"
+      ],
+      "priority": 85,
+      "passes": false
+    }
+  ]
+}

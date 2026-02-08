@@ -1,0 +1,28 @@
+# Ralph Progress Log
+Started: 2026-02-08
+Project: VETTR Backend
+---
+
+## Codebase Patterns
+
+### ESM Import Rules
+- ALL local imports must use `.js` extension: `import { app } from './app.js'`
+- Package imports do NOT use extensions: `import { Hono } from 'hono'`
+
+### Build Command
+- `npm run build` — TypeScript compilation via tsc
+- `npm run dev` — Development server via tsx watch
+- `npm run test` — Run vitest
+
+### Project Root
+- `/Users/manav/Space/code/vettr-backend`
+
+### Key Dependencies
+- hono: Web framework
+- drizzle-orm + @neondatabase/serverless: Database ORM + driver
+- @upstash/redis + @upstash/ratelimit: Cache + rate limiting
+- zod: Validation
+- jsonwebtoken + bcrypt: Auth utilities
+- @hono/zod-openapi + @hono/swagger-ui: API documentation
+
+---
