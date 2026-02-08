@@ -1605,3 +1605,28 @@ Details:
   - The GET /stocks/:ticker/alerts/rules endpoint follows the pattern of nesting under /stocks for stock-specific queries but is mounted on alertRoutes (not stockRoutes)
   - All alert routes are already registered on main app at /v1/alerts, so no additional registration needed
 ---
+
+## US-063: Create watchlist service with tier limits
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created src/services/watchlist.service.ts with full CRUD operations for watchlist management
+- Implemented getWatchlist(userId) that joins watchlist_items with stocks table to return full stock data
+- Implemented addToWatchlist(userId, ticker, userTier) with comprehensive tier limit enforcement (FREE=5, PRO=25, PREMIUM=unlimited)
+- Implemented removeFromWatchlist(userId, ticker) to delete items from watchlist
+- Implemented isInWatchlist(userId, stockId) helper for checking membership
+- Proper error handling: NotFoundError for missing stocks, TierLimitError when limit exceeded
+- Handles duplicate key errors gracefully when adding already-watched stocks
+- Normalizes ticker input to uppercase for consistency
+- npm run build passes with zero errors
+- Files changed: src/services/watchlist.service.ts (created)
+- **Learnings for future iterations:**
+  - Tier limits stored as constants at top of service file for easy maintenance
+  - Using TIER_LIMITS object with 'free', 'pro', 'premium' keys and Infinity for unlimited
+  - Must normalize ticker to lowercase when accessing TIER_LIMITS object (userTier.toLowerCase())
+  - Composite primary key in watchlist_items table naturally prevents duplicates
+  - PostgreSQL error code '23505' indicates unique constraint violation (duplicate key)
+  - When joining tables for getWatchlist, select both table data and map to flat response format
+  - Important to find stock by ticker first, then use stock.id for watchlist operations (tables use UUIDs not tickers)
+  - Include added_at timestamp in response for client-side sorting/display
+---
