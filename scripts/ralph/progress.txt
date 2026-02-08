@@ -576,3 +576,27 @@ Details:
   - tsx runs TypeScript files directly without compilation, useful for scripts
   - process.exit(0) needed in seed script to close database pool connections
 ---
+
+## US-024: Create JWT utility functions
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created src/utils/jwt.ts with four utility functions:
+  - signAccessToken(payload): Signs JWT with { sub, email, tier } using HS256, 15min TTL
+  - signRefreshToken(): Generates opaque UUID string with 30-day expiry date
+  - verifyAccessToken(token): Verifies JWT signature and expiry, returns typed AccessTokenPayload
+  - decodeToken(token): Decodes token without verification for debugging/inspection
+- Exported AccessTokenPayload interface for use by auth middleware and services
+- Uses jsonwebtoken package with HS256 algorithm and JWT_SECRET from env config
+- Refresh tokens are opaque UUIDs (not JWTs) — stored hashed in DB by auth service
+- npm run build passes with zero errors
+- Files changed: src/utils/jwt.ts (created)
+- **Learnings for future iterations:**
+  - jsonwebtoken's sign() accepts expiresIn as string shorthand ('15m', '30d', etc.)
+  - verify() should specify algorithms array to prevent algorithm confusion attacks
+  - Refresh tokens as opaque UUIDs are simpler and more secure than JWT refresh tokens
+  - crypto.randomUUID() is Node.js 20+ built-in, no need for uuid package for this use case
+  - decode() returns string | JwtPayload | null — need type narrowing for safe usage
+  - AccessTokenPayload interface will be reused by auth middleware (c.set('user', payload))
+  - JWT_SECRET has development default in env.ts, but should be overridden in production
+---
