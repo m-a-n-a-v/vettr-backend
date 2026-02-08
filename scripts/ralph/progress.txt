@@ -1309,3 +1309,102 @@ Details:
   - All component calculators are pure functions (no DB calls) — accept data arrays/objects and return scores
   - Math.min capping ensures no sub-component exceeds its allocated points
 ---
+
+## US-052: Implement full VETR Score calculation with bonuses and caching
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Added calculateVetrScore(ticker) to src/services/vetr-score.service.ts
+  - Combines 5 component scores with weights: pedigree (25%), filing_velocity (20%), red_flag (25%), growth (15%), governance (15%)
+  - Fetches stock, executives, and filings data (executives + filings fetched in parallel via Promise.all)
+  - Calculates all component scores using existing pure functions from US-050 and US-051
+  - Red flag composite defaults to 0 (will be provided by red-flag.service.ts in US-055+)
+- Added detectBonuses() function:
+  - +5 for audited financials (has "Financial Statements" filing type)
+  - +5 for board expertise (executives with P.Eng, P.Geo, CPA, CFA, MBA, PhD, FCA in education)
+- Added detectPenalties() function:
+  - -10 for overdue filings (no filings in last 90 days when filings exist)
+  - -10 for regulatory issues (material press releases mentioning regulatory/compliance/sanction/violation)
+- Final score clamped to 0-100 via Math.max(0, Math.min(100, ...))
+- Redis caching with 24h TTL (key: vetr_score:{TICKER})
+  - Cache check on entry, cache set after calculation
+  - Gracefully degrades when Redis unavailable (cache.get returns null)
+- Saves to vetr_score_history table via saveScoreToHistory() helper
+  - Uses Drizzle insert into vetrScoreHistory table
+  - Wrapped in try/catch to not fail the calculation if history save fails
+- Exported VetrScoreResult interface with full score breakdown
+- npm run build and npm run typecheck both pass with zero errors
+- Files changed: src/services/vetr-score.service.ts (modified)
+- **Learnings for future iterations:**
+  - Cache-first pattern: check cache → calculate if miss → cache result → return
+  - Promise.all for parallel DB queries (executives + filings) improves performance
+  - Bonus/penalty detection uses filing content analysis (type, title keywords)
+  - saveScoreToHistory uses try/catch so DB errors don't break the score calculation flow
+  - Red flag composite is hardcoded to 0 until red-flag.service.ts is implemented in US-055+
+  - VetrScoreResult uses snake_case for all fields (matching API response conventions)
+  - WEIGHTS defined as const object for easy reference and modification
+  - Cache key pattern: vetr_score:{TICKER} with 24h TTL (86400 seconds)
+---
+
+## US-053: Implement VETR Score API endpoints
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created src/routes/vetr-score.routes.ts with two endpoints:
+  - GET /stocks/:ticker/vetr-score - returns current score with full component breakdowns (cached or freshly calculated)
+  - GET /stocks/:ticker/vetr-score/history?months=6 - returns historical score data from vetr_score_history table
+- Added getScoreHistory() function to src/services/vetr-score.service.ts
+  - Queries vetr_score_history table filtered by ticker and date range (configurable months parameter, default 6)
+  - Uses and(), eq(), gte() from drizzle-orm for compound WHERE conditions
+  - Returns ScoreHistoryEntry[] with all component scores in snake_case format
+  - Ordered by calculated_at descending (most recent first)
+- Applied authMiddleware globally to all vetr-score routes
+- Registered vetrScoreRoutes on main app via app.route('/stocks', vetrScoreRoutes) — mounted under /stocks prefix so full paths are /v1/stocks/:ticker/vetr-score and /v1/stocks/:ticker/vetr-score/history
+- Updated src/routes/index.ts barrel export with vetrScoreRoutes
+- History endpoint validates months query param (clamped to 1-24 range)
+- Current score endpoint uses calculateVetrScore() which returns cached result if available (24h Redis TTL)
+- npm run build passes with zero errors
+- Files changed: src/routes/vetr-score.routes.ts (created), src/services/vetr-score.service.ts (modified), src/routes/index.ts (modified), src/app.ts (modified)
+- **Learnings for future iterations:**
+  - Multiple Hono route groups can be mounted at the same path prefix (app.route('/stocks', stockRoutes) AND app.route('/stocks', vetrScoreRoutes)) — Hono merges them correctly
+  - History route must be registered BEFORE the parameterized parent route (/:ticker/vetr-score/history before /:ticker/vetr-score) to match correctly
+  - gte() from drizzle-orm provides >= comparison for date range filtering
+  - and() combines multiple WHERE conditions into a single clause
+  - ScoreHistoryEntry interface uses snake_case fields matching API conventions
+  - Months parameter clamped to 1-24 range for reasonable history queries
+  - getScoreHistory returns empty array (not error) for tickers with no history yet
+---
+
+## US-054: Implement VETR Score trend and comparison endpoints
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Added getScoreTrend(ticker) to src/services/vetr-score.service.ts
+  - Fetches last 90 days of score history from vetr_score_history table
+  - Calculates trend_direction: improving (>+5 over 90d), declining (<-5 over 90d), or stable
+  - Calculates momentum: -100 to +100 using weighted average of 30d (60%) and 90d (40%) changes
+  - Returns change_30d and change_90d absolute score changes
+  - Returns data_points count for transparency
+  - Handles insufficient data gracefully (returns stable/0 for <=1 data points)
+- Added getScoreComparison(ticker) to src/services/vetr-score.service.ts
+  - Fetches all stocks in the same sector as the target stock
+  - Calculates percentile_rank (0-100) based on position among sector peers
+  - Returns up to 10 peer scores (excluding the target stock) sorted by score descending
+  - Returns sector statistics: sector_average, sector_high, sector_low
+  - Uses vetr_score from stocks table for peers, calculates fresh score for target stock
+- Added two new route handlers in src/routes/vetr-score.routes.ts:
+  - GET /:ticker/vetr-score/trend - returns ScoreTrendResult
+  - GET /:ticker/vetr-score/compare - returns ScoreComparisonResult
+  - Both routes placed before the main /:ticker/vetr-score route to avoid path conflicts
+- Routes already registered on main app via app.route('/stocks', vetrScoreRoutes) — no app.ts changes needed
+- Exported ScoreTrendResult, PeerScore, ScoreComparisonResult interfaces
+- npm run build passes with zero errors
+- Files changed: src/services/vetr-score.service.ts (modified), src/routes/vetr-score.routes.ts (modified), scripts/ralph/prd.json (modified)
+- **Learnings for future iterations:**
+  - Trend analysis requires historical data points — graceful degradation needed when history is sparse
+  - Momentum calculation uses weighted average: 30d change (60% weight) + 90d change (40% weight), then scaled by 2x and clamped to -100..+100
+  - Percentile rank formula: ((peer_count - rank) / (peer_count - 1)) * 100 — handles single stock edge case
+  - Sector peer comparison uses stocks.vetrScore (stored) for peers rather than calculating fresh scores for every peer (performance)
+  - Route ordering: /trend and /compare must be defined before the parent /:ticker/vetr-score catch-all
+  - No changes needed to app.ts or routes/index.ts since vetrScoreRoutes was already mounted at /stocks prefix
+---

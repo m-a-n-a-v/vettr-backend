@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { validateQuery } from '../middleware/validator.js';
 import { authMiddleware } from '../middleware/auth.js';
 import type { AuthUser } from '../middleware/auth.js';
-import { calculateVetrScore, getScoreHistory } from '../services/vetr-score.service.js';
+import { calculateVetrScore, getScoreHistory, getScoreTrend, getScoreComparison } from '../services/vetr-score.service.js';
 import { success } from '../utils/response.js';
 
 type Variables = {
@@ -30,6 +30,24 @@ vetrScoreRoutes.get('/:ticker/vetr-score/history', validateQuery(historyQuerySch
   const history = await getScoreHistory(ticker, months);
 
   return c.json(success(history), 200);
+});
+
+// GET /stocks/:ticker/vetr-score/trend - Calculate trend direction, momentum, and score changes
+vetrScoreRoutes.get('/:ticker/vetr-score/trend', async (c) => {
+  const ticker = c.req.param('ticker');
+
+  const trend = await getScoreTrend(ticker);
+
+  return c.json(success(trend), 200);
+});
+
+// GET /stocks/:ticker/vetr-score/compare - Sector peer comparison with percentile rank
+vetrScoreRoutes.get('/:ticker/vetr-score/compare', async (c) => {
+  const ticker = c.req.param('ticker');
+
+  const comparison = await getScoreComparison(ticker);
+
+  return c.json(success(comparison), 200);
 });
 
 // GET /stocks/:ticker/vetr-score - Return current score with all component breakdowns

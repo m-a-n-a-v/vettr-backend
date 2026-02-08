@@ -566,6 +566,230 @@ export interface ScoreHistoryEntry {
  * @param months - Number of months of history to retrieve (default 6)
  * @returns Array of ScoreHistoryEntry ordered by calculated_at descending
  */
+// --- Score Trend Types ---
+
+export interface ScoreTrendResult {
+  ticker: string;
+  current_score: number;
+  trend_direction: 'improving' | 'stable' | 'declining';
+  momentum: number; // -100 to +100
+  change_30d: number;
+  change_90d: number;
+  data_points: number;
+  calculated_at: string;
+}
+
+/**
+ * Calculate the VETR Score trend for a stock ticker.
+ *
+ * Analyzes historical score data to determine:
+ * - trend_direction: improving (>+5 over 90d), declining (<-5 over 90d), or stable
+ * - momentum: -100 to +100 indicating velocity of change
+ * - change_30d: score change over last 30 days
+ * - change_90d: score change over last 90 days
+ *
+ * @param ticker - Stock ticker symbol
+ * @returns ScoreTrendResult
+ */
+export async function getScoreTrend(ticker: string): Promise<ScoreTrendResult> {
+  if (!db) {
+    throw new InternalError('Database not available');
+  }
+
+  const upperTicker = ticker.toUpperCase();
+
+  // Ensure we have a current score
+  const currentScore = await calculateVetrScore(upperTicker);
+
+  // Fetch last 90 days of history
+  const ninetyDaysAgo = new Date();
+  ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+
+  const history = await db
+    .select()
+    .from(vetrScoreHistory)
+    .where(
+      and(
+        eq(vetrScoreHistory.stockTicker, upperTicker),
+        gte(vetrScoreHistory.calculatedAt, ninetyDaysAgo)
+      )
+    )
+    .orderBy(desc(vetrScoreHistory.calculatedAt));
+
+  if (history.length <= 1) {
+    // Not enough data points for trend analysis
+    return {
+      ticker: upperTicker,
+      current_score: currentScore.overall_score,
+      trend_direction: 'stable',
+      momentum: 0,
+      change_30d: 0,
+      change_90d: 0,
+      data_points: history.length,
+      calculated_at: new Date().toISOString(),
+    };
+  }
+
+  // Calculate 30-day change
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+  const thirtyDayEntries = history.filter((h) => h.calculatedAt <= thirtyDaysAgo);
+  const oldest30d = thirtyDayEntries.length > 0 ? thirtyDayEntries[0] : null;
+  const change30d = oldest30d
+    ? currentScore.overall_score - oldest30d.overallScore
+    : 0;
+
+  // Calculate 90-day change
+  const oldest90d = history[history.length - 1];
+  const change90d = oldest90d
+    ? currentScore.overall_score - oldest90d.overallScore
+    : 0;
+
+  // Determine trend direction based on 90-day change
+  let trendDirection: 'improving' | 'stable' | 'declining';
+  if (change90d > 5) {
+    trendDirection = 'improving';
+  } else if (change90d < -5) {
+    trendDirection = 'declining';
+  } else {
+    trendDirection = 'stable';
+  }
+
+  // Calculate momentum: normalized change velocity (-100 to +100)
+  // Uses weighted average of 30d and 90d changes
+  const rawMomentum = change30d * 0.6 + change90d * 0.4;
+  const momentum = Math.max(-100, Math.min(100, Math.round(rawMomentum * 2)));
+
+  return {
+    ticker: upperTicker,
+    current_score: currentScore.overall_score,
+    trend_direction: trendDirection,
+    momentum,
+    change_30d: change30d,
+    change_90d: change90d,
+    data_points: history.length,
+    calculated_at: new Date().toISOString(),
+  };
+}
+
+// --- Score Comparison Types ---
+
+export interface PeerScore {
+  ticker: string;
+  name: string;
+  overall_score: number;
+}
+
+export interface ScoreComparisonResult {
+  ticker: string;
+  overall_score: number;
+  sector: string;
+  percentile_rank: number;
+  peer_count: number;
+  peers: PeerScore[];
+  sector_average: number;
+  sector_high: number;
+  sector_low: number;
+  calculated_at: string;
+}
+
+/**
+ * Compare a stock's VETR Score against sector peers.
+ *
+ * Returns:
+ * - percentile_rank: 0-100 indicating where this stock ranks among peers
+ * - peer scores: top peers from the same sector
+ * - sector statistics: average, high, and low scores
+ *
+ * @param ticker - Stock ticker symbol
+ * @returns ScoreComparisonResult
+ */
+export async function getScoreComparison(ticker: string): Promise<ScoreComparisonResult> {
+  if (!db) {
+    throw new InternalError('Database not available');
+  }
+
+  const upperTicker = ticker.toUpperCase();
+
+  // Get the current stock and its score
+  const stock = await getStockByTicker(upperTicker);
+  if (!stock) {
+    throw new NotFoundError(`Stock with ticker ${upperTicker} not found`);
+  }
+
+  const currentScore = await calculateVetrScore(upperTicker);
+
+  // Get all stocks in the same sector
+  const sectorPeers = await db
+    .select({
+      ticker: stocks.ticker,
+      name: stocks.name,
+      vetrScore: stocks.vetrScore,
+    })
+    .from(stocks)
+    .where(eq(stocks.sector, stock.sector));
+
+  // Build peer scores using vetrScore from stocks table (or calculate if needed)
+  const peerScores: PeerScore[] = [];
+  for (const peer of sectorPeers) {
+    if (peer.ticker === upperTicker) {
+      peerScores.push({
+        ticker: peer.ticker,
+        name: peer.name,
+        overall_score: currentScore.overall_score,
+      });
+    } else {
+      // Use the stored vetr_score from the stocks table, or 0 if not calculated
+      peerScores.push({
+        ticker: peer.ticker,
+        name: peer.name,
+        overall_score: peer.vetrScore ?? 0,
+      });
+    }
+  }
+
+  // Sort peers by score descending
+  peerScores.sort((a, b) => b.overall_score - a.overall_score);
+
+  // Calculate percentile rank
+  const peerCount = peerScores.length;
+  let percentileRank = 100;
+  if (peerCount > 1) {
+    const rank = peerScores.findIndex((p) => p.ticker === upperTicker) + 1;
+    // Percentile = % of peers this stock scores higher than
+    percentileRank = Math.round(((peerCount - rank) / (peerCount - 1)) * 100);
+  }
+
+  // Calculate sector statistics
+  const scores = peerScores.map((p) => p.overall_score);
+  const sectorAverage = scores.length > 0
+    ? Math.round(scores.reduce((sum, s) => sum + s, 0) / scores.length)
+    : 0;
+  const sectorHigh = scores.length > 0 ? Math.max(...scores) : 0;
+  const sectorLow = scores.length > 0 ? Math.min(...scores) : 0;
+
+  // Return only peers (excluding the current stock), up to 10
+  const peers = peerScores
+    .filter((p) => p.ticker !== upperTicker)
+    .slice(0, 10);
+
+  return {
+    ticker: upperTicker,
+    overall_score: currentScore.overall_score,
+    sector: stock.sector,
+    percentile_rank: percentileRank,
+    peer_count: peerCount,
+    peers,
+    sector_average: sectorAverage,
+    sector_high: sectorHigh,
+    sector_low: sectorLow,
+    calculated_at: new Date().toISOString(),
+  };
+}
+
+// --- Score History Retrieval ---
+
 export async function getScoreHistory(ticker: string, months: number = 6): Promise<ScoreHistoryEntry[]> {
   if (!db) {
     throw new InternalError('Database not available');
