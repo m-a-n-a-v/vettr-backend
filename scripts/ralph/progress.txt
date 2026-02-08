@@ -1516,3 +1516,22 @@ Details:
   - Drizzle's sql`count(*)::int` template literal is used for typed count queries
   - PaginationMeta type imported from types/pagination.ts for consistent pagination response shape
 ---
+
+## US-059: Implement red flag acknowledgment and trend endpoints
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Implemented POST /red-flags/:id/acknowledge - per-user acknowledgment (inserts into red_flag_acknowledgments with ON CONFLICT DO NOTHING for idempotency)
+- Implemented POST /stocks/:ticker/red-flags/acknowledge-all - acknowledges all red flag history records for a stock for the current user, returns count of newly acknowledged
+- Implemented GET /red-flags/trend - returns global trend stats including total_active, change_30d, by_severity breakdown, and by_type breakdown
+- Added 3 service functions to red-flag.service.ts: acknowledgeRedFlag(), acknowledgeAllForStock(), getRedFlagTrend()
+- Routes already registered on main app via existing redFlagStockRoutes (mounted at /stocks) and redFlagGlobalRoutes (mounted at /red-flags)
+- Files changed: src/services/red-flag.service.ts, src/routes/red-flags.routes.ts, scripts/ralph/prd.json
+- npm run build passes with zero errors
+- **Learnings for future iterations:**
+  - redFlagAcknowledgments table uses composite PK (userId, redFlagId) - use onConflictDoNothing() for idempotent acknowledgments
+  - Stock-specific routes are mounted at /stocks so full path is /stocks/:ticker/red-flags/acknowledge-all
+  - Global routes are mounted at /red-flags so full path is /red-flags/:id/acknowledge and /red-flags/trend
+  - The trend endpoint uses parallel DB queries for efficiency (5 queries: total, last 30d, prev 30d, by severity, by type)
+  - rowCount from drizzle insert can be used to detect if insert was a no-op (conflict)
+---

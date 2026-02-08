@@ -1,6 +1,6 @@
 import { eq, desc, and, gte, sql } from 'drizzle-orm';
 import { db } from '../config/database.js';
-import { stocks, filings, executives, redFlagHistory } from '../db/schema/index.js';
+import { stocks, filings, executives, redFlagHistory, redFlagAcknowledgments } from '../db/schema/index.js';
 import { InternalError, NotFoundError } from '../utils/errors.js';
 import * as cache from './cache.service.js';
 import type { PaginationMeta } from '../types/pagination.js';
@@ -686,5 +686,215 @@ export async function getGlobalRedFlagHistory(
       offset: options.offset,
       has_more: options.offset + options.limit < total,
     },
+  };
+}
+
+// --- Acknowledgment Functions ---
+
+/**
+ * Acknowledge a single red flag for a user.
+ * Inserts into red_flag_acknowledgments table (composite PK: userId + redFlagId).
+ * Returns the acknowledgment record.
+ *
+ * @param userId - The authenticated user's ID
+ * @param redFlagId - The red flag history record ID
+ * @returns The acknowledgment details
+ */
+export async function acknowledgeRedFlag(
+  userId: string,
+  redFlagId: string,
+): Promise<{ user_id: string; red_flag_id: string; acknowledged_at: string }> {
+  if (!db) {
+    throw new InternalError('Database not available');
+  }
+
+  // Verify the red flag exists
+  const flag = await db
+    .select()
+    .from(redFlagHistory)
+    .where(eq(redFlagHistory.id, redFlagId))
+    .limit(1);
+
+  if (flag.length === 0) {
+    throw new NotFoundError(`Red flag with ID '${redFlagId}' not found`);
+  }
+
+  // Insert acknowledgment (ON CONFLICT DO NOTHING for idempotency)
+  try {
+    await db
+      .insert(redFlagAcknowledgments)
+      .values({
+        userId,
+        redFlagId,
+      })
+      .onConflictDoNothing();
+  } catch (error) {
+    throw new InternalError('Failed to acknowledge red flag');
+  }
+
+  // Fetch the acknowledgment to return (may already exist)
+  const ack = await db
+    .select()
+    .from(redFlagAcknowledgments)
+    .where(
+      and(
+        eq(redFlagAcknowledgments.userId, userId),
+        eq(redFlagAcknowledgments.redFlagId, redFlagId),
+      ),
+    )
+    .limit(1);
+
+  return {
+    user_id: userId,
+    red_flag_id: redFlagId,
+    acknowledged_at: ack[0].acknowledgedAt.toISOString(),
+  };
+}
+
+/**
+ * Acknowledge all red flags for a stock for the current user.
+ * Finds all red flag history records for the given ticker and inserts acknowledgments
+ * for any that haven't been acknowledged yet.
+ *
+ * @param userId - The authenticated user's ID
+ * @param ticker - The stock ticker symbol
+ * @returns Count of newly acknowledged flags
+ */
+export async function acknowledgeAllForStock(
+  userId: string,
+  ticker: string,
+): Promise<{ ticker: string; acknowledged_count: number }> {
+  if (!db) {
+    throw new InternalError('Database not available');
+  }
+
+  const upperTicker = ticker.toUpperCase();
+
+  // Verify the stock exists
+  const stock = await getStockByTicker(upperTicker);
+  if (!stock) {
+    throw new NotFoundError(`Stock with ticker '${upperTicker}' not found`);
+  }
+
+  // Get all red flag history IDs for this stock
+  const flags = await db
+    .select({ id: redFlagHistory.id })
+    .from(redFlagHistory)
+    .where(eq(redFlagHistory.stockTicker, upperTicker));
+
+  if (flags.length === 0) {
+    return { ticker: upperTicker, acknowledged_count: 0 };
+  }
+
+  // Insert acknowledgments for all flags (ON CONFLICT DO NOTHING for idempotency)
+  let acknowledgedCount = 0;
+  for (const flag of flags) {
+    try {
+      const result = await db
+        .insert(redFlagAcknowledgments)
+        .values({
+          userId,
+          redFlagId: flag.id,
+        })
+        .onConflictDoNothing();
+
+      // If the insert was not a conflict, count it
+      if (result.rowCount && result.rowCount > 0) {
+        acknowledgedCount++;
+      }
+    } catch {
+      // Skip individual failures (e.g., race conditions)
+    }
+  }
+
+  return { ticker: upperTicker, acknowledged_count: acknowledgedCount };
+}
+
+// --- Trend Functions ---
+
+/**
+ * Get global red flag trend statistics.
+ * Returns total active flags, 30-day change, breakdown by severity, and breakdown by type.
+ *
+ * @returns Trend statistics object
+ */
+export async function getRedFlagTrend(): Promise<{
+  total_active: number;
+  change_30d: number;
+  by_severity: Record<string, number>;
+  by_type: Record<string, number>;
+}> {
+  if (!db) {
+    throw new InternalError('Database not available');
+  }
+
+  const now = new Date();
+  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
+
+  // Run all queries in parallel
+  const [totalResult, last30dResult, prev30dResult, bySeverityResult, byTypeResult] =
+    await Promise.all([
+      // Total active flags (all time)
+      db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(redFlagHistory),
+
+      // Flags detected in last 30 days
+      db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(redFlagHistory)
+        .where(gte(redFlagHistory.detectedAt, thirtyDaysAgo)),
+
+      // Flags detected in previous 30 days (30-60 days ago)
+      db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(redFlagHistory)
+        .where(
+          and(
+            gte(redFlagHistory.detectedAt, sixtyDaysAgo),
+            sql`${redFlagHistory.detectedAt} < ${thirtyDaysAgo}`,
+          ),
+        ),
+
+      // Breakdown by severity
+      db
+        .select({
+          severity: redFlagHistory.severity,
+          count: sql<number>`count(*)::int`,
+        })
+        .from(redFlagHistory)
+        .groupBy(redFlagHistory.severity),
+
+      // Breakdown by flag type
+      db
+        .select({
+          flagType: redFlagHistory.flagType,
+          count: sql<number>`count(*)::int`,
+        })
+        .from(redFlagHistory)
+        .groupBy(redFlagHistory.flagType),
+    ]);
+
+  const totalActive = totalResult[0]?.count ?? 0;
+  const last30d = last30dResult[0]?.count ?? 0;
+  const prev30d = prev30dResult[0]?.count ?? 0;
+  const change30d = last30d - prev30d;
+
+  const bySeverity: Record<string, number> = {};
+  for (const row of bySeverityResult) {
+    bySeverity[row.severity.toLowerCase()] = row.count;
+  }
+
+  const byType: Record<string, number> = {};
+  for (const row of byTypeResult) {
+    byType[row.flagType] = row.count;
+  }
+
+  return {
+    total_active: totalActive,
+    change_30d: change30d,
+    by_severity: bySeverity,
+    by_type: byType,
   };
 }

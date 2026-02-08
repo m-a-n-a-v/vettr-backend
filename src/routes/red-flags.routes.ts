@@ -7,6 +7,9 @@ import {
   detectRedFlags,
   getRedFlagHistoryForStock,
   getGlobalRedFlagHistory,
+  acknowledgeRedFlag,
+  acknowledgeAllForStock,
+  getRedFlagTrend,
 } from '../services/red-flag.service.js';
 import { success, paginated } from '../utils/response.js';
 
@@ -48,6 +51,16 @@ redFlagStockRoutes.get('/:ticker/red-flags/history', validateQuery(historyQueryS
   return c.json(paginated(flagDtos, result.pagination), 200);
 });
 
+// POST /stocks/:ticker/red-flags/acknowledge-all - acknowledge all flags for stock for current user
+redFlagStockRoutes.post('/:ticker/red-flags/acknowledge-all', async (c) => {
+  const ticker = c.req.param('ticker');
+  const user = c.get('user');
+
+  const result = await acknowledgeAllForStock(user.id, ticker);
+
+  return c.json(success(result), 200);
+});
+
 // GET /stocks/:ticker/red-flags - detect and return flags with composite score
 redFlagStockRoutes.get('/:ticker/red-flags', async (c) => {
   const ticker = c.req.param('ticker');
@@ -61,6 +74,13 @@ redFlagStockRoutes.get('/:ticker/red-flags', async (c) => {
 const redFlagGlobalRoutes = new Hono<{ Variables: Variables }>();
 
 redFlagGlobalRoutes.use('*', authMiddleware);
+
+// GET /red-flags/trend - global trend stats (total active, 30d change, by severity, by type)
+redFlagGlobalRoutes.get('/trend', async (c) => {
+  const result = await getRedFlagTrend();
+
+  return c.json(success(result), 200);
+});
 
 // GET /red-flags/history - global recent red flags across all stocks
 redFlagGlobalRoutes.get('/history', validateQuery(historyQuerySchema), async (c) => {
@@ -82,6 +102,16 @@ redFlagGlobalRoutes.get('/history', validateQuery(historyQuerySchema), async (c)
   }));
 
   return c.json(paginated(flagDtos, result.pagination), 200);
+});
+
+// POST /red-flags/:id/acknowledge - per-user acknowledgment of a single red flag
+redFlagGlobalRoutes.post('/:id/acknowledge', async (c) => {
+  const redFlagId = c.req.param('id');
+  const user = c.get('user');
+
+  const result = await acknowledgeRedFlag(user.id, redFlagId);
+
+  return c.json(success(result), 200);
 });
 
 export { redFlagStockRoutes, redFlagGlobalRoutes };
