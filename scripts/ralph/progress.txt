@@ -1057,3 +1057,29 @@ Details:
   - Route registered at /filings prefix, so full path is /v1/filings
   - Filing DTO includes both filing fields and stock context (stock_ticker, stock_name) for client convenience
 ---
+
+## US-042: Implement GET /v1/filings/:id and POST /v1/filings/:id/read
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Added GET /filings/:id endpoint to src/routes/filings.routes.ts
+  - Returns filing detail with per-user is_read status
+  - Uses getFilingById(filingId, userId) from filing.service.ts
+  - Maps Drizzle camelCase to snake_case for API response
+  - Returns 404 NOT_FOUND if filing doesn't exist (handled by service layer)
+- Added POST /filings/:id/read endpoint to src/routes/filings.routes.ts
+  - Upserts into filing_reads table via markAsRead(filingId, userId) from filing.service.ts
+  - Returns { filing_id, is_read: true } on success
+  - Returns 404 NOT_FOUND if filing doesn't exist (handled by service layer)
+  - Idempotent: marking as read twice is a no-op (onConflictDoNothing in service)
+- Imported getFilingById, markAsRead, and success from existing modules
+- Both endpoints require auth middleware (applied globally to all filing routes)
+- npm run build passes with zero errors
+- Files changed: src/routes/filings.routes.ts (modified), scripts/ralph/prd.json (modified)
+- **Learnings for future iterations:**
+  - Service layer (getFilingById, markAsRead) was already fully implemented in US-040, only route handlers needed
+  - Filing detail DTO includes is_read but NOT stock_ticker/stock_name (unlike list endpoint) — client has filing ID context
+  - POST /filings/:id/read returns the filing_id and is_read confirmation rather than full filing object
+  - Auth middleware applied via filingRoutes.use('*', authMiddleware) covers all sub-routes including /:id and /:id/read
+  - Hono parameterized routes /:id and /:id/read coexist cleanly without conflicts
+---
