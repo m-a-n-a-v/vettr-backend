@@ -401,3 +401,34 @@ Details:
   - Type safety for context variables prevents runtime errors from typos in variable names
   - Environment-based CORS config enables different origins for dev/staging/production environments
 ---
+
+## US-017: Create health check route with DB and Redis status
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created src/routes/health.routes.ts with comprehensive health check endpoint
+- Moved health check from inline definition in app.ts to dedicated routes file
+- Added database connectivity check using simple SELECT 1 query via Drizzle
+- Added Redis connectivity check using ping() command
+- Returns detailed status information:
+  - Overall status: 'healthy' (DB connected) or 'degraded' (DB unavailable/error)
+  - Version: 1.0.0
+  - Uptime in seconds (calculated from server start time)
+  - Timestamp in ISO 8601 format
+  - Database status: connected, unavailable, or error (with error message)
+  - Redis status: connected, unavailable, or error (with error message)
+- Gracefully handles null db/redis instances (development mode)
+- Registered health routes on main app using app.route('/health', healthRoutes)
+- npm run build passes with zero errors
+- Files changed: src/routes/health.routes.ts (created), src/app.ts (modified), scripts/ralph/prd.json (modified)
+- **Learnings for future iterations:**
+  - Health check endpoints should always report connectivity for external dependencies
+  - Use simple queries (SELECT 1, PING) to verify connectivity without heavy operations
+  - Store server start time at module level for uptime calculation (Date.now() - startTime)
+  - Overall health should be 'degraded' if critical services (DB) are unavailable, but 'healthy' if only cache (Redis) is down
+  - Error messages should be included in response for debugging, but only when errors occur
+  - Hono's app.route() method registers a group of routes under a common path prefix
+  - Health check pattern: unavailable (not configured), connected (working), error (configured but failing)
+  - SQL tagged template literal from drizzle-orm for raw queries: sql`SELECT 1`
+  - Redis ping() method returns "PONG" string on success, throws on failure
+---
