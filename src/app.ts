@@ -5,6 +5,7 @@ import { logger } from 'hono/logger';
 import { errorHandler } from './middleware/error-handler.js';
 import { env } from './config/env.js';
 import { healthRoutes } from './routes/health.routes.js';
+import { authRoutes } from './routes/auth.routes.js';
 import type { AuthUser } from './middleware/auth.js';
 
 // Define context variables type
@@ -71,5 +72,6 @@ app.onError(errorHandler);
 
 // Register routes
 app.route('/health', healthRoutes);
+app.route('/auth', authRoutes);
 
 export { app };
