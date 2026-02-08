@@ -1702,3 +1702,30 @@ Details:
   - Error handling during change processing converts exceptions to conflict entries
   - In production, should add updatedAt field to all mutable tables for accurate conflict detection
 ---
+
+## US-067: Implement sync resolve endpoint
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Implemented resolveConflicts function in sync.service.ts
+- Processes array of ConflictResolution objects with { entity, id, strategy, local_data, server_data, timestamps }
+- Supports three resolution strategies: local_wins, server_wins, last_write_wins
+- local_wins: applies client's local data, overwrites server state
+- server_wins: keeps server data, discards client changes
+- last_write_wins: compares timestamps and applies most recent data
+- Returns resolved items (successful) and failed items (with error reasons)
+- For alert_rules: can create, update, or keep deleted based on strategy
+- For stocks/filings: enforces server_wins (read-only entities)
+- Validates alert rule ownership before applying resolutions
+- Handles missing entities by creating them (local_wins) or keeping deleted (server_wins)
+- npm run build passes with zero errors
+- Files changed: src/services/sync.service.ts (updated)
+- **Learnings for future iterations:**
+  - Conflict resolution is entity-aware: writable entities allow all strategies, read-only entities force server_wins
+  - Timestamp comparison for last_write_wins uses Date objects for accurate comparison
+  - Resolution can result in create, update, or delete operations depending on entity existence and strategy
+  - Failed resolutions tracked separately with detailed error reasons for client debugging
+  - Server_wins strategy requires no database changes, just acknowledgment of server state
+  - Local_wins on non-existent entity creates new record with provided data
+  - Strategy enforcement ensures data integrity (e.g., preventing client overwrites of server-authoritative data)
+---
