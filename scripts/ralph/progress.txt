@@ -2109,3 +2109,23 @@ Details:
   - Sequential steps (typecheck → lint → test → build) provide clear failure points
   - Using @v4 versions of GitHub actions ensures latest features and security patches
 ---
+
+## US-082: Create GitHub Actions deploy workflow
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created .github/workflows/deploy.yml with automated deployment to Railway
+- Configured trigger on push to main branch
+- Workflow runs full CI checks before deploy (typecheck, lint, test, build)
+- Integrated Railway deployment using bervProject/railway-deploy action
+- Added comprehensive health check verification with retry logic (5 attempts, 10s delay)
+- Health check validates deployment by hitting /v1/health endpoint
+- Files changed: .github/workflows/deploy.yml (created)
+- **Learnings for future iterations:**
+  - Railway deployment requires two GitHub secrets: RAILWAY_TOKEN and RAILWAY_DEPLOYMENT_URL
+  - Health checks should have retry logic to accommodate deployment propagation delays
+  - Running full CI checks (typecheck, lint, test, build) before deploy ensures broken code doesn't reach production
+  - The deployment step uses the bervProject/railway-deploy action for Railway integration
+  - Health check includes HTTP status validation and retries with configurable delays
+  - Workflow follows same structure as ci.yml for consistency (Node 22, npm ci, etc.)
+---
