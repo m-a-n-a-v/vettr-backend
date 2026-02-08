@@ -957,3 +957,31 @@ Details:
   - updatedAt.toISOString() converts Date to ISO 8601 string per API conventions
   - Route pattern: use('*', authMiddleware) then define individual route handlers
 ---
+
+## US-038: Implement GET /v1/stocks/:ticker endpoint
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Added getStockByTicker() to src/services/stock.service.ts
+  - Looks up stock by ticker (case-insensitive via toUpperCase())
+  - Returns stock data, executives summary (total count + top 3 by tenure), recent filings (last 5 by date), and is_favorite (per-user watchlist check)
+  - Uses Promise.all() for parallel executives + count queries
+  - Throws NotFoundError (404) if ticker doesn't exist
+- Added GET /stocks/:ticker route to src/routes/stocks.routes.ts
+  - Accesses authenticated user via c.get('user') for watchlist check
+  - Maps all Drizzle camelCase fields to snake_case for API response
+  - Returns executives_summary { total, top: [...] } with full executive DTOs
+  - Returns recent_filings array with filing DTOs
+  - Returns is_favorite boolean from watchlist lookup
+- Added Variables type with AuthUser to stockRoutes Hono instance for type-safe c.get('user')
+- npm run build and npm run typecheck both pass with zero errors
+- Files changed: src/services/stock.service.ts (modified), src/routes/stocks.routes.ts (modified)
+- **Learnings for future iterations:**
+  - Route groups using c.get('user') need explicit Variables type: `new Hono<{ Variables: Variables }>()`
+  - Plain Hono() instances don't inherit Variables type from parent app
+  - AuthUser type must be imported from middleware/auth.ts for type-safe context access
+  - and() from drizzle-orm combines conditions for composite WHERE clause (watchlist lookup)
+  - Promise.all() for parallel DB queries (executives list + count) improves performance
+  - Stock detail pattern: base stock data spread with nested objects for related data
+  - is_favorite requires both userId and stockId for watchlist lookup
+---
