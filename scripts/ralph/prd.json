@@ -658,7 +658,7 @@
         "Apply auth middleware"
       ],
       "priority": 47,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-048",

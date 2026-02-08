@@ -1181,3 +1181,28 @@ Details:
   - UpdateProfileInput uses optional fields so only changed fields are updated
   - Reused users table type inference via $inferSelect for UserProfile type
 ---
+
+## US-047: Implement user profile and settings endpoints
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created src/routes/users.routes.ts with four endpoints:
+  - GET /users/me - returns current user profile from auth context
+  - PUT /users/me - updates display_name and/or avatar_url
+  - GET /users/me/settings - returns user settings JSONB
+  - PUT /users/me/settings - merges/updates settings JSONB
+- Applied authMiddleware globally to all user routes via userRoutes.use('*', authMiddleware)
+- Registered user routes on main app in src/app.ts via app.route('/users', userRoutes)
+- Zod validation for PUT /users/me: display_name (optional, 1-255 chars), avatar_url (optional, valid URL)
+- Zod validation for PUT /users/me/settings: uses z.object({}).passthrough() for flexible JSONB updates
+- All responses use snake_case DTOs (display_name, avatar_url, auth_provider, created_at, updated_at)
+- npm run build passes with zero errors
+- Files changed: src/routes/users.routes.ts (created), src/app.ts (modified)
+- **Learnings for future iterations:**
+  - User routes follow same pattern as stocks/filings/executives: Hono instance with Variables type, auth middleware
+  - c.get('user').id provides authenticated user ID from JWT token for profile lookup
+  - PUT /users/me/settings uses z.object({}).passthrough() to accept any JSON keys for flexible JSONB storage
+  - User service (US-046) was fully implemented, only route handlers needed
+  - DTO mapping pattern consistent across all routes: Drizzle camelCase → API snake_case
+  - Request body field names use snake_case (display_name) but service layer uses camelCase (displayName) — mapping done in route handler
+---
