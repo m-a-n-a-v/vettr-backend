@@ -18,6 +18,7 @@ import {
   redFlagGlobalRoutes,
   alertRoutes,
   watchlistRoutes,
+  syncRoutes,
 } from './routes/index.js';
 import type { AuthUser } from './middleware/auth.js';
 
@@ -103,5 +104,6 @@ app.route('/users', userRoutes);
 app.route('/subscription', subscriptionRoutes);
 app.route('/alerts', alertRoutes);
 app.route('/watchlist', watchlistRoutes);
+app.route('/sync', syncRoutes);
 
 export { app };

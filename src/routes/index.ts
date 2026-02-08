@@ -9,3 +9,4 @@ export { vetrScoreRoutes } from './vetr-score.routes.js';
 export { redFlagStockRoutes, redFlagGlobalRoutes } from './red-flags.routes.js';
 export { alertRoutes } from './alerts.routes.js';
 export { watchlistRoutes } from './watchlist.routes.js';
+export { syncRoutes } from './sync.routes.js';
