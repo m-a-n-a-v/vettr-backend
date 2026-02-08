@@ -5,6 +5,11 @@ import { success } from '../utils/response.js';
 import { createAdminCrudRoutes } from './admin-crud.factory.js';
 import { users, stocks, executives, filings, alertRules, alerts, vetrScoreHistory, redFlagHistory, syncHistory, userSettings, refreshTokens } from '../db/schema/index.js';
 import { watchlistItemsRoutes, filingReadsRoutes, redFlagAcknowledgmentsRoutes } from './admin-composite-pk.routes.js';
+import { db } from '../config/database.js';
+import { eq } from 'drizzle-orm';
+import { NotFoundError, ValidationError } from '../utils/errors.js';
+import { calculateVetrScore } from '../services/vetr-score.service.js';
+import { runAllSeeds } from '../db/seed/index.js';
 
 const adminRoutes = new Hono();
 
@@ -297,5 +302,129 @@ adminRoutes.route('/filing-reads', filingReadsRoutes);
  * - DELETE /admin/red-flag-acknowledgments - Delete a red flag acknowledgment by composite key (userId, redFlagId)
  */
 adminRoutes.route('/red-flag-acknowledgments', redFlagAcknowledgmentsRoutes);
+
+/**
+ * POST /admin/users/:id/change-tier
+ * Specialized endpoint to change a user's tier
+ * Accepts JSON body { tier: 'free' | 'pro' | 'premium' }
+ * Returns the updated user info
+ */
+adminRoutes.post('/users/:id/change-tier', async (c) => {
+  if (!db) {
+    throw new Error('Database not initialized');
+  }
+
+  const id = c.req.param('id');
+  const body = await c.req.json();
+  const { tier } = body;
+
+  // Validate tier value
+  const validTiers = ['free', 'pro', 'premium'];
+  if (!tier || !validTiers.includes(tier)) {
+    throw new ValidationError('Invalid tier. Must be one of: free, pro, premium');
+  }
+
+  // Check if user exists
+  const existingUser = await db
+    .select()
+    .from(users)
+    .where(eq(users.id, id))
+    .limit(1);
+
+  if (existingUser.length === 0) {
+    throw new NotFoundError('User not found');
+  }
+
+  // Update the user's tier
+  const updatedUser = await db
+    .update(users)
+    .set({ tier: tier as 'free' | 'pro' | 'premium' })
+    .where(eq(users.id, id))
+    .returning();
+
+  return c.json(success({
+    id: updatedUser[0].id,
+    email: updatedUser[0].email,
+    tier: updatedUser[0].tier,
+  }));
+});
+
+/**
+ * POST /admin/stocks/:ticker/recalculate-score
+ * Specialized endpoint to recalculate VETR score for a stock
+ * Looks up the stock by ticker, invokes the VETR score calculation logic,
+ * updates the stock's vetrScore field, and creates a new vetrScoreHistory record
+ * Returns the new score
+ */
+adminRoutes.post('/stocks/:ticker/recalculate-score', async (c) => {
+  if (!db) {
+    throw new Error('Database not initialized');
+  }
+
+  const ticker = c.req.param('ticker').toUpperCase();
+
+  // Check if stock exists
+  const existingStock = await db
+    .select()
+    .from(stocks)
+    .where(eq(stocks.ticker, ticker))
+    .limit(1);
+
+  if (existingStock.length === 0) {
+    throw new NotFoundError(`Stock with ticker ${ticker} not found`);
+  }
+
+  // Calculate the VETR score (this also saves to history and cache)
+  const scoreResult = await calculateVetrScore(ticker);
+
+  // Update the stock's vetrScore field
+  await db
+    .update(stocks)
+    .set({ vetrScore: scoreResult.overall_score })
+    .where(eq(stocks.ticker, ticker));
+
+  return c.json(success({
+    ticker: scoreResult.ticker,
+    overall_score: scoreResult.overall_score,
+    components: scoreResult.components,
+    bonus_points: scoreResult.bonus_points,
+    penalty_points: scoreResult.penalty_points,
+    calculated_at: scoreResult.calculated_at,
+  }));
+});
+
+/**
+ * POST /admin/seed/run
+ * Specialized endpoint to execute the seed script
+ * Re-runs all database seed functions (stocks, filings, executives)
+ * Returns a summary of seeded data
+ */
+adminRoutes.post('/seed/run', async (c) => {
+  if (!db) {
+    throw new Error('Database not initialized');
+  }
+
+  try {
+    // Run the seed logic
+    await runAllSeeds();
+
+    // Get counts after seeding
+    const stockCount = await db.select().from(stocks);
+    const filingCount = await db.select().from(filings);
+    const executiveCount = await db.select().from(executives);
+
+    return c.json(success({
+      message: 'Seed completed successfully',
+      summary: {
+        stocks: stockCount.length,
+        filings: filingCount.length,
+        executives: executiveCount.length,
+      },
+    }));
+  } catch (error) {
+    console.error('Seed error:', error);
+    throw new Error(`Seed failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+});
 
 export { adminRoutes };
