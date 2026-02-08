@@ -1,4 +1,5 @@
 import { OpenAPIHono } from '@hono/zod-openapi';
+import { swaggerUI } from '@hono/swagger-ui';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { errorHandler } from './middleware/error-handler.js';
@@ -41,6 +42,9 @@ app.doc('/openapi.json', {
     { name: 'users', description: 'User profile and settings' },
   ],
 });
+
+// Swagger UI documentation endpoint
+app.get('/docs', swaggerUI({ url: '/v1/openapi.json' }));
 
 // Request ID middleware - adds unique request_id to context
 app.use('*', async (c, next) => {
