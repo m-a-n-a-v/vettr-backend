@@ -4,6 +4,7 @@ import { adminService } from '../services/admin.service.js';
 import { success } from '../utils/response.js';
 import { createAdminCrudRoutes } from './admin-crud.factory.js';
 import { users, stocks, executives, filings, alertRules, alerts, vetrScoreHistory, redFlagHistory, syncHistory, userSettings, refreshTokens } from '../db/schema/index.js';
+import { watchlistItemsRoutes, filingReadsRoutes, redFlagAcknowledgmentsRoutes } from './admin-composite-pk.routes.js';
 
 const adminRoutes = new Hono();
 
@@ -267,5 +268,34 @@ const refreshTokensRoutes = createAdminCrudRoutes({
 });
 
 adminRoutes.route('/refresh-tokens', refreshTokensRoutes);
+
+/**
+ * Composite primary key tables (no single 'id' column)
+ * These tables use custom routes instead of the generic factory
+ */
+
+/**
+ * CRUD routes for watchlistItems table (composite PK: userId, stockId)
+ * - GET /admin/watchlist-items - List watchlist items with pagination and filters
+ * - POST /admin/watchlist-items - Create a new watchlist item
+ * - DELETE /admin/watchlist-items - Delete a watchlist item by composite key (userId, stockId)
+ */
+adminRoutes.route('/watchlist-items', watchlistItemsRoutes);
+
+/**
+ * CRUD routes for filingReads table (composite PK: userId, filingId)
+ * - GET /admin/filing-reads - List filing reads with pagination and filters
+ * - POST /admin/filing-reads - Create a new filing read
+ * - DELETE /admin/filing-reads - Delete a filing read by composite key (userId, filingId)
+ */
+adminRoutes.route('/filing-reads', filingReadsRoutes);
+
+/**
+ * CRUD routes for redFlagAcknowledgments table (composite PK: userId, redFlagId)
+ * - GET /admin/red-flag-acknowledgments - List red flag acknowledgments with pagination and filters
+ * - POST /admin/red-flag-acknowledgments - Create a new red flag acknowledgment
+ * - DELETE /admin/red-flag-acknowledgments - Delete a red flag acknowledgment by composite key (userId, redFlagId)
+ */
+adminRoutes.route('/red-flag-acknowledgments', redFlagAcknowledgmentsRoutes);
 
 export { adminRoutes };
