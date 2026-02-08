@@ -2129,3 +2129,34 @@ Details:
   - Health check includes HTTP status validation and retries with configurable delays
   - Workflow follows same structure as ci.yml for consistency (Node 22, npm ci, etc.)
 ---
+
+## US-083: Create admin metrics endpoint
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created src/middleware/metrics-tracker.ts with MetricsStore singleton for in-memory metrics tracking
+- Created src/middleware/admin-auth.ts for admin endpoint protection using X-Admin-Secret header
+- Added ADMIN_SECRET optional env var to src/config/env.ts
+- Created src/services/admin.service.ts with getSystemMetrics() method
+- Created src/routes/admin.routes.ts with GET /admin/metrics endpoint
+- Registered admin routes on main app and added metricsTracker middleware
+- Metrics include: uptime, total requests, average response time, active users (30d), DB table counts
+- Admin protection: requires X-Admin-Secret header matching env var, or allows unprotected access in dev
+- Gracefully handles missing database (returns zeros for DB stats)
+- Files changed: 
+  - src/middleware/metrics-tracker.ts (created)
+  - src/middleware/admin-auth.ts (created)
+  - src/services/admin.service.ts (created)
+  - src/routes/admin.routes.ts (created)
+  - src/config/env.ts (modified)
+  - src/routes/index.ts (modified)
+  - src/app.ts (modified)
+- **Learnings for future iterations:**
+  - In-memory metrics tracking via singleton pattern ensures stats persist across requests
+  - Middleware ordering matters: metricsTracker should run after requestLogger to track all requests
+  - Admin endpoints should use header-based auth (X-Admin-Secret) rather than JWT for operational simplicity
+  - Database can be null in development - all services should handle this gracefully
+  - Metrics endpoint returns snake_case JSON for consistency with rest of API
+  - Active users metric uses "created in last 30 days" as a proxy for activity
+  - TypeScript nullable checks require explicit null handling before database operations
+---
