@@ -3,7 +3,7 @@ import { adminAuthMiddleware } from '../middleware/admin-auth.js';
 import { adminService } from '../services/admin.service.js';
 import { success } from '../utils/response.js';
 import { createAdminCrudRoutes } from './admin-crud.factory.js';
-import { users, stocks, executives, filings, alertRules, alerts, vetrScoreHistory, redFlagHistory, syncHistory, userSettings } from '../db/schema/index.js';
+import { users, stocks, executives, filings, alertRules, alerts, vetrScoreHistory, redFlagHistory, syncHistory, userSettings, refreshTokens } from '../db/schema/index.js';
 
 const adminRoutes = new Hono();
 
@@ -245,5 +245,27 @@ const userSettingsRoutes = createAdminCrudRoutes({
 });
 
 adminRoutes.route('/user-settings', userSettingsRoutes);
+
+/**
+ * CRUD routes for refreshTokens table
+ * - GET /admin/refresh-tokens - List refresh tokens with pagination, search, sort, and filters
+ * - GET /admin/refresh-tokens/:id - Get a single refresh token by ID
+ * - POST /admin/refresh-tokens - Create a new refresh token
+ * - PUT /admin/refresh-tokens/:id - Update a refresh token
+ * - DELETE /admin/refresh-tokens/:id - Delete a refresh token
+ * - GET /admin/refresh-tokens/export - Export refresh tokens as CSV or JSON
+ * - POST /admin/refresh-tokens/bulk - Bulk create refresh tokens
+ * - DELETE /admin/refresh-tokens/bulk - Bulk delete refresh tokens
+ */
+const refreshTokensRoutes = createAdminCrudRoutes({
+  tableName: 'refresh-tokens',
+  table: refreshTokens,
+  primaryKey: 'id',
+  searchableColumns: [],
+  filterableColumns: ['userId', 'isRevoked'],
+  sortableColumns: ['expiresAt', 'isRevoked', 'createdAt'],
+});
+
+adminRoutes.route('/refresh-tokens', refreshTokensRoutes);
 
 export { adminRoutes };
