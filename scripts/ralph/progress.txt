@@ -461,3 +461,22 @@ Details:
   - OpenAPI 3.0 format required for Swagger UI compatibility
   - Server URL should match app basePath for correct endpoint URLs in documentation
 ---
+
+## US-019: Configure Swagger UI documentation endpoint
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Set up @hono/swagger-ui at GET /v1/docs endpoint in src/app.ts
+- Imported swaggerUI from @hono/swagger-ui (already installed as dependency v0.4.1)
+- Configured Swagger UI to point to /v1/openapi.json spec endpoint
+- Placed Swagger UI registration after OpenAPI doc config and before middleware registration
+- npm run build passes with zero errors
+- Files changed: src/app.ts (modified)
+- **Learnings for future iterations:**
+  - @hono/swagger-ui exports a swaggerUI() function that returns a Hono handler
+  - swaggerUI({ url: '/v1/openapi.json' }) needs the full path including the basePath prefix
+  - The handler is registered with app.get('/docs', swaggerUI(...)) — it serves the HTML page with embedded Swagger UI
+  - Swagger UI must be registered before wildcard middleware to avoid conflicts
+  - The OpenAPI spec at /v1/openapi.json is auto-populated as routes are registered via @hono/zod-openapi
+  - This was a minimal change — just 2 lines added (import + route registration)
+---
