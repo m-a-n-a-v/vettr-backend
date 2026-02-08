@@ -5,10 +5,12 @@ import { logger } from 'hono/logger';
 import { errorHandler } from './middleware/error-handler.js';
 import { env } from './config/env.js';
 import { healthRoutes } from './routes/health.routes.js';
+import type { AuthUser } from './middleware/auth.js';
 
 // Define context variables type
 type Variables = {
   requestId: string;
+  user: AuthUser;
 };
 
 const app = new OpenAPIHono<{ Variables: Variables }>().basePath('/v1');
