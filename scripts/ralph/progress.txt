@@ -1675,3 +1675,30 @@ Details:
   - Enforced tier limits by comparing hours since last sync with tier-specific thresholds
   - ForbiddenError thrown with detailed error context when sync frequency limit exceeded
 ---
+
+## US-066: Implement sync push with conflict detection
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Implemented pushChanges function in sync.service.ts
+- Processes array of SyncChange objects with { entity, action, data, timestamp }
+- Supports actions: create, update, delete for alert_rules
+- Conflict detection: compares client timestamp with server modification time
+- Stocks and filings are read-only (server-authoritative), client modifications flagged as conflicts
+- Returns applied changes and conflicts list with detailed conflict information
+- Each conflict includes: entity, id, action, local/server timestamps, local/server data, reason
+- Alert rule processing handles create (insert), update (merge), delete operations
+- Conflict reasons: rule not found, modified on server after client change, read-only entity
+- npm run build passes with zero errors
+- Files changed: src/services/sync.service.ts (updated)
+- **Learnings for future iterations:**
+  - Conflict detection compares timestamps to identify simultaneous modifications
+  - Server-authoritative entities (stocks, filings) reject all client modifications
+  - User-specific entities (alert_rules) allow modifications with conflict detection
+  - Conflicts include both local and server data for client-side resolution
+  - Applied changes tracked separately from conflicts for clear result segregation
+  - Delete operations check existence before deletion, already-deleted not treated as conflict
+  - Update operations merge partial data with existing server data
+  - Error handling during change processing converts exceptions to conflict entries
+  - In production, should add updatedAt field to all mutable tables for accurate conflict detection
+---
