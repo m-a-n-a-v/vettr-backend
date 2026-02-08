@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { validateBody } from '../middleware/validator.js';
+import { authMiddleware } from '../middleware/auth.js';
 import {
   createUser,
   findByEmail,
@@ -317,6 +318,28 @@ authRoutes.post('/refresh', validateBody(refreshSchema), async (c) => {
     }),
     200
   );
+});
+
+// Zod schema for logout request body
+const logoutSchema = z.object({
+  refresh_token: z.string().min(1, 'Refresh token is required'),
+});
+
+// POST /auth/logout - Revoke a refresh token (requires authentication)
+authRoutes.post('/logout', authMiddleware, validateBody(logoutSchema), async (c) => {
+  const body = await c.req.json();
+  const { refresh_token } = body;
+
+  // Find and verify the refresh token
+  const result = await findAndVerifyRefreshToken(refresh_token);
+  if (result) {
+    // Revoke the refresh token
+    await revokeRefreshToken(result.tokenRow.id);
+  }
+
+  // Return success regardless of whether the token was found
+  // (prevents token enumeration attacks)
+  return c.json(success(null), 200);
 });
 
 export { authRoutes };

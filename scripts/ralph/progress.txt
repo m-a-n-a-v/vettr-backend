@@ -823,3 +823,26 @@ Details:
   - Same response shape as signup/login for client consistency
   - For production scale, consider storing a token identifier prefix for O(1) lookup instead of O(n) bcrypt iteration
 ---
+
+## US-033: Implement POST /v1/auth/logout endpoint
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Added POST /auth/logout endpoint to src/routes/auth.routes.ts
+  - Requires auth middleware (user must be authenticated to log out)
+  - Validates request body with Zod: { refresh_token } (non-empty string)
+  - Finds and verifies the refresh token via findAndVerifyRefreshToken()
+  - Revokes the refresh token by setting is_revoked=true via revokeRefreshToken()
+  - Returns success regardless of whether token was found (prevents token enumeration)
+  - Returns 200 with { success: true, data: null }
+- Imported authMiddleware from middleware/auth.ts for protected route
+- Reused existing service functions: findAndVerifyRefreshToken(), revokeRefreshToken()
+- npm run build and npm run typecheck both pass with zero errors
+- Files changed: src/routes/auth.routes.ts (modified), scripts/ralph/prd.json (modified)
+- **Learnings for future iterations:**
+  - Logout endpoint REQUIRES auth middleware (unlike refresh which does not)
+  - Always return success on logout even if token not found — prevents token enumeration attacks
+  - Reusing findAndVerifyRefreshToken() + revokeRefreshToken() from auth.service.ts kept implementation minimal
+  - success(null) from response builder works cleanly for endpoints that return no data
+  - Pattern: auth middleware first, then validation middleware, then handler
+---
