@@ -3,6 +3,7 @@ import { db } from '../config/database.js';
 import { stocks, executives, filings, watchlistItems } from '../db/schema/index.js';
 import { InternalError, NotFoundError } from '../utils/errors.js';
 import type { PaginationMeta } from '../types/pagination.js';
+import * as cache from './cache.service.js';
 
 export interface GetStocksOptions {
   limit: number;
@@ -164,4 +165,37 @@ export async function getStockByTicker(ticker: string, userId: string): Promise<
     recent_filings: recentFilings,
     is_favorite: isFavorite,
   };
+}
+
+const SEARCH_CACHE_TTL = 120; // 2 minutes
+
+export async function searchStocks(query: string, limit: number = 10): Promise<(typeof stocks.$inferSelect)[]> {
+  if (!db) {
+    throw new InternalError('Database not available');
+  }
+
+  const cacheKey = `search:${query.toLowerCase()}:${limit}`;
+
+  // Check cache first
+  const cached = await cache.get<(typeof stocks.$inferSelect)[]>(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  const results = await db
+    .select()
+    .from(stocks)
+    .where(
+      or(
+        ilike(stocks.name, `%${query}%`),
+        ilike(stocks.ticker, `%${query}%`)
+      )
+    )
+    .orderBy(asc(stocks.ticker))
+    .limit(limit);
+
+  // Cache results for 2 minutes
+  await cache.set(cacheKey, results, SEARCH_CACHE_TTL);
+
+  return results;
 }

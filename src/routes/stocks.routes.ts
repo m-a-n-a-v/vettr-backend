@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { validateQuery } from '../middleware/validator.js';
 import { authMiddleware } from '../middleware/auth.js';
 import type { AuthUser } from '../middleware/auth.js';
-import { getStocks, getStockByTicker } from '../services/stock.service.js';
+import { getStocks, getStockByTicker, searchStocks } from '../services/stock.service.js';
 import { paginated, success } from '../utils/response.js';
 
 type Variables = {
@@ -58,6 +58,37 @@ stockRoutes.get('/', validateQuery(getStocksQuerySchema), async (c) => {
   }));
 
   return c.json(paginated(stockDtos, result.pagination), 200);
+});
+
+// Zod schema for GET /stocks/search query params
+const searchStocksQuerySchema = z.object({
+  q: z.string().min(1),
+  limit: z.string().optional().default('10'),
+});
+
+// GET /stocks/search - Search stocks by name or ticker with caching
+stockRoutes.get('/search', validateQuery(searchStocksQuerySchema), async (c) => {
+  const query = c.req.query();
+
+  const q = query.q!;
+  const limit = Math.min(Math.max(parseInt(query.limit || '10', 10) || 10, 1), 50);
+
+  const results = await searchStocks(q, limit);
+
+  const stockDtos = results.map((stock) => ({
+    id: stock.id,
+    ticker: stock.ticker,
+    name: stock.name,
+    exchange: stock.exchange,
+    sector: stock.sector,
+    market_cap: stock.marketCap,
+    price: stock.price,
+    price_change: stock.priceChange,
+    vetr_score: stock.vetrScore,
+    updated_at: stock.updatedAt.toISOString(),
+  }));
+
+  return c.json(success(stockDtos), 200);
 });
 
 // GET /stocks/:ticker - Get stock detail with executives summary, recent filings, and watchlist status
