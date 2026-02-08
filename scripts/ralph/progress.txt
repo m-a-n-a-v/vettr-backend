@@ -551,3 +551,28 @@ Details:
   - Specializations reflect real mining disciplines: heap leach, SX-EW processing, epithermal deposits, etc.
   - Education includes professional designations relevant to mining: P.Eng, P.Geo, CPA, CFA
 ---
+
+## US-023: Create seed runner script and database initialization
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created src/db/seed/index.ts with runAllSeeds() function that orchestrates all seed operations
+  - Runs seeds in correct dependency order: stocks first, then filings, then executives
+  - Stocks use upsert (onConflictDoUpdate) so re-running is safe and idempotent
+  - Filings and executives are cleared before re-seeding (DELETE then INSERT) since they lack unique constraints
+  - Logs progress for each step and prints summary with counts and duration
+  - Exits with error if DATABASE_URL not configured
+- Created scripts/seed.ts as entry point for npm run db:seed
+  - Imports and calls runAllSeeds() from src/db/seed/index.ts
+  - Handles success (exit 0) and failure (exit 1) with error logging
+  - Runs via tsx: `npm run db:seed` -> `tsx scripts/seed.ts`
+- npm run build passes with zero errors
+- Files changed: src/db/seed/index.ts (created), scripts/seed.ts (created)
+- **Learnings for future iterations:**
+  - Filings and executives use simple insert() without unique constraints, so must DELETE before re-seeding to avoid duplicates
+  - Stocks use upsert via onConflictDoUpdate on ticker, making re-seeding idempotent
+  - CASCADE delete on foreign keys means deleting stocks would also delete filings/executives, but we delete filings/executives explicitly first for clarity
+  - The db:seed npm script was already defined in package.json pointing to `tsx scripts/seed.ts`
+  - tsx runs TypeScript files directly without compilation, useful for scripts
+  - process.exit(0) needed in seed script to close database pool connections
+---
