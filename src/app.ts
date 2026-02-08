@@ -11,6 +11,7 @@ import { stockRoutes } from './routes/stocks.routes.js';
 import { filingRoutes } from './routes/filings.routes.js';
 import { executiveRoutes } from './routes/executives.routes.js';
 import { userRoutes } from './routes/users.routes.js';
+import { subscriptionRoutes } from './routes/subscription.routes.js';
 import type { AuthUser } from './middleware/auth.js';
 
 // Define context variables type
@@ -48,6 +49,7 @@ app.doc('/openapi.json', {
     { name: 'watchlist', description: 'User watchlist management' },
     { name: 'sync', description: 'Offline sync operations' },
     { name: 'users', description: 'User profile and settings' },
+    { name: 'subscription', description: 'Subscription tier and limits' },
   ],
 });
 
@@ -88,5 +90,6 @@ app.route('/stocks', stockRoutes);
 app.route('/filings', filingRoutes);
 app.route('/executives', executiveRoutes);
 app.route('/users', userRoutes);
+app.route('/subscription', subscriptionRoutes);
 
 export { app };

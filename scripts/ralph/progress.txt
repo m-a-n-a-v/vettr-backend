@@ -1206,3 +1206,30 @@ Details:
   - DTO mapping pattern consistent across all routes: Drizzle camelCase → API snake_case
   - Request body field names use snake_case (display_name) but service layer uses camelCase (displayName) — mapping done in route handler
 ---
+
+## US-048: Implement GET /v1/subscription endpoint
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created src/routes/subscription.routes.ts with GET /subscription endpoint
+  - Applied authMiddleware globally to all subscription routes
+  - Returns current user's tier from auth context (JWT payload)
+  - Returns tier-specific limits: watchlist, sync_interval_hours, pulse_delay_hours, alert_rules_max
+- Tier limits defined as constant map:
+  - FREE: 5 watchlist, 24h sync, 12h pulse delay, 50 alert rules max
+  - PRO: 25 watchlist, 12h sync, 4h pulse delay, 50 alert rules max
+  - PREMIUM: unlimited watchlist (-1), 4h sync, 0h pulse delay (real-time), 50 alert rules max
+- Registered subscription routes on main app in src/app.ts via app.route('/subscription', subscriptionRoutes)
+- Added 'subscription' tag to OpenAPI documentation configuration
+- npm run build and npm run typecheck both pass with zero errors
+- Files changed: src/routes/subscription.routes.ts (created), src/app.ts (modified), scripts/ralph/prd.json (modified)
+- **Learnings for future iterations:**
+  - Subscription endpoint is a simple read-only endpoint — no service layer needed since tier comes from JWT context
+  - Tier limits defined as a static constant map (TIER_LIMITS) since they don't change at runtime
+  - user.tier from auth context provides the tier directly from JWT payload without DB lookup
+  - Default fallback to 'free' tier limits when tier not found in map (defensive coding)
+  - watchlist: -1 convention for "unlimited" — clients should interpret negative values as unlimited
+  - pulse_delay_hours: 0 means real-time for PREMIUM tier
+  - No Zod validation needed since GET endpoint has no request body or query params
+  - Route follows same pattern as other route groups: Hono instance with Variables type, auth middleware
+---
