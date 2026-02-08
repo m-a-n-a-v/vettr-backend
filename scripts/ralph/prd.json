@@ -433,7 +433,7 @@
         "Return access + refresh tokens"
       ],
       "priority": 31,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-032",

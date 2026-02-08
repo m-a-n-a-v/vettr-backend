@@ -759,3 +759,37 @@ Details:
   - The upsertOAuthUser function is generic enough to reuse for Apple Sign In (US-031)
   - OAuth users don't have password_hash - login endpoint handles this by returning generic error
 ---
+
+## US-031: Implement POST /v1/auth/apple endpoint
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Added POST /auth/apple endpoint to src/routes/auth.routes.ts
+  - Validates request body with Zod: { identity_token, authorization_code, user?: { email, name } }
+  - Verifies Apple identity_token by fetching JWKS and validating JWT signature
+  - Validates token claims: iss (https://appleid.apple.com), aud (APPLE_CLIENT_ID if configured)
+  - Handles first sign-in user object (Apple only sends name/email on first auth)
+  - Upserts user (create if new with provider='apple', update if existing)
+  - Returns 200 with { access_token, refresh_token, token_type, expires_in, user: UserDto }
+- Added verifyAppleToken() to src/services/auth.service.ts
+  - Decodes JWT header to extract kid (key ID)
+  - Fetches Apple JWKS from https://appleid.apple.com/auth/keys with 24h cache
+  - Finds matching key by kid and converts JWK to PEM using Node's crypto.createPublicKey
+  - Verifies token with jsonwebtoken.verify() using RS256 algorithm
+  - Validates issuer and audience claims
+  - Returns typed AppleTokenClaims with sub, email, email_verified
+- Reused existing upsertOAuthUser() function from US-030 with provider='apple'
+- APPLE_CLIENT_ID already in env.ts from US-002 (optional, audience check skipped when not configured)
+- npm run build and npm run typecheck both pass with zero errors
+- Files changed: src/services/auth.service.ts (modified), src/routes/auth.routes.ts (modified), scripts/ralph/prd.json (modified)
+- **Learnings for future iterations:**
+  - Apple uses RS256 (RSA) for signing identity tokens, unlike Google which uses tokeninfo endpoint
+  - jwt.decode(token, { complete: true }) returns header + payload for extracting kid
+  - crypto.createPublicKey({ key: jwk, format: 'jwk' }) converts JWK to crypto.KeyObject in Node.js
+  - KeyObject.export({ type: 'spki', format: 'pem' }) converts to PEM string for jsonwebtoken.verify()
+  - Apple JWKS should be cached to avoid fetching on every auth request (24h TTL sufficient since keys rotate slowly)
+  - Apple only sends user name/email on the FIRST sign-in - subsequent sign-ins only have identity_token
+  - Email may come from token claims or from the user object (first sign-in), need to check both
+  - authorization_code accepted in request but not used server-side (used for server-to-server token exchange if needed)
+  - upsertOAuthUser() from US-030 worked without modification for Apple Sign In
+---

@@ -6,6 +6,8 @@ import { signRefreshToken } from '../utils/jwt.js';
 import { ConflictError, InternalError, AuthInvalidCredentialsError } from '../utils/errors.js';
 import { env } from '../config/env.js';
 import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 
 export interface CreateUserInput {
   email: string;
@@ -247,6 +249,121 @@ export async function verifyGoogleToken(idToken: string): Promise<GoogleTokenInf
   }
 
   return tokenInfo;
+}
+
+/**
+ * Apple JWKS key structure.
+ */
+interface AppleJWK {
+  kty: string;
+  kid: string;
+  use: string;
+  alg: string;
+  n: string;
+  e: string;
+}
+
+interface AppleJWKS {
+  keys: AppleJWK[];
+}
+
+/**
+ * Apple identity token payload claims.
+ */
+export interface AppleTokenClaims {
+  iss: string;
+  sub: string;
+  aud: string;
+  email?: string;
+  email_verified?: string | boolean;
+}
+
+let cachedAppleJWKS: { keys: AppleJWKS; fetchedAt: number } | null = null;
+const APPLE_JWKS_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
+
+/**
+ * Fetch Apple's public keys (JWKS) from https://appleid.apple.com/auth/keys.
+ * Caches the result for 24 hours.
+ */
+async function fetchAppleJWKS(): Promise<AppleJWKS> {
+  if (cachedAppleJWKS && Date.now() - cachedAppleJWKS.fetchedAt < APPLE_JWKS_CACHE_TTL) {
+    return cachedAppleJWKS.keys;
+  }
+
+  const response = await fetch('https://appleid.apple.com/auth/keys');
+  if (!response.ok) {
+    throw new AuthInvalidCredentialsError('Failed to fetch Apple public keys');
+  }
+
+  const jwks = (await response.json()) as AppleJWKS;
+  cachedAppleJWKS = { keys: jwks, fetchedAt: Date.now() };
+  return jwks;
+}
+
+/**
+ * Verify an Apple identity_token by fetching JWKS from Apple and validating
+ * the token's signature, issuer, audience, and expiration.
+ * Returns the verified token claims (sub, email).
+ * Throws AuthInvalidCredentialsError if the token is invalid.
+ */
+export async function verifyAppleToken(identityToken: string): Promise<AppleTokenClaims> {
+  // Decode the token header to get the kid (key ID)
+  const decoded = jwt.decode(identityToken, { complete: true });
+  if (!decoded || typeof decoded === 'string') {
+    throw new AuthInvalidCredentialsError('Invalid Apple identity token');
+  }
+
+  const { kid, alg } = decoded.header;
+  if (!kid) {
+    throw new AuthInvalidCredentialsError('Apple token missing key ID (kid)');
+  }
+
+  // Fetch Apple's JWKS and find the matching key
+  const jwks = await fetchAppleJWKS();
+  const matchingKey = jwks.keys.find((key) => key.kid === kid);
+  if (!matchingKey) {
+    throw new AuthInvalidCredentialsError('Apple token key not found in JWKS');
+  }
+
+  // Convert JWK to PEM public key using Node's crypto module
+  const publicKey = crypto.createPublicKey({
+    key: {
+      kty: matchingKey.kty,
+      n: matchingKey.n,
+      e: matchingKey.e,
+    },
+    format: 'jwk',
+  });
+
+  const pem = publicKey.export({ type: 'spki', format: 'pem' }) as string;
+
+  // Verify the token signature, expiration, and claims
+  let payload: jwt.JwtPayload;
+  try {
+    payload = jwt.verify(identityToken, pem, {
+      algorithms: [alg as jwt.Algorithm],
+      issuer: 'https://appleid.apple.com',
+    }) as jwt.JwtPayload;
+  } catch {
+    throw new AuthInvalidCredentialsError('Apple identity token verification failed');
+  }
+
+  // Validate audience matches our Apple Client ID (if configured)
+  if (env.APPLE_CLIENT_ID && payload.aud !== env.APPLE_CLIENT_ID) {
+    throw new AuthInvalidCredentialsError('Apple token audience mismatch');
+  }
+
+  if (!payload.sub) {
+    throw new AuthInvalidCredentialsError('Apple token missing subject claim');
+  }
+
+  return {
+    iss: payload.iss as string,
+    sub: payload.sub,
+    aud: payload.aud as string,
+    email: payload.email as string | undefined,
+    email_verified: payload.email_verified as string | boolean | undefined,
+  };
 }
 
 /**
