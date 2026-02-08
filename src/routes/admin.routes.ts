@@ -3,7 +3,7 @@ import { adminAuthMiddleware } from '../middleware/admin-auth.js';
 import { adminService } from '../services/admin.service.js';
 import { success } from '../utils/response.js';
 import { createAdminCrudRoutes } from './admin-crud.factory.js';
-import { users, stocks, executives, filings, alertRules } from '../db/schema/index.js';
+import { users, stocks, executives, filings, alertRules, alerts } from '../db/schema/index.js';
 
 const adminRoutes = new Hono();
 
@@ -135,5 +135,27 @@ const alertRulesRoutes = createAdminCrudRoutes({
 });
 
 adminRoutes.route('/alert-rules', alertRulesRoutes);
+
+/**
+ * CRUD routes for alerts table
+ * - GET /admin/alerts - List alerts with pagination, search, sort, and filters
+ * - GET /admin/alerts/:id - Get a single alert by ID
+ * - POST /admin/alerts - Create a new alert
+ * - PUT /admin/alerts/:id - Update an alert
+ * - DELETE /admin/alerts/:id - Delete an alert
+ * - GET /admin/alerts/export - Export alerts as CSV or JSON
+ * - POST /admin/alerts/bulk - Bulk create alerts
+ * - DELETE /admin/alerts/bulk - Bulk delete alerts
+ */
+const alertsRoutes = createAdminCrudRoutes({
+  tableName: 'alerts',
+  table: alerts,
+  primaryKey: 'id',
+  searchableColumns: ['title', 'message'],
+  filterableColumns: ['userId', 'stockId', 'alertType', 'isRead'],
+  sortableColumns: ['title', 'alertType', 'triggeredAt', 'isRead'],
+});
+
+adminRoutes.route('/alerts', alertsRoutes);
 
 export { adminRoutes };
