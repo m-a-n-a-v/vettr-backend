@@ -1,7 +1,8 @@
 import { eq, desc } from 'drizzle-orm';
 import { db } from '../config/database.js';
-import { executives, filings, stocks } from '../db/schema/index.js';
-import { InternalError } from '../utils/errors.js';
+import { executives, filings, stocks, vetrScoreHistory } from '../db/schema/index.js';
+import { InternalError, NotFoundError } from '../utils/errors.js';
+import * as cache from './cache.service.js';
 
 // Types for component inputs
 type ExecutiveRow = typeof executives.$inferSelect;
@@ -316,4 +317,228 @@ export async function getFilingsForTicker(ticker: string): Promise<FilingRow[]> 
     .from(filings)
     .where(eq(filings.stockId, stock[0].id))
     .orderBy(desc(filings.date));
+}
+
+// --- VETR Score Result Types ---
+
+export interface VetrScoreResult {
+  ticker: string;
+  overall_score: number;
+  components: {
+    pedigree: number;
+    filing_velocity: number;
+    red_flag: number;
+    growth: number;
+    governance: number;
+  };
+  weights: {
+    pedigree: number;
+    filing_velocity: number;
+    red_flag: number;
+    growth: number;
+    governance: number;
+  };
+  bonus_points: number;
+  penalty_points: number;
+  calculated_at: string;
+}
+
+// --- Bonus & Penalty Detection ---
+
+/**
+ * Detect bonuses for a stock based on filings and executives.
+ * +5 for audited financials (has Financial Statements filings)
+ * +5 for board expertise (executives with relevant education/certifications)
+ */
+function detectBonuses(execList: ExecutiveRow[], filingList: FilingRow[]): number {
+  let bonus = 0;
+
+  // +5 if the stock has audited financial statement filings
+  const hasAuditedFinancials = filingList.some(
+    (f) => f.type?.toLowerCase().includes('financial')
+  );
+  if (hasAuditedFinancials) {
+    bonus += 5;
+  }
+
+  // +5 if executives have strong board expertise (professional designations)
+  const expertiseKeywords = ['p.eng', 'p.geo', 'cpa', 'cfa', 'mba', 'phd', 'fca'];
+  const hasBoardExpertise = execList.some((e) =>
+    expertiseKeywords.some((kw) => e.education?.toLowerCase().includes(kw))
+  );
+  if (hasBoardExpertise) {
+    bonus += 5;
+  }
+
+  return bonus;
+}
+
+/**
+ * Detect penalties for a stock based on filings.
+ * -10 for overdue filings (no filings in last 90 days)
+ * -10 for regulatory issues (placeholder — could check for specific filing types or flags)
+ */
+function detectPenalties(filingList: FilingRow[]): number {
+  let penalty = 0;
+
+  // -10 for overdue filings (no filings in last 90 days)
+  const now = new Date();
+  const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+  const recentFilings = filingList.filter((f) => f.date >= ninetyDaysAgo);
+  if (recentFilings.length === 0 && filingList.length > 0) {
+    penalty += 10;
+  }
+
+  // -10 for regulatory issues (check for material press releases that might indicate issues)
+  const hasRegulatoryIssues = filingList.some(
+    (f) =>
+      f.isMaterial &&
+      f.type?.toLowerCase().includes('press release') &&
+      (f.title?.toLowerCase().includes('regulatory') ||
+        f.title?.toLowerCase().includes('compliance') ||
+        f.title?.toLowerCase().includes('sanction') ||
+        f.title?.toLowerCase().includes('violation'))
+  );
+  if (hasRegulatoryIssues) {
+    penalty += 10;
+  }
+
+  return penalty;
+}
+
+// --- Full VETR Score Calculation ---
+
+const CACHE_KEY_PREFIX = 'vetr_score:';
+const CACHE_TTL_SECONDS = 24 * 60 * 60; // 24 hours
+
+const WEIGHTS = {
+  pedigree: 0.25,
+  filing_velocity: 0.20,
+  red_flag: 0.25,
+  growth: 0.15,
+  governance: 0.15,
+} as const;
+
+/**
+ * Calculate the full VETR Score for a stock ticker.
+ *
+ * Combines 5 component scores with weights:
+ * - Pedigree (25%): Executive team quality
+ * - Filing Velocity (20%): Filing frequency and timeliness
+ * - Red Flag (25%): Inverted red flag composite (lower flags = higher score)
+ * - Growth (15%): Revenue growth and capital metrics
+ * - Governance (15%): Board independence and disclosure quality
+ *
+ * Applies bonuses (+5 audited financials, +5 board expertise) and
+ * penalties (-10 overdue filings, -10 regulatory issues).
+ *
+ * Clamps final score to 0-100.
+ * Caches result in Redis with 24h TTL.
+ * Saves result to vetr_score_history table.
+ *
+ * @param ticker - Stock ticker symbol
+ * @returns VetrScoreResult with overall score, components, bonuses, and penalties
+ */
+export async function calculateVetrScore(ticker: string): Promise<VetrScoreResult> {
+  const upperTicker = ticker.toUpperCase();
+
+  // Check cache first
+  const cacheKey = `${CACHE_KEY_PREFIX}${upperTicker}`;
+  const cached = await cache.get<VetrScoreResult>(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  // Fetch stock data — required for calculation
+  const stock = await getStockByTicker(upperTicker);
+  if (!stock) {
+    throw new NotFoundError(`Stock with ticker ${upperTicker} not found`);
+  }
+
+  // Fetch executives and filings in parallel
+  const [execList, filingList] = await Promise.all([
+    getExecutivesForTicker(upperTicker),
+    getFilingsForTicker(upperTicker),
+  ]);
+
+  // Calculate each component score (0-100)
+  const pedigree = pedigreeScore(execList);
+  const filingVelocity = filingVelocityScore(filingList);
+  // Red flag composite score is 0 for now (will be provided by red-flag.service.ts in US-055+)
+  const redFlagComposite = 0;
+  const redFlag = redFlagComponent(redFlagComposite);
+  const growth = growthMetricsScore(stock);
+  const governance = governanceScore(execList, filingList);
+
+  // Weighted combination
+  const weightedScore =
+    pedigree * WEIGHTS.pedigree +
+    filingVelocity * WEIGHTS.filing_velocity +
+    redFlag * WEIGHTS.red_flag +
+    growth * WEIGHTS.growth +
+    governance * WEIGHTS.governance;
+
+  // Bonuses and penalties
+  const bonusPoints = detectBonuses(execList, filingList);
+  const penaltyPoints = detectPenalties(filingList);
+
+  // Final score with bonuses, penalties, and clamping
+  const overallScore = Math.max(0, Math.min(100, Math.round(weightedScore + bonusPoints - penaltyPoints)));
+
+  const calculatedAt = new Date().toISOString();
+
+  const result: VetrScoreResult = {
+    ticker: upperTicker,
+    overall_score: overallScore,
+    components: {
+      pedigree,
+      filing_velocity: filingVelocity,
+      red_flag: redFlag,
+      growth,
+      governance,
+    },
+    weights: {
+      pedigree: WEIGHTS.pedigree,
+      filing_velocity: WEIGHTS.filing_velocity,
+      red_flag: WEIGHTS.red_flag,
+      growth: WEIGHTS.growth,
+      governance: WEIGHTS.governance,
+    },
+    bonus_points: bonusPoints,
+    penalty_points: penaltyPoints,
+    calculated_at: calculatedAt,
+  };
+
+  // Cache result in Redis with 24h TTL
+  await cache.set(cacheKey, result, CACHE_TTL_SECONDS);
+
+  // Save to vetr_score_history table
+  await saveScoreToHistory(upperTicker, result);
+
+  return result;
+}
+
+/**
+ * Save a calculated VETR score to the vetr_score_history table.
+ */
+async function saveScoreToHistory(ticker: string, result: VetrScoreResult): Promise<void> {
+  if (!db) {
+    return;
+  }
+
+  try {
+    await db.insert(vetrScoreHistory).values({
+      stockTicker: ticker,
+      overallScore: result.overall_score,
+      pedigreeScore: result.components.pedigree,
+      filingVelocityScore: result.components.filing_velocity,
+      redFlagScore: result.components.red_flag,
+      growthScore: result.components.growth,
+      governanceScore: result.components.governance,
+      bonusPoints: result.bonus_points,
+      penaltyPoints: result.penalty_points,
+    });
+  } catch (error) {
+    console.error(`Failed to save VETR score history for ${ticker}:`, error);
+  }
 }
