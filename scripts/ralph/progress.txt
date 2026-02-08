@@ -1796,3 +1796,35 @@ Details:
   - API now complete with all CRUD operations, scoring engines, sync functionality
   - Zero build errors, zero type errors - production-ready API foundation
 ---
+
+## US-070: Set up test infrastructure
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created tests/setup.ts with global beforeAll, afterAll, and beforeEach hooks
+- Set test environment variables (NODE_ENV=test, JWT_SECRET, disabled DB/Redis for unit tests)
+- Created tests/helpers/auth.helper.ts with comprehensive auth testing utilities:
+  - createTestUser(): Generate test user objects with defaults and overrides
+  - createTestToken(): Generate valid JWT access tokens for test users
+  - createTestRefreshToken(): Generate refresh tokens with expiry
+  - createAuthHeader(): Format Bearer token headers
+  - TEST_USERS and TEST_TOKENS: Pre-configured users and tokens for all tiers (free, pro, premium)
+- Created tests/helpers/db.helper.ts with database mocking utilities:
+  - createMockDb(): Mock Drizzle client for unit tests without real database
+  - mockDbResult(), mockDbSingleResult(), mockDbError(): Helper functions for test data
+  - resetDatabase() and seedTestData(): Placeholders for future integration tests
+- Updated vitest.config.ts to include setupFiles: ['./tests/setup.ts']
+- Created tests/placeholder.test.ts with basic tests to verify infrastructure works
+- npm run test passes successfully (2 tests passing)
+- npm run build passes with zero errors
+- Files changed: tests/setup.ts, tests/helpers/auth.helper.ts, tests/helpers/db.helper.ts, tests/placeholder.test.ts, vitest.config.ts
+- **Learnings for future iterations:**
+  - Vitest requires at least one test file to run without errors (exit code 1 if no tests found)
+  - Setup files run before all tests, useful for environment configuration
+  - Test helpers should provide both specific utilities (createTestToken) and convenience constants (TEST_TOKENS)
+  - Mock database client should match Drizzle's chaining API structure (select().from().where())
+  - Test environment can disable external services (Redis, DB) by unsetting env vars
+  - Vitest globals: true enables describe, it, expect without imports (but imports still work and are more explicit)
+  - Tests can verify setup behavior by checking process.env values
+  - Using crypto.randomUUID() in test helpers ensures unique test data across runs
+---
