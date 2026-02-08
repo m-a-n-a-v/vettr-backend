@@ -1104,7 +1104,7 @@
         "npm run build passes"
       ],
       "priority": 78,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-079",

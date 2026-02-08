@@ -2012,3 +2012,26 @@ Details:
   - Error logs in stderr are expected for error test cases (404, 401, 403)
   - All 14 tests completed successfully, exceeding the "at least 5 test cases" requirement
 ---
+
+## US-078: Add input sanitization and security headers
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Added Hono's secureHeaders() middleware to app.ts for automatic security headers (X-Content-Type-Options, X-Frame-Options, X-XSS-Protection, etc.)
+- Added bodyLimit() middleware with 1MB max request size to prevent large payload attacks
+- Created src/utils/sanitize.ts with comprehensive XSS prevention utilities:
+  - sanitizeString(): removes HTML tags, script handlers, javascript: and data: protocols
+  - sanitizeObject(): recursively sanitizes nested objects and arrays
+  - sanitizeRequestBody(): convenience function for sanitizing request bodies
+- All security middleware registered in correct order (before CORS and rate limiting)
+- npm run build passes with zero errors
+- All 144 tests pass (8 test files)
+- Files changed: src/app.ts (added security headers and body limit), src/utils/sanitize.ts (created)
+- **Learnings for future iterations:**
+  - Hono's secureHeaders() middleware is comprehensive and covers most common security headers
+  - bodyLimit() should be added early in middleware chain to reject oversized payloads before processing
+  - XSS prevention requires multi-layered approach: strip HTML tags, remove event handlers, block dangerous protocols
+  - Drizzle ORM already provides parameterized queries, preventing SQL injection by default
+  - Sanitization utilities should handle strings, objects, and arrays recursively for complete coverage
+  - Security middleware order matters: request ID → logger → security headers → body limit → CORS → error handler → rate limit
+---
