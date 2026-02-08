@@ -503,3 +503,26 @@ Details:
   - Stock data follows the exact column names from the stocks schema (camelCase in TypeScript)
   - Created seed directory at src/db/seed/ for all seed files
 ---
+
+## US-021: Create filing seed data
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created src/db/seed/filings.ts with 75 filings (3 per stock for all 25 Canadian pilot stocks)
+- Filing types used: MD&A, Press Release, Financial Statements, Technical Report
+- Each filing includes realistic: type, title, date (last 6 months: Aug-Nov 2025), summary, isMaterial flag, sourceUrl (nullable)
+- Exported seedFilings() function that looks up stock IDs by ticker before inserting filings
+- Handles missing stocks gracefully (skips with warning)
+- Null check on db instance for development mode without DATABASE_URL
+- npm run build passes with zero errors
+- Files changed: src/db/seed/filings.ts (created)
+- **Learnings for future iterations:**
+  - Filing seed data needs stock IDs (UUIDs) from database, so must look up by ticker at seed time
+  - Used eq() from drizzle-orm for WHERE clause filtering on ticker
+  - Filings table uses stockId (UUID FK) not ticker string, unlike vetr_score_history which uses stock_ticker
+  - Simple insert (not upsert) used since filings don't have a unique constraint to conflict on
+  - TypeScript interface FilingSeed defined for type-safe seed data structure
+  - sourceUrl is nullable - not all filings have public URLs (e.g., financial statements filed via SEDAR)
+  - isMaterial flag distinguishes significant filings (technical reports, major announcements) from routine ones
+  - Dates spread across Aug-Nov 2025 for realistic 6-month filing history
+---
