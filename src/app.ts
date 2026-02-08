@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import { OpenAPIHono } from '@hono/zod-openapi';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { errorHandler } from './middleware/error-handler.js';
@@ -10,7 +10,37 @@ type Variables = {
   requestId: string;
 };
 
-const app = new Hono<{ Variables: Variables }>().basePath('/v1');
+const app = new OpenAPIHono<{ Variables: Variables }>().basePath('/v1');
+
+// Configure OpenAPI documentation
+app.doc('/openapi.json', {
+  openapi: '3.0.0',
+  info: {
+    title: 'VETTR API',
+    version: '1.0.0',
+    description:
+      'VETTR Backend API - A comprehensive REST API for stock analysis, VETR Score calculation, Red Flag detection, and portfolio management for iOS and Android mobile clients.',
+  },
+  servers: [
+    {
+      url: '/v1',
+      description: 'API v1',
+    },
+  ],
+  tags: [
+    { name: 'health', description: 'Health check endpoints' },
+    { name: 'auth', description: 'Authentication and authorization' },
+    { name: 'stocks', description: 'Stock data and search' },
+    { name: 'filings', description: 'Regulatory filings' },
+    { name: 'executives', description: 'Executive team information' },
+    { name: 'vetr-score', description: 'VETR Score calculation and history' },
+    { name: 'red-flags', description: 'Red Flag detection and analysis' },
+    { name: 'alerts', description: 'Alert rules and notifications' },
+    { name: 'watchlist', description: 'User watchlist management' },
+    { name: 'sync', description: 'Offline sync operations' },
+    { name: 'users', description: 'User profile and settings' },
+  ],
+});
 
 // Request ID middleware - adds unique request_id to context
 app.use('*', async (c, next) => {
