@@ -432,3 +432,32 @@ Details:
   - SQL tagged template literal from drizzle-orm for raw queries: sql`SELECT 1`
   - Redis ping() method returns "PONG" string on success, throws on failure
 ---
+
+## US-018: Set up OpenAPI spec generation with Zod schemas
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Replaced standard Hono instance with OpenAPIHono from @hono/zod-openapi package
+- Configured OpenAPI 3.0 specification directly in src/app.ts using app.doc() method
+- Created base OpenAPI config with:
+  - Title: "VETTR API"
+  - Version: "1.0.0"
+  - Description: Comprehensive REST API for stock analysis
+  - Server definition: /v1 base path
+  - Tags for all route groups: health, auth, stocks, filings, executives, vetr-score, red-flags, alerts, watchlist, sync, users
+- Exposed OpenAPI JSON spec at GET /v1/openapi.json
+- Created src/config/openapi.ts with ErrorResponseSchema for future use (though main config is in app.ts)
+- Verified endpoint returns proper OpenAPI 3.0 JSON with all tags and metadata
+- npm run build passes with zero errors
+- Files changed: src/app.ts (modified), src/config/openapi.ts (created)
+- **Learnings for future iterations:**
+  - @hono/zod-openapi replaces standard Hono import with OpenAPIHono class
+  - app.doc(path, config) method registers OpenAPI spec endpoint and configuration
+  - OpenAPIHono is fully compatible with standard Hono middleware (logger, cors, error handler)
+  - Tags defined in OpenAPI config will be used for route grouping in Swagger UI
+  - OpenAPI spec auto-generates paths:{} and components:{} sections, populated when routes are registered
+  - Future routes should use createRoute() from @hono/zod-openapi for automatic schema documentation
+  - ErrorResponseSchema useful for standardizing error documentation across all endpoints
+  - OpenAPI 3.0 format required for Swagger UI compatibility
+  - Server URL should match app basePath for correct endpoint URLs in documentation
+---
