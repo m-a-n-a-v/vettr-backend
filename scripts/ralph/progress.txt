@@ -102,3 +102,24 @@ Details:
   - TypeScript generics on get/set allow type-safe caching with proper inference
   - Pattern: all cache operations try/catch with error logging, never throw to caller
 ---
+
+## US-005: Create standardized API response builder utilities
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created src/types/api.ts with comprehensive response types (ApiSuccessResponse, ApiErrorResponse, PaginatedResponse)
+- Created src/types/pagination.ts with PaginationParams and PaginationMeta types
+- Created src/utils/response.ts with success(), error(), and paginated() builder functions
+- All responses include meta object with timestamp (ISO 8601) and request_id (UUID v4)
+- Created src/types/index.ts barrel export for clean imports
+- npm run build passes with zero errors
+- Files changed: src/types/api.ts, src/types/pagination.ts, src/types/index.ts, src/utils/response.ts (all created)
+- **Learnings for future iterations:**
+  - Standardized response format: { success: boolean, data/error: ..., meta: { timestamp, request_id } }
+  - Paginated responses nest items and pagination info under data field
+  - Error responses have structured error object with code, message, and optional details
+  - Using crypto.randomUUID() for Node.js 20+ request ID generation (no external dependency)
+  - TypeScript generics on response builders allow type inference for data payloads
+  - ResponseMeta interface ensures consistency across all response types
+  - snake_case used for all JSON fields (timestamp, request_id, has_more, etc.) per API standards
+---
