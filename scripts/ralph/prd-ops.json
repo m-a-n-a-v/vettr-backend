@@ -22,7 +22,7 @@
         "npm run build passes with no TypeScript errors"
       ],
       "priority": 1,
-      "passes": false
+      "passes": true
     },
     {
       "id": "OPS-002",
@@ -41,7 +41,7 @@
         "npm run build passes with no TypeScript errors"
       ],
       "priority": 2,
-      "passes": false
+      "passes": true
     },
     {
       "id": "OPS-003",
@@ -58,7 +58,7 @@
         "npm run build passes with no TypeScript errors"
       ],
       "priority": 3,
-      "passes": false
+      "passes": true
     },
     {
       "id": "OPS-004",
@@ -74,7 +74,7 @@
         "npm run build passes with no TypeScript errors"
       ],
       "priority": 4,
-      "passes": false
+      "passes": true
     },
     {
       "id": "OPS-005",
@@ -90,7 +90,7 @@
         "npm run build passes with no TypeScript errors"
       ],
       "priority": 5,
-      "passes": false
+      "passes": true
     },
     {
       "id": "OPS-006",
@@ -108,7 +108,7 @@
         "npm run build passes with no TypeScript errors"
       ],
       "priority": 6,
-      "passes": false
+      "passes": true
     },
     {
       "id": "OPS-007",
@@ -125,7 +125,7 @@
         "npm run build passes with no TypeScript errors"
       ],
       "priority": 7,
-      "passes": false
+      "passes": true
     },
     {
       "id": "OPS-008",
@@ -141,7 +141,7 @@
         "npm run build passes with no TypeScript errors"
       ],
       "priority": 8,
-      "passes": false
+      "passes": true
     },
     {
       "id": "OPS-009",
@@ -158,7 +158,7 @@
         "npm run build passes with no TypeScript errors"
       ],
       "priority": 9,
-      "passes": false
+      "passes": true
     },
     {
       "id": "OPS-010",
@@ -174,7 +174,7 @@
         "npm run build passes with no TypeScript errors"
       ],
       "priority": 10,
-      "passes": false
+      "passes": true
     },
     {
       "id": "OPS-011",
@@ -191,7 +191,7 @@
         "npm run build passes with no TypeScript errors"
       ],
       "priority": 11,
-      "passes": false
+      "passes": true
     },
     {
       "id": "OPS-012",
@@ -207,7 +207,7 @@
         "npm run build passes with no TypeScript errors"
       ],
       "priority": 12,
-      "passes": false
+      "passes": true
     },
     {
       "id": "OPS-013",
@@ -224,7 +224,7 @@
         "npm run build passes with no TypeScript errors"
       ],
       "priority": 13,
-      "passes": false
+      "passes": true
     },
     {
       "id": "OPS-014",
@@ -240,7 +240,7 @@
         "npm run build passes with no TypeScript errors"
       ],
       "priority": 14,
-      "passes": false
+      "passes": true
     },
     {
       "id": "OPS-015",
@@ -256,7 +256,7 @@
         "npm run build passes with no TypeScript errors"
       ],
       "priority": 15,
-      "passes": false
+      "passes": true
     },
     {
       "id": "OPS-016",
@@ -272,7 +272,7 @@
         "npm run build passes with no TypeScript errors"
       ],
       "priority": 16,
-      "passes": false
+      "passes": true
     },
     {
       "id": "OPS-017",
@@ -291,7 +291,7 @@
         "npm run build passes with no TypeScript errors"
       ],
       "priority": 17,
-      "passes": false
+      "passes": true
     },
     {
       "id": "OPS-018",
@@ -307,7 +307,7 @@
         "npm run build passes with no TypeScript errors"
       ],
       "priority": 18,
-      "passes": false
+      "passes": true
     },
     {
       "id": "OPS-019",
@@ -327,7 +327,7 @@
         "npm run build passes with no TypeScript errors"
       ],
       "priority": 19,
-      "passes": false
+      "passes": true
     },
     {
       "id": "OPS-020",
@@ -344,7 +344,7 @@
         "npm run build passes in the /Users/manav/Space/code/vettr-ops-dashboard/ directory"
       ],
       "priority": 20,
-      "passes": false
+      "passes": true
     },
     {
       "id": "OPS-021",
@@ -360,7 +360,7 @@
         "npm run build passes in the vettr-ops-dashboard directory"
       ],
       "priority": 21,
-      "passes": false
+      "passes": true
     },
     {
       "id": "OPS-022",
@@ -377,7 +377,7 @@
         "npm run build passes in the vettr-ops-dashboard directory"
       ],
       "priority": 22,
-      "passes": false
+      "passes": true
     },
     {
       "id": "OPS-023",
@@ -394,7 +394,7 @@
         "npm run build passes in the vettr-ops-dashboard directory"
       ],
       "priority": 23,
-      "passes": false
+      "passes": true
     },
     {
       "id": "OPS-024",
@@ -410,7 +410,7 @@
         "npm run build passes in the vettr-ops-dashboard directory"
       ],
       "priority": 24,
-      "passes": false
+      "passes": true
     },
     {
       "id": "OPS-025",

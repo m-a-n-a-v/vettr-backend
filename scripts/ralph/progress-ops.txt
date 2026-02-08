@@ -1,0 +1,690 @@
+# Ralph Progress Log - VETTR Ops Dashboard
+Started: Sun Feb  8 17:51:15 EST 2026
+Project: VETTR Ops Dashboard
+Backend: /Users/manav/Space/code/vettr-backend
+Frontend: /Users/manav/Space/code/vettr-ops-dashboard
+---
+
+## OPS-001: Create generic admin CRUD service
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-backend
+Details:
+- Created src/services/admin-crud.service.ts with AdminCrudService class
+- Implemented listRecords<T>() with pagination (limit/offset), search (ILIKE across configured columns), sort (column:direction), and filters (exact match on configured columns)
+- Implemented getById<T>() that throws NotFoundError when record doesn't exist
+- Implemented createRecord<T>() using Drizzle's insert().values().returning()
+- Implemented updateRecord<T>() that checks existence first, then updates
+- Implemented deleteRecord() that checks existence first, returns { deleted: true }
+- All methods are generic and work with any PgTable from Drizzle
+- Used drizzle-orm operators: eq, ilike, or, and, asc, desc
+- All local imports use .js extension (ESM requirement)
+- npm run build and npm run typecheck both pass
+Files changed:
+- src/services/admin-crud.service.ts (created)
+
+**Learnings for future iterations:**
+- Drizzle ORM patterns: Use table[column] as any for dynamic column access in generic functions
+- The db export from config/database.ts can be null, so services must check before use
+- PaginationMeta type from src/types/pagination.ts has { total, limit, offset, has_more }
+- Error classes from src/utils/errors.ts: NotFoundError, ValidationError, etc.
+- All TypeScript ESM imports must use .js extension in import paths
+---
+## OPS-002: Create admin CRUD route factory
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-backend
+Details:
+- Created src/routes/admin-crud.factory.ts with createAdminCrudRoutes function
+- Implemented GET / route that calls AdminCrudService.listRecords with query params (limit, offset, search, sort, filter_*)
+- Implemented GET /:id route that calls AdminCrudService.getById and returns success(record)
+- Implemented POST / route that calls AdminCrudService.createRecord and returns success(record) with 201 status
+- Implemented PUT /:id route that calls AdminCrudService.updateRecord and returns success(record)
+- Implemented DELETE /:id route that calls AdminCrudService.deleteRecord and returns success({ deleted: true })
+- Added validateListParams function to validate limit (1-100), offset (>=0), and sort format (column:asc|desc)
+- Added extractFilters function to extract filter_* params from query string
+- All routes use paginated() or success() response helpers from src/utils/response.ts
+- All local imports use .js extension (ESM requirement)
+- npm run build and npm run typecheck both pass
+Files changed:
+- src/routes/admin-crud.factory.ts (created)
+
+**Learnings for future iterations:**
+- Hono router patterns: new Hono() creates a router, c.req.query() gets query params, c.req.param() gets route params, c.req.json() parses body
+- Query parameter validation: Use ValidationError from src/utils/errors.ts for invalid params
+- Filter extraction pattern: filter_* prefix in query params maps to actual column names
+- Response helpers: paginated() for list endpoints, success() for single records, 201 status for POST
+- CrudRouteConfig interface defines the contract for table configuration (tableName, table, primaryKey, searchableColumns, filterableColumns, sortableColumns)
+---
+
+## OPS-003: Add CSV/JSON export endpoint to CRUD factory
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-backend
+Details:
+- Added GET /export route to the admin CRUD factory router
+- Implemented format parameter (csv|json, default json) with validation
+- Implemented escapeCsvValue() function that properly escapes commas, quotes, and newlines by wrapping in double quotes and escaping existing quotes as double-double-quotes
+- Implemented generateCsv() function that creates CSV with header row from object keys and data rows from values
+- Export endpoint fetches ALL matching records (limit 100000, offset 0) using the same search, sort, and filter params as the list endpoint
+- CSV format: sets Content-Type to text/csv and Content-Disposition header with filename={tableName}-export.csv
+- JSON format: sets Content-Type to application/json and returns raw array of records (no pagination wrapper)
+- All local imports use .js extension (ESM requirement)
+- npm run build and npm run typecheck both pass
+Files changed:
+- src/routes/admin-crud.factory.ts (modified - added export endpoint and CSV generation functions)
+
+**Learnings for future iterations:**
+- Hono response patterns: c.header() sets response headers, c.body() sends raw string response, c.json() sends JSON
+- CSV escaping rules: wrap in quotes if contains comma/quote/newline, escape quotes by doubling them
+- Export endpoints should bypass pagination to return all matching records
+- Content-Disposition header format: attachment; filename=name.ext triggers browser download
+- All admin routes generated by the factory automatically inherit admin auth middleware when mounted in admin.routes.ts
+---
+## OPS-004: Add bulk operations to CRUD factory
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-backend
+Details:
+- Added POST /bulk route to admin-crud.factory.ts for bulk creating multiple records
+- Implemented validation for body.records: must be non-empty array
+- POST /bulk inserts all records using db.insert(table).values(records) and returns success({ created: count })
+- Added DELETE /bulk route for bulk deleting records by IDs
+- Implemented validation for body.ids: must be non-empty array of strings
+- DELETE /bulk uses inArray operator on the primary key column to delete all matching records
+- Both endpoints return ValidationError (422) if validation fails
+- Added required imports: inArray from drizzle-orm and db from config/database.js
+- All local imports use .js extension (ESM requirement)
+- npm run build and npm run typecheck both pass
+Files changed:
+- src/routes/admin-crud.factory.ts (modified - added POST /bulk and DELETE /bulk routes)
+
+**Learnings for future iterations:**
+- Drizzle bulk insert pattern: db.insert(table).values(array) accepts an array of objects for bulk insertion
+- Drizzle bulk delete pattern: db.delete(table).where(inArray(primaryKeyColumn, idsArray)) for deleting multiple records
+- inArray operator from drizzle-orm is the equivalent of SQL's IN clause for array matching
+- ValidationError should be thrown for empty arrays or missing required fields in request body
+- For bulk operations, we can return the count of affected records directly from the array length
+---
+## OPS-005: Update CORS to allow ops dashboard origin
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-backend
+Details:
+- Updated CORS configuration in src/app.ts to support multiple comma-separated origins
+- Implemented origin parsing logic: splits CORS_ORIGIN by comma, trims whitespace, and creates a function to check against the allowed origins list
+- Maintains backward compatibility: when CORS_ORIGIN is '*', it passes the wildcard directly to the cors() middleware
+- When CORS_ORIGIN contains multiple origins (e.g., 'http://localhost:5173,http://localhost:3000'), the middleware now accepts requests from any origin in the list
+- The default CORS_ORIGIN value in src/config/env.ts remains '*' for backward compatibility with mobile clients
+- Preflight OPTIONS requests will receive correct Access-Control-Allow-Origin headers based on the requesting origin
+- All local imports use .js extension (ESM requirement)
+- npm run build and npm run typecheck both pass
+Files changed:
+- src/app.ts (modified - added CORS origin parsing logic)
+
+**Learnings for future iterations:**
+- Hono's cors() middleware accepts either a string or a function for the origin option
+- When using a function, it receives the origin string from the request and should return the origin to allow (or null/false to deny)
+- CORS origin parsing pattern: split by comma, trim whitespace, check against allowed list
+- The cors middleware credentials: true option allows cookies and credentials to be sent cross-origin
+- Wildcard '*' should be passed directly as a string, not as a function, for maximum compatibility
+---
+## OPS-006: Register admin CRUD routes for users table
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-backend
+Details:
+- Registered CRUD routes for the users table in src/routes/admin.routes.ts
+- Imported createAdminCrudRoutes from ./admin-crud.factory.js and users table from ../db/schema/index.js
+- Created users routes with config: tableName 'users', primaryKey 'id', searchableColumns ['email', 'displayName'], filterableColumns ['tier', 'authProvider'], sortableColumns ['email', 'displayName', 'tier', 'createdAt', 'updatedAt']
+- Mounted the users routes at /users path using adminRoutes.route('/users', usersRoutes)
+- Full path is now /v1/admin/users with all CRUD operations: GET /, GET /:id, POST /, PUT /:id, DELETE /:id, GET /export, POST /bulk, DELETE /bulk
+- Users can be searched by email and displayName with ?search=query parameter
+- Users can be filtered by tier and authProvider with ?filter_tier=value and ?filter_authProvider=value
+- Users can be sorted by email, displayName, tier, createdAt, updatedAt with ?sort=column:asc|desc
+- All local imports use .js extension (ESM requirement)
+- npm run build and npm run typecheck both pass
+Files changed:
+- src/routes/admin.routes.ts (modified - added users CRUD routes registration)
+
+**Learnings for future iterations:**
+- Route mounting pattern: adminRoutes.route('/path', subrouter) mounts a Hono sub-router at the specified path
+- The createAdminCrudRoutes factory returns a complete Hono router with all CRUD endpoints already configured
+- Since admin auth middleware is applied globally via adminRoutes.use('*', adminAuthMiddleware), all mounted sub-routes automatically inherit it
+- Column names in searchableColumns, filterableColumns, and sortableColumns should match the actual database column names (camelCase in the schema definition)
+- The users table has columns: id, email, displayName, avatarUrl, tier, passwordHash, authProvider, authProviderId, createdAt, updatedAt
+---
+## OPS-007: Register admin CRUD routes for stocks table
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-backend
+Details:
+- Registered CRUD routes for the stocks table in src/routes/admin.routes.ts
+- Imported stocks table from ../db/schema/index.js
+- Created stocks routes with config: tableName 'stocks', primaryKey 'id', searchableColumns ['ticker', 'name'], filterableColumns ['exchange', 'sector'], sortableColumns ['ticker', 'name', 'exchange', 'sector', 'marketCap', 'price', 'vetrScore', 'updatedAt']
+- Mounted the stocks routes at /stocks path using adminRoutes.route('/stocks', stocksRoutes)
+- Full path is now /v1/admin/stocks with all CRUD operations: GET /, GET /:id, POST /, PUT /:id, DELETE /:id, GET /export, POST /bulk, DELETE /bulk
+- Stocks can be searched by ticker and name with ?search=query parameter
+- Stocks can be filtered by exchange and sector with ?filter_exchange=value and ?filter_sector=value
+- Stocks can be sorted by ticker, name, exchange, sector, marketCap, price, vetrScore, updatedAt with ?sort=column:asc|desc
+- All local imports use .js extension (ESM requirement)
+- npm run build and npm run typecheck both pass
+Files changed:
+- src/routes/admin.routes.ts (modified - added stocks CRUD routes registration)
+
+**Learnings for future iterations:**
+- The stocks table has snake_case column names in the database (market_cap, price_change, vetr_score, updated_at) but camelCase in the Drizzle schema (marketCap, priceChange, vetrScore, updatedAt)
+- When configuring sortableColumns, filterableColumns, and searchableColumns, always use the camelCase names from the schema definition, not the database column names
+- The stocks table schema includes indexes on ticker, sector, and exchange for optimized filtering and searching
+- Double precision columns (marketCap, price, priceChange) and integer columns (vetrScore) can be used for sorting and filtering
+- The pattern for adding new table CRUD routes is consistent: import the table, create routes with createAdminCrudRoutes, mount with adminRoutes.route()
+---
+## OPS-008: Register admin CRUD routes for executives table
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-backend
+Details:
+- Registered CRUD routes for the executives table in src/routes/admin.routes.ts
+- Imported executives table from ../db/schema/index.js
+- Created executives routes with config: tableName 'executives', primaryKey 'id', searchableColumns ['name', 'title', 'specialization'], filterableColumns ['stockId'], sortableColumns ['name', 'title', 'yearsAtCompany', 'createdAt', 'updatedAt']
+- Mounted the executives routes at /executives path using adminRoutes.route('/executives', executivesRoutes)
+- Full path is now /v1/admin/executives with all CRUD operations: GET /, GET /:id, POST /, PUT /:id, DELETE /:id, GET /export, POST /bulk, DELETE /bulk
+- Executives can be searched by name, title, and specialization with ?search=query parameter
+- Executives can be filtered by stockId with ?filter_stockId=value
+- Executives can be sorted by name, title, yearsAtCompany, createdAt, updatedAt with ?sort=column:asc|desc
+- All local imports use .js extension (ESM requirement)
+- npm run build and npm run typecheck both pass
+Files changed:
+- src/routes/admin.routes.ts (modified - added executives CRUD routes registration)
+
+**Learnings for future iterations:**
+- The executives table has a foreign key reference to stocks via stockId, making it filterable by stock
+- The executives table includes JSONB column previousCompanies for storing array of previous company names
+- Searchable text columns include name, title, and specialization fields commonly used to find executives
+- yearsAtCompany is a double precision field that can be sorted for tenure-based filtering
+- Social media fields (socialLinkedin, socialTwitter) are available but not used for search/filter in the CRUD routes
+- The pattern remains consistent: import table, create routes with createAdminCrudRoutes, mount with adminRoutes.route()
+---
+## OPS-009: Register admin CRUD routes for filings table
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-backend
+Details:
+- Registered CRUD routes for the filings table in src/routes/admin.routes.ts
+- Imported filings table from ../db/schema/index.js
+- Created filings routes with config: tableName 'filings', primaryKey 'id', searchableColumns ['title', 'summary'], filterableColumns ['stockId', 'type', 'isMaterial'], sortableColumns ['title', 'type', 'date', 'isMaterial', 'createdAt']
+- Mounted the filings routes at /filings path using adminRoutes.route('/filings', filingsRoutes)
+- Full path is now /v1/admin/filings with all CRUD operations: GET /, GET /:id, POST /, PUT /:id, DELETE /:id, GET /export, POST /bulk, DELETE /bulk
+- Filings can be searched by title and summary with ?search=query parameter
+- Filings can be filtered by stockId, type, and isMaterial with ?filter_stockId=value, ?filter_type=value, and ?filter_isMaterial=value
+- Filings can be sorted by title, type, date, isMaterial, createdAt with ?sort=column:asc|desc
+- All local imports use .js extension (ESM requirement)
+- npm run build and npm run typecheck both pass
+Files changed:
+- src/routes/admin.routes.ts (modified - added filings CRUD routes registration)
+
+**Learnings for future iterations:**
+- The filings table has a foreign key reference to stocks via stockId, enabling filtering by stock
+- The filings table includes a boolean column isMaterial for marking important regulatory filings
+- The type column stores filing type strings (10-K, 10-Q, 8-K, Press Release, etc.) for categorization
+- title and summary are text fields suitable for ILIKE search operations
+- The date column (timestamp) can be sorted to show filings chronologically
+- The consistent pattern continues: import table, create routes with createAdminCrudRoutes, mount with adminRoutes.route()
+---
+## OPS-010: Register admin CRUD routes for alertRules table
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-backend
+Details:
+- Registered CRUD routes for the alertRules table in src/routes/admin.routes.ts
+- Imported alertRules table from ../db/schema/index.js
+- Created alertRules routes with config: tableName 'alert-rules', primaryKey 'id', searchableColumns ['stockTicker', 'ruleType'], filterableColumns ['userId', 'stockTicker', 'ruleType', 'isActive', 'frequency'], sortableColumns ['stockTicker', 'ruleType', 'isActive', 'createdAt', 'lastTriggeredAt']
+- Mounted the alertRules routes at /alert-rules path using adminRoutes.route('/alert-rules', alertRulesRoutes)
+- Full path is now /v1/admin/alert-rules with all CRUD operations: GET /, GET /:id, POST /, PUT /:id, DELETE /:id, GET /export, POST /bulk, DELETE /bulk
+- Alert rules can be searched by stockTicker and ruleType with ?search=query parameter
+- Alert rules can be filtered by userId, stockTicker, ruleType, isActive, and frequency with ?filter_userId=value, ?filter_stockTicker=value, ?filter_ruleType=value, ?filter_isActive=value, and ?filter_frequency=value
+- Alert rules can be sorted by stockTicker, ruleType, isActive, createdAt, lastTriggeredAt with ?sort=column:asc|desc
+- All local imports use .js extension (ESM requirement)
+- npm run build and npm run typecheck both pass
+Files changed:
+- src/routes/admin.routes.ts (modified - added alertRules CRUD routes registration)
+
+**Learnings for future iterations:**
+- The alertRules table has a foreign key reference to users via userId, enabling filtering by user
+- The alertRules table includes a JSONB column triggerConditions for storing complex rule conditions as JSON
+- The alertRules table has a boolean column isActive for enabling/disabling rules
+- The frequency column stores scheduling strings (instant, daily, weekly, etc.) for alert frequency
+- The lastTriggeredAt timestamp can be null and is sortable to show when rules were last triggered
+- The consistent pattern continues: import table, create routes with createAdminCrudRoutes, mount with adminRoutes.route()
+---
+## OPS-011: Register admin CRUD routes for alerts table
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-backend
+Details:
+- Registered CRUD routes for the alerts table in src/routes/admin.routes.ts
+- Imported alerts table from ../db/schema/index.js
+- Created alerts routes with config: tableName 'alerts', primaryKey 'id', searchableColumns ['title', 'message'], filterableColumns ['userId', 'stockId', 'alertType', 'isRead'], sortableColumns ['title', 'alertType', 'triggeredAt', 'isRead']
+- Mounted the alerts routes at /alerts path using adminRoutes.route('/alerts', alertsRoutes)
+- Full path is now /v1/admin/alerts with all CRUD operations: GET /, GET /:id, POST /, PUT /:id, DELETE /:id, GET /export, POST /bulk, DELETE /bulk
+- Alerts can be searched by title and message with ?search=query parameter
+- Alerts can be filtered by userId, stockId, alertType, and isRead with ?filter_userId=value, ?filter_stockId=value, ?filter_alertType=value, and ?filter_isRead=value
+- Alerts can be sorted by title, alertType, triggeredAt, isRead with ?sort=column:asc|desc
+- All local imports use .js extension (ESM requirement)
+- npm run build and npm run typecheck both pass
+Files changed:
+- src/routes/admin.routes.ts (modified - added alerts CRUD routes registration)
+
+**Learnings for future iterations:**
+- The alerts table has foreign key references to users, stocks, and alertRules via userId, stockId, and alertRuleId
+- The alerts table includes a boolean column isRead for tracking whether alerts have been viewed
+- The alertType column stores alert type strings (price_change, red_flag, filing, etc.) for categorization
+- title and message are text fields suitable for ILIKE search operations to find specific alerts
+- The triggeredAt timestamp can be sorted to show alerts chronologically
+- The consistent pattern continues: import table, create routes with createAdminCrudRoutes, mount with adminRoutes.route()
+---
+## OPS-012: Register admin CRUD routes for vetrScoreHistory table
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-backend
+Details:
+- Registered CRUD routes for the vetrScoreHistory table in src/routes/admin.routes.ts
+- Imported vetrScoreHistory table from ../db/schema/index.js
+- Created vetrScoreHistory routes with config: tableName 'vetr-score-history', primaryKey 'id', searchableColumns ['stockTicker'], filterableColumns ['stockTicker'], sortableColumns ['stockTicker', 'overallScore', 'pedigreeScore', 'filingVelocityScore', 'redFlagScore', 'growthScore', 'governanceScore', 'calculatedAt']
+- Mounted the vetrScoreHistory routes at /vetr-score-history path using adminRoutes.route('/vetr-score-history', vetrScoreHistoryRoutes)
+- Full path is now /v1/admin/vetr-score-history with all CRUD operations: GET /, GET /:id, POST /, PUT /:id, DELETE /:id, GET /export, POST /bulk, DELETE /bulk
+- VETR scores can be searched by stockTicker with ?search=query parameter
+- VETR scores can be filtered by stockTicker with ?filter_stockTicker=value
+- VETR scores can be sorted by stockTicker, overallScore, pedigreeScore, filingVelocityScore, redFlagScore, growthScore, governanceScore, calculatedAt with ?sort=column:asc|desc
+- All local imports use .js extension (ESM requirement)
+- npm run build and npm run typecheck both pass
+Files changed:
+- src/routes/admin.routes.ts (modified - added vetrScoreHistory CRUD routes registration)
+
+**Learnings for future iterations:**
+- The vetrScoreHistory table tracks historical VETR score calculations for stocks over time
+- The table has integer columns for all score components (overallScore, pedigreeScore, filingVelocityScore, redFlagScore, growthScore, governanceScore)
+- The table includes bonusPoints and penaltyPoints columns (integers with default 0) for score adjustments
+- stockTicker is a varchar(20) column and is the main filterable/searchable field for this table
+- calculatedAt timestamp can be sorted to show score calculations chronologically
+- The consistent pattern continues: import table from schema/index.js, create routes with createAdminCrudRoutes, mount with adminRoutes.route()
+---
+## OPS-013: Register admin CRUD routes for redFlagHistory table
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-backend
+Details:
+- Registered CRUD routes for the redFlagHistory table in src/routes/admin.routes.ts
+- Imported redFlagHistory table from ../db/schema/index.js
+- Created redFlagHistory routes with config: tableName 'red-flag-history', primaryKey 'id', searchableColumns ['stockTicker', 'description'], filterableColumns ['stockTicker', 'flagType', 'severity'], sortableColumns ['stockTicker', 'flagType', 'severity', 'score', 'detectedAt']
+- Mounted the redFlagHistory routes at /red-flag-history path using adminRoutes.route('/red-flag-history', redFlagHistoryRoutes)
+- Full path is now /v1/admin/red-flag-history with all CRUD operations: GET /, GET /:id, POST /, PUT /:id, DELETE /:id, GET /export, POST /bulk, DELETE /bulk
+- Red flags can be searched by stockTicker and description with ?search=query parameter
+- Red flags can be filtered by stockTicker, flagType, and severity with ?filter_stockTicker=value, ?filter_flagType=value, and ?filter_severity=value
+- Red flags can be sorted by stockTicker, flagType, severity, score, detectedAt with ?sort=column:asc|desc
+- All local imports use .js extension (ESM requirement)
+- npm run build and npm run typecheck both pass
+Files changed:
+- src/routes/admin.routes.ts (modified - added redFlagHistory CRUD routes registration)
+
+**Learnings for future iterations:**
+- The redFlagHistory table tracks detected red flags for stocks with severity levels (Low, Moderate, High, Critical)
+- The table includes columns: id (uuid), stockTicker (varchar), flagType (varchar), severity (varchar), score (double precision), description (text), detectedAt (timestamp)
+- stockTicker and description are text fields suitable for ILIKE search operations to find specific red flags
+- The severity column stores severity level strings for categorization and filtering
+- The flagType column stores red flag type strings (insider_selling, etc.) for categorization
+- The detectedAt timestamp can be sorted to show red flags chronologically
+- The consistent pattern continues: import table from schema/index.js, create routes with createAdminCrudRoutes, mount with adminRoutes.route()
+---
+## OPS-014: Register admin CRUD routes for syncHistory table
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-backend
+Details:
+- Registered CRUD routes for the syncHistory table in src/routes/admin.routes.ts
+- Imported syncHistory table from ../db/schema/index.js
+- Created syncHistory routes with config: tableName 'sync-history', primaryKey 'id', searchableColumns ['status'], filterableColumns ['userId', 'status'], sortableColumns ['startedAt', 'completedAt', 'itemsSynced', 'status']
+- Mounted the syncHistory routes at /sync-history path using adminRoutes.route('/sync-history', syncHistoryRoutes)
+- Full path is now /v1/admin/sync-history with all CRUD operations: GET /, GET /:id, POST /, PUT /:id, DELETE /:id, GET /export, POST /bulk, DELETE /bulk
+- Sync history records can be searched by status with ?search=query parameter
+- Sync history records can be filtered by userId and status with ?filter_userId=value and ?filter_status=value
+- Sync history records can be sorted by startedAt, completedAt, itemsSynced, status with ?sort=column:asc|desc
+- All local imports use .js extension (ESM requirement)
+- npm run build and npm run typecheck both pass
+Files changed:
+- src/routes/admin.routes.ts (modified - added syncHistory CRUD routes registration)
+
+**Learnings for future iterations:**
+- The syncHistory table tracks user sync operations with timestamps (startedAt, completedAt), itemsSynced count, status (pending, success, failed), and errors text
+- The table has a foreign key reference to users via userId, enabling filtering by user
+- The status column stores status strings ('pending', 'success', 'failed') for categorization and filtering
+- The errors column (text) can contain error messages for failed syncs
+- The completedAt timestamp can be null for in-progress syncs and is sortable
+- The consistent pattern continues: import table from schema/index.js, create routes with createAdminCrudRoutes, mount with adminRoutes.route()
+---
+## OPS-015: Register admin CRUD routes for userSettings table
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-backend
+Details:
+- Registered CRUD routes for the userSettings table in src/routes/admin.routes.ts
+- Imported userSettings table from ../db/schema/index.js (already exported in schema index)
+- Created userSettings routes with config: tableName 'user-settings', primaryKey 'id', searchableColumns [], filterableColumns ['userId'], sortableColumns ['updatedAt']
+- Mounted the userSettings routes at /user-settings path using adminRoutes.route('/user-settings', userSettingsRoutes)
+- Full path is now /v1/admin/user-settings with all CRUD operations: GET /, GET /:id, POST /, PUT /:id, DELETE /:id, GET /export, POST /bulk, DELETE /bulk
+- User settings can be filtered by userId with ?filter_userId=value
+- User settings can be sorted by updatedAt with ?sort=updatedAt:asc|desc
+- No searchable columns since settings are JSONB and userId is a UUID
+- All local imports use .js extension (ESM requirement)
+- npm run build and npm run typecheck both pass
+Files changed:
+- src/routes/admin.routes.ts (modified - added userSettings CRUD routes registration)
+
+**Learnings for future iterations:**
+- The userSettings table has a foreign key reference to users via userId with unique constraint (one settings record per user)
+- The userSettings table includes a JSONB column settings for storing arbitrary user preference data as a JSON object
+- The settings column has a default value of {} (empty object) and is not nullable
+- Since settings is a JSONB field, it's not suitable for ILIKE text search, so searchableColumns is empty
+- The updatedAt timestamp is the primary sortable field for this table
+- The consistent pattern continues: import table from schema/index.js, create routes with createAdminCrudRoutes, mount with adminRoutes.route()
+---
+## OPS-016: Register admin CRUD routes for refreshTokens table
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-backend
+Details:
+- Registered CRUD routes for the refreshTokens table in src/routes/admin.routes.ts
+- Imported refreshTokens table from ../db/schema/index.js (already exported from users.ts)
+- Created refreshTokens routes with config: tableName 'refresh-tokens', primaryKey 'id', searchableColumns [], filterableColumns ['userId', 'isRevoked'], sortableColumns ['expiresAt', 'isRevoked', 'createdAt']
+- Mounted the refreshTokens routes at /refresh-tokens path using adminRoutes.route('/refresh-tokens', refreshTokensRoutes)
+- Full path is now /v1/admin/refresh-tokens with all CRUD operations: GET /, GET /:id, POST /, PUT /:id, DELETE /:id, GET /export, POST /bulk, DELETE /bulk
+- Refresh tokens can be filtered by userId and isRevoked with ?filter_userId=value and ?filter_isRevoked=value
+- Refresh tokens can be sorted by expiresAt, isRevoked, createdAt with ?sort=column:asc|desc
+- No searchable columns since the table contains UUIDs and token hashes which are not suitable for ILIKE search
+- All local imports use .js extension (ESM requirement)
+- npm run build and npm run typecheck both pass
+Files changed:
+- src/routes/admin.routes.ts (modified - added refreshTokens CRUD routes registration)
+
+**Learnings for future iterations:**
+- The refreshTokens table has a foreign key reference to users via userId with cascade delete, enabling filtering by user
+- The refreshTokens table includes a boolean column isRevoked for marking tokens as revoked/invalid
+- The tokenHash column stores hashed refresh tokens (varchar 255) for authentication security
+- The expiresAt timestamp indicates when tokens expire and is sortable for cleanup operations
+- Tables containing only UUIDs, hashes, and timestamps should have empty searchableColumns array
+- The consistent pattern continues: import table from schema/index.js, create routes with createAdminCrudRoutes, mount with adminRoutes.route()
+---
+## OPS-017: Admin CRUD for composite primary key tables
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-backend
+Details:
+- Created src/routes/admin-composite-pk.routes.ts with custom routes for three composite PK tables
+- Implemented watchlistItems routes at /v1/admin/watchlist-items with GET / (list with pagination, filterable by userId and stockId), POST / (create with { userId, stockId }), DELETE / (delete by composite key)
+- Implemented filingReads routes at /v1/admin/filing-reads with GET / (list with pagination, filterable by userId and filingId), POST / (create with { userId, filingId }), DELETE / (delete by composite key)
+- Implemented redFlagAcknowledgments routes at /v1/admin/red-flag-acknowledgments with GET / (list with pagination, filterable by userId and redFlagId), POST / (create with { userId, redFlagId }), DELETE / (delete by composite key)
+- All list endpoints return paginated response format using paginated() helper with { success, data: { items, pagination }, meta }
+- POST endpoints return 201 status with created record wrapped in success()
+- DELETE endpoints return success({ deleted: true }) and throw NotFoundError if record not found
+- Used drizzle-orm's and(eq(column1, value1), eq(column2, value2)) for composite key lookups in WHERE clauses
+- Added db null checks at the start of each route handler to satisfy TypeScript strict null checking
+- Registered all three route groups in src/routes/admin.routes.ts with proper documentation comments
+- All local imports use .js extension (ESM requirement)
+- npm run build and npm run typecheck both pass
+Files changed:
+- src/routes/admin-composite-pk.routes.ts (created)
+- src/routes/admin.routes.ts (modified - imported and registered composite PK routes)
+
+**Learnings for future iterations:**
+- Composite primary key tables require custom routes instead of the generic factory since they lack a single 'id' column
+- Drizzle composite key pattern: and(eq(table.column1, value1), eq(table.column2, value2)) for WHERE clauses
+- DELETE endpoints for composite PK tables should accept the composite key fields in the request body (not URL params)
+- The db instance from config/database.ts can be null, so all route handlers need null checks: if (!db) throw new Error('Database not initialized')
+- For composite PK tables, pagination works the same way as single-PK tables using sql<number>\`count(*)::int\` for total count
+- All three composite PK tables have timestamp fields (addedAt, readAt, acknowledgedAt) which are good default sort fields using desc()
+- The pattern for composite PK routes: export named Hono router instances instead of calling createAdminCrudRoutes factory
+---
+## OPS-018: Specialized admin action endpoints
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-backend
+Details:
+- Added POST /v1/admin/users/:id/change-tier endpoint in src/routes/admin.routes.ts
+- Implemented tier validation (free, pro, premium) with ValidationError for invalid values
+- Endpoint updates user.tier column and returns { id, email, tier } in success response
+- Added POST /v1/admin/stocks/:ticker/recalculate-score endpoint
+- Implemented stock lookup by ticker with NotFoundError for non-existent stocks
+- Invokes calculateVetrScore() from vetr-score.service.ts to recalculate score
+- Updates stock.vetrScore field and creates new vetrScoreHistory record (done automatically by calculateVetrScore)
+- Returns full score result with overall_score, components, bonus_points, penalty_points, calculated_at
+- Added POST /v1/admin/seed/run endpoint
+- Imports and calls runAllSeeds() from db/seed/index.js
+- Returns success response with message and summary of seeded counts (stocks, filings, executives)
+- All three endpoints inherit admin auth protection from adminRoutes.use('*', adminAuthMiddleware)
+- All local imports use .js extension (ESM requirement)
+- npm run build and npm run typecheck both pass
+Files changed:
+- src/routes/admin.routes.ts (modified - added three specialized endpoints)
+
+**Learnings for future iterations:**
+- Specialized admin endpoints can be added directly in admin.routes.ts for operations that don't fit the CRUD pattern
+- The calculateVetrScore() function automatically saves to vetrScoreHistory and caches results, so no manual saving needed
+- The runAllSeeds() function from db/seed/index.js handles all seeding logic including clearing and re-seeding tables
+- When updating a stock's vetrScore field after recalculation, use db.update(stocks).set({ vetrScore }).where(eq(stocks.ticker, ticker))
+- ValidationError should be used for input validation failures (invalid enum values, etc.)
+- NotFoundError should be used when a resource doesn't exist (user ID, stock ticker, etc.)
+- Type casting is needed for TypeScript when setting enum-like fields: tier as 'free' | 'pro' | 'premium'
+- The seed endpoint can get counts after seeding by querying each table with db.select().from(table)
+---
+
+## OPS-019: Admin analytics endpoints
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-backend
+Details:
+- Added GET /v1/admin/analytics/user-growth endpoint that queries users table grouped by DATE(created_at) for last 90 days
+- Added GET /v1/admin/analytics/score-distribution endpoint that queries vetrScoreHistory for latest score per ticker, buckets scores into 5 ranges (0-20, 21-40, 41-60, 61-80, 81-100)
+- Added GET /v1/admin/analytics/red-flag-trends endpoint that queries redFlagHistory grouped by DATE(detected_at) and severity for last 30 days
+- Added GET /v1/admin/analytics/filing-activity endpoint that queries filings grouped by DATE(created_at) for last 30 days
+- Added GET /v1/admin/analytics/alert-activity endpoint that queries alerts grouped by DATE(triggered_at) for last 30 days
+- Added GET /v1/admin/analytics/tier-breakdown endpoint that queries users grouped by tier column
+- Added GET /v1/admin/analytics/stock-health endpoint that returns 10 stocks with lowest vetrScore and 10 stocks with most red flags
+- All 7 analytics endpoints implemented in src/routes/admin.routes.ts using raw SQL via drizzle-orm's sql template tag
+- All endpoints return data in the standard success() response format: { success: true, data: {...}, meta: {...} }
+- All endpoints inherit admin auth protection from adminRoutes.use('*', adminAuthMiddleware)
+- All local imports use .js extension (ESM requirement)
+- npm run build and npm run typecheck both pass
+Files changed:
+- src/routes/admin.routes.ts (modified - added 7 analytics endpoints)
+
+**Learnings for future iterations:**
+- Raw SQL queries in Drizzle: Use db.execute(sql`...`) for complex aggregations, GROUP BY, and window functions
+- The sql template tag from drizzle-orm allows embedding raw SQL while maintaining type safety
+- Cast PostgreSQL aggregates to int: COUNT(*)::int ensures integer return type instead of bigint
+- Date grouping pattern: DATE(column_name) groups timestamps by date, useful for time series charts
+- Window functions for latest records: SELECT DISTINCT ON (partition_column) ... ORDER BY partition_column, sort_column DESC gets the latest record per partition
+- CASE WHEN for bucketing: Use CASE WHEN score BETWEEN x AND y THEN 'range' to bucket numeric values into ranges
+- LEFT JOIN for counts: LEFT JOIN with COUNT gives zero counts for stocks with no red flags (vs INNER JOIN which excludes them)
+- All analytics queries return arrays mapped to { date, count }, { range, count }, or { ticker, name, score/count } shapes
+- PostgreSQL interval syntax: NOW() - INTERVAL '90 days' filters to last N days
+- The result.rows from db.execute() returns an array of objects that need to be mapped to the desired shape with type assertions (row: any)
+---
+## OPS-020: Initialize Vite React TypeScript project for ops dashboard
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-ops-dashboard
+Details:
+- Initialized new Vite React TypeScript project at /Users/manav/Space/code/vettr-ops-dashboard/
+- Created package.json with all required production dependencies: react, react-dom, react-router v7, @tanstack/react-query v5, recharts v2, axios, react-hot-toast
+- Created package.json with all required dev dependencies: @types/react, @types/react-dom, typescript, @vitejs/plugin-react, tailwindcss v4, @tailwindcss/vite, vite
+- Configured vite.config.ts with React plugin, @tailwindcss/vite plugin, and server proxy for /v1 forwarding to http://localhost:3000/v1 with changeOrigin: true
+- Set up TailwindCSS v4 in src/index.css using @import 'tailwindcss' directive (v4 uses CSS-based config instead of tailwind.config.js)
+- Created minimal src/App.tsx with centered content showing "VETTR Ops Dashboard" title and description using Tailwind classes (bg-gray-900, text-white, text-4xl, etc.)
+- Created src/main.tsx that renders App component into root element using ReactDOM.createRoot
+- Created tsconfig.json with React JSX transform (jsx: "react-jsx"), strict mode enabled, and bundler moduleResolution
+- Created tsconfig.node.json for Vite config compilation
+- Created index.html as entry point with root div and module script tag
+- Created .gitignore to exclude node_modules, dist, and editor files
+- npm run build passes successfully with TypeScript compilation and Vite production build
+Files changed:
+- package.json (created)
+- tsconfig.json (created)
+- tsconfig.node.json (created)
+- vite.config.ts (created)
+- index.html (created)
+- src/index.css (created)
+- src/App.tsx (created)
+- src/main.tsx (created)
+- .gitignore (created)
+
+**Learnings for future iterations:**
+- Vite project structure: index.html at root, src/ for source files, vite.config.ts for configuration
+- TailwindCSS v4 breaking change: Uses @import 'tailwindcss' in CSS instead of @tailwind directives from v3
+- TailwindCSS v4 uses @tailwindcss/vite plugin instead of PostCSS plugin architecture
+- React 18 with new JSX transform: No need to import React in component files, jsx: "react-jsx" in tsconfig handles it
+- TypeScript strict mode catches unused imports: Remove React import when not using React.createElement or React types
+- Vite proxy configuration pattern: server.proxy['/v1'] forwards API requests to backend, changeOrigin: true required for virtual hosts
+- React Router v7 is the latest version (successor to v6), installed via react-router package
+- @tanstack/react-query v5 is the latest version (formerly react-query), used for server state management
+- Frontend does NOT need .js extensions in imports (Vite/TypeScript handles resolution automatically, unlike backend ESM)
+- The frontend project uses a separate Git repository from the backend (separate commit history)
+- Frontend build command: tsc && vite build (TypeScript check first, then Vite bundle for production)
+---
+## OPS-021: Create API client with admin auth interceptor
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-ops-dashboard
+Details:
+- Created src/lib/api.ts with configured Axios API client
+- Created Axios instance with baseURL '/v1' (which Vite proxy forwards to localhost:3000/v1)
+- Implemented request interceptor that reads 'admin_secret' from sessionStorage and adds X-Admin-Secret header to every request
+- Implemented response interceptor that handles 401 status by clearing sessionStorage and redirecting to /login
+- Exported typed helper functions: apiGet<T>(), apiPost<T>(), apiPut<T>(), apiDelete<T>() that wrap the axios instance and return response.data typed as T
+- Exported the raw axios instance as default export for direct access when needed
+- All API calls will now automatically include the admin secret header and handle authentication failures
+- npm run build passes with no TypeScript errors
+Files changed:
+- src/lib/api.ts (created)
+
+**Learnings for future iterations:**
+- Axios interceptor patterns: request interceptor for adding headers, response interceptor for error handling
+- sessionStorage.getItem('admin_secret') retrieves the stored admin secret for authenticated requests
+- window.location.href = '/login' triggers a full page redirect (React Router will handle the /login route)
+- InternalAxiosRequestConfig type is used for request interceptor config parameter in Axios v1.x
+- AxiosError type provides typed error objects with response.status for status code checking
+- Helper functions that return response.data simplify API calls by unwrapping the Axios response envelope
+- Frontend does NOT need .js extensions in imports (unlike backend ESM requirement)
+- Vite proxy configuration in vite.config.ts handles forwarding /v1 requests to the backend server
+---
+
+## OPS-022: Create login page with admin secret authentication
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-ops-dashboard
+Details:
+- Created src/pages/Login.tsx with authentication form
+- Implemented password input field for admin secret with form validation
+- Implemented handleSubmit function that calls GET /v1/admin/metrics with X-Admin-Secret header to verify credentials
+- On successful authentication (200 response): stores secret in sessionStorage and navigates to '/' using React Router's useNavigate
+- On authentication failure (401/403): displays "Invalid admin secret" error message in red
+- On other errors: displays "Failed to connect to the server" error message
+- Implemented loading state with animated spinner and disabled button during authentication request
+- Styled with TailwindCSS: dark gray background (bg-gray-900), white card (bg-white rounded-lg shadow-xl), centered layout with flex
+- Form includes proper labels, focus states (focus:ring-2 focus:ring-blue-500), and disabled states
+- Button shows loading spinner animation during authentication with "Authenticating..." text
+- npm run build passes with no TypeScript errors
+Files changed:
+- src/pages/Login.tsx (created)
+
+**Learnings for future iterations:**
+- React Router v7: Use useNavigate hook from 'react-router' (not 'react-router-dom') for programmatic navigation
+- sessionStorage.setItem('admin_secret', secret) stores the admin secret for use in API interceptor
+- Axios error handling: err.response?.status provides HTTP status code, err.response?.data contains error details
+- Loading spinner pattern: Use animate-spin class on SVG for rotation animation, show loading text during async operations
+- Form disabled state: disabled={isLoading || !secret} prevents submission while loading or when input is empty
+- TailwindCSS focus states: focus:ring-2 focus:ring-blue-500 focus:border-blue-500 creates accessible focus indicators
+- Error display pattern: Conditional rendering with {error && <div>...</div>} shows errors only when present
+- Frontend imports: No .js extension needed (Vite handles module resolution automatically)
+- React Router v7 imports: 'react-router' package provides useNavigate, not 'react-router-dom'
+---
+
+## OPS-023: Create app layout with sidebar navigation
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-ops-dashboard
+Details:
+- Created src/components/Layout.tsx with responsive sidebar navigation
+- Implemented fixed-width sidebar (w-64) with navigation links for all 16 admin sections (Dashboard, Users, Stocks, Executives, Filings, Alert Rules, Alerts, Watchlist Items, VETR Scores, Red Flags, Red Flag Acks, Sync History, User Settings, Refresh Tokens, Filing Reads, Bulk Import)
+- Used React Router's NavLink component with active class highlighting (bg-blue-700 text-white for active, text-gray-300 for inactive)
+- Implemented header bar with dynamic page title based on current route using useLocation hook
+- Added Logout button that clears sessionStorage.removeItem('admin_secret') and navigates to /login
+- Implemented mobile-responsive sidebar: hidden by default on mobile (< 768px), toggleable via hamburger menu button
+- Added mobile overlay (bg-black bg-opacity-50) that closes sidebar when clicked outside
+- Used <Outlet /> from React Router to render child route components in main content area
+- Styled with TailwindCSS: dark sidebar (bg-gray-900 text-white), light content area (bg-gray-50), smooth transitions
+- npm run build passes with no TypeScript errors
+Files changed:
+- src/components/Layout.tsx (created)
+
+**Learnings for future iterations:**
+- React Router v7: NavLink component accepts className as a function that receives { isActive } for conditional styling
+- Mobile responsive pattern: Use transform translate-x classes with md: breakpoint prefix for sidebar visibility
+- Sidebar overlay pattern: Fixed overlay with z-index layering (sidebar z-50, overlay z-40, content z-0)
+- useState for sidebar toggle state: isSidebarOpen controls mobile sidebar visibility, hamburger button toggles it
+- Dynamic page titles: Create a pageTitles record mapping paths to titles, use useLocation().pathname to get current path
+- React Router v7 imports: useNavigate, useLocation, NavLink, Outlet all from 'react-router' package
+- TailwindCSS transition classes: transition-transform duration-300 ease-in-out for smooth sidebar animations
+- Logout pattern: Clear sessionStorage and use navigate('/login') for programmatic navigation
+- Frontend directory: All frontend commits should be made in /Users/manav/Space/code/vettr-ops-dashboard/
+---
+
+## OPS-024: Configure React Router with protected routes
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-ops-dashboard
+Details:
+- Created src/components/ProtectedRoute.tsx that checks sessionStorage for 'admin_secret'
+- Created src/router.tsx with createBrowserRouter from React Router v7
+- Defined unprotected /login route and all protected routes nested under ProtectedRoute and Layout components
+- Created 17 placeholder page components for all admin sections (Dashboard, Users, UserDetail, Stocks, Executives, Filings, AlertRules, Alerts, WatchlistItems, VetrScores, RedFlags, RedFlagAcks, SyncHistory, UserSettings, RefreshTokens, FilingReads, BulkImport)
+- All placeholder pages render basic heading and description with TailwindCSS styling
+- Updated src/App.tsx to use QueryClientProvider with configured QueryClient (5 min staleTime, no refetch on window focus, retry: 1)
+- Added RouterProvider with the router configuration
+- Added Toaster component from react-hot-toast for notifications
+- ProtectedRoute redirects to /login when admin_secret is not found in sessionStorage
+- Browser back/forward navigation works correctly with all routes
+- npm run build passes with no TypeScript errors
+Files changed:
+- src/components/ProtectedRoute.tsx (created)
+- src/router.tsx (created)
+- src/App.tsx (modified - replaced placeholder content with QueryClientProvider, RouterProvider, and Toaster)
+- src/pages/Dashboard.tsx (created)
+- src/pages/Users.tsx (created)
+- src/pages/UserDetail.tsx (created)
+- src/pages/Stocks.tsx (created)
+- src/pages/Executives.tsx (created)
+- src/pages/Filings.tsx (created)
+- src/pages/AlertRules.tsx (created)
+- src/pages/Alerts.tsx (created)
+- src/pages/WatchlistItems.tsx (created)
+- src/pages/VetrScores.tsx (created)
+- src/pages/RedFlags.tsx (created)
+- src/pages/RedFlagAcks.tsx (created)
+- src/pages/SyncHistory.tsx (created)
+- src/pages/UserSettings.tsx (created)
+- src/pages/RefreshTokens.tsx (created)
+- src/pages/FilingReads.tsx (created)
+- src/pages/BulkImport.tsx (created)
+
+**Learnings for future iterations:**
+- React Router v7: createBrowserRouter is the recommended way to create routers (not BrowserRouter with Routes)
+- ProtectedRoute pattern: Use <Navigate to="/login" replace /> to redirect unauthenticated users
+- React Router v7: Nested routes use Outlet component - ProtectedRoute and Layout both render <Outlet /> for their children
+- Route nesting: ProtectedRoute wraps Layout, Layout wraps all page routes - this creates the auth check → layout wrapper → page content hierarchy
+- React Router v7 imports: All router components (Navigate, Outlet, NavLink, useNavigate, useLocation) from 'react-router' package (not 'react-router-dom')
+- Default vs named exports: Layout and Login use default exports, so import them without curly braces
+- QueryClient configuration: Set staleTime to reduce unnecessary refetches, disable refetchOnWindowFocus for admin dashboards
+- Toaster positioning: Will be configured in later stories, but component must be included in App.tsx root
+- Placeholder pages pattern: Simple function components with heading and description text, all using export function syntax (named exports)
+- All frontend code compiles without .js extensions in imports (Vite handles module resolution automatically)
+---
