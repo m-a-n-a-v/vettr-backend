@@ -1233,3 +1233,22 @@ Details:
   - No Zod validation needed since GET endpoint has no request body or query params
   - Route follows same pattern as other route groups: Hono instance with Variables type, auth middleware
 ---
+
+## US-049: Register all CRUD routes on main app
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created src/routes/index.ts barrel export for all route groups
+  - Exports: healthRoutes, authRoutes, stockRoutes, filingRoutes, executiveRoutes, userRoutes, subscriptionRoutes
+- Updated src/app.ts to import all routes from barrel export instead of individual route files
+  - Replaced 7 individual imports with single barrel import from './routes/index.js'
+  - All 7 route groups remain mounted at their existing paths: /health, /auth, /stocks, /filings, /executives, /users, /subscription
+- All routes accessible under /v1/ prefix via app.basePath('/v1')
+- npm run build passes with zero errors
+- Files changed: src/routes/index.ts (created), src/app.ts (modified), scripts/ralph/prd.json (modified)
+- **Learnings for future iterations:**
+  - Barrel export in routes/index.ts centralizes all route imports for cleaner app.ts
+  - As new route groups are added (vetr-score, red-flags, alerts, watchlist, sync), add them to routes/index.ts and app.ts
+  - All existing route registrations were already in place from US-037 through US-048 — this story consolidates imports
+  - OpenAPI tags already defined for all planned route groups (including vetr-score, red-flags, alerts, watchlist, sync)
+---

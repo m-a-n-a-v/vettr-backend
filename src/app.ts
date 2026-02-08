@@ -5,13 +5,15 @@ import { logger } from 'hono/logger';
 import { errorHandler } from './middleware/error-handler.js';
 import { rateLimitMiddleware } from './middleware/rate-limit.js';
 import { env } from './config/env.js';
-import { healthRoutes } from './routes/health.routes.js';
-import { authRoutes } from './routes/auth.routes.js';
-import { stockRoutes } from './routes/stocks.routes.js';
-import { filingRoutes } from './routes/filings.routes.js';
-import { executiveRoutes } from './routes/executives.routes.js';
-import { userRoutes } from './routes/users.routes.js';
-import { subscriptionRoutes } from './routes/subscription.routes.js';
+import {
+  healthRoutes,
+  authRoutes,
+  stockRoutes,
+  filingRoutes,
+  executiveRoutes,
+  userRoutes,
+  subscriptionRoutes,
+} from './routes/index.js';
 import type { AuthUser } from './middleware/auth.js';
 
 // Define context variables type
