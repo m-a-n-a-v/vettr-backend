@@ -3,7 +3,7 @@ import { adminAuthMiddleware } from '../middleware/admin-auth.js';
 import { adminService } from '../services/admin.service.js';
 import { success } from '../utils/response.js';
 import { createAdminCrudRoutes } from './admin-crud.factory.js';
-import { users } from '../db/schema/index.js';
+import { users, stocks } from '../db/schema/index.js';
 
 const adminRoutes = new Hono();
 
@@ -47,5 +47,27 @@ const usersRoutes = createAdminCrudRoutes({
 });
 
 adminRoutes.route('/users', usersRoutes);
+
+/**
+ * CRUD routes for stocks table
+ * - GET /admin/stocks - List stocks with pagination, search, sort, and filters
+ * - GET /admin/stocks/:id - Get a single stock by ID
+ * - POST /admin/stocks - Create a new stock
+ * - PUT /admin/stocks/:id - Update a stock
+ * - DELETE /admin/stocks/:id - Delete a stock
+ * - GET /admin/stocks/export - Export stocks as CSV or JSON
+ * - POST /admin/stocks/bulk - Bulk create stocks
+ * - DELETE /admin/stocks/bulk - Bulk delete stocks
+ */
+const stocksRoutes = createAdminCrudRoutes({
+  tableName: 'stocks',
+  table: stocks,
+  primaryKey: 'id',
+  searchableColumns: ['ticker', 'name'],
+  filterableColumns: ['exchange', 'sector'],
+  sortableColumns: ['ticker', 'name', 'exchange', 'sector', 'marketCap', 'price', 'vetrScore', 'updatedAt'],
+});
+
+adminRoutes.route('/stocks', stocksRoutes);
 
 export { adminRoutes };
