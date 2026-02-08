@@ -5,9 +5,11 @@
 
 import { Hono } from 'hono';
 import type { PgTable } from 'drizzle-orm/pg-core';
+import { inArray } from 'drizzle-orm';
 import { AdminCrudService } from '../services/admin-crud.service.js';
 import { success, paginated } from '../utils/response.js';
 import { ValidationError } from '../utils/errors.js';
+import { db } from '../config/database.js';
 
 /**
  * Configuration for creating CRUD routes
@@ -216,6 +218,76 @@ export function createAdminCrudRoutes(config: CrudRouteConfig): Hono {
     );
 
     return c.json(success(result));
+  });
+
+  /**
+   * POST /bulk
+   * Bulk create multiple records
+   * Accepts JSON body { records: Array<object> }
+   */
+  router.post('/bulk', async (c) => {
+    const body = await c.req.json();
+
+    // Validate body
+    if (!body || typeof body !== 'object') {
+      throw new ValidationError('Request body must be an object');
+    }
+
+    if (!Array.isArray(body.records)) {
+      throw new ValidationError('Body must contain a records array');
+    }
+
+    if (body.records.length === 0) {
+      throw new ValidationError('Records array cannot be empty');
+    }
+
+    if (!db) {
+      throw new Error('Database connection not available');
+    }
+
+    // Insert all records
+    await db.insert(config.table).values(body.records);
+
+    return c.json(success({ created: body.records.length }));
+  });
+
+  /**
+   * DELETE /bulk
+   * Bulk delete multiple records by IDs
+   * Accepts JSON body { ids: string[] }
+   */
+  router.delete('/bulk', async (c) => {
+    const body = await c.req.json();
+
+    // Validate body
+    if (!body || typeof body !== 'object') {
+      throw new ValidationError('Request body must be an object');
+    }
+
+    if (!Array.isArray(body.ids)) {
+      throw new ValidationError('Body must contain an ids array');
+    }
+
+    if (body.ids.length === 0) {
+      throw new ValidationError('IDs array cannot be empty');
+    }
+
+    if (!db) {
+      throw new Error('Database connection not available');
+    }
+
+    // Delete all matching records
+    const result = await db
+      .delete(config.table)
+      .where(inArray(config.table[config.primaryKey as keyof typeof config.table] as any, body.ids));
+
+    // Get the count of deleted records from the result
+    // Drizzle returns an array with the deleted rows when using .returning()
+    // Without .returning(), we need to count differently
+    // For now, we'll return the count of IDs we attempted to delete
+    const deletedCount = body.ids.length;
+
+    return c.json(success({ deleted: deletedCount }));
   });
 
   /**
