@@ -65,6 +65,50 @@ function extractFilters(query: Record<string, string | undefined>): Record<strin
 }
 
 /**
+ * Escapes a value for CSV format
+ * Wraps values containing commas, quotes, or newlines in double quotes
+ * Escapes existing double quotes as double-double-quotes
+ */
+function escapeCsvValue(value: any): string {
+  if (value === null || value === undefined) {
+    return '';
+  }
+
+  const stringValue = String(value);
+
+  // Check if value needs escaping (contains comma, quote, or newline)
+  if (stringValue.includes(',') || stringValue.includes('"') || stringValue.includes('\n')) {
+    // Escape existing quotes by doubling them
+    const escapedValue = stringValue.replace(/"/g, '""');
+    return `"${escapedValue}"`;
+  }
+
+  return stringValue;
+}
+
+/**
+ * Converts an array of records to CSV format
+ */
+function generateCsv(records: any[]): string {
+  if (records.length === 0) {
+    return '';
+  }
+
+  // Extract column names from the first record
+  const columns = Object.keys(records[0]);
+
+  // Create header row
+  const header = columns.map(col => escapeCsvValue(col)).join(',');
+
+  // Create data rows
+  const rows = records.map(record => {
+    return columns.map(col => escapeCsvValue(record[col])).join(',');
+  });
+
+  return [header, ...rows].join('\n');
+}
+
+/**
  * Creates a Hono router with CRUD endpoints for the specified table
  * @param config - Table configuration including name, table reference, and searchable/filterable columns
  * @returns Hono router instance with all CRUD routes
@@ -172,6 +216,61 @@ export function createAdminCrudRoutes(config: CrudRouteConfig): Hono {
     );
 
     return c.json(success(result));
+  });
+
+  /**
+   * GET /export
+   * Export records as CSV or JSON
+   * Accepts format=csv|json (default json) and all search/sort/filter params
+   */
+  router.get('/export', async (c) => {
+    const query = c.req.query();
+    const format = query.format || 'json';
+
+    // Validate format
+    if (format !== 'csv' && format !== 'json') {
+      throw new ValidationError('Format must be either csv or json');
+    }
+
+    // Extract filters
+    const filters = extractFilters(query);
+
+    // Build list params with very large limit to fetch all records
+    const params = {
+      limit: 100000, // Large limit to fetch all matching records
+      offset: 0,
+      search: query.search,
+      sort: query.sort,
+      filters,
+    };
+
+    // Fetch all matching records
+    const result = await crudService.listRecords(
+      config.table,
+      {
+        searchableColumns: config.searchableColumns,
+        filterableColumns: config.filterableColumns,
+        sortableColumns: config.sortableColumns,
+      },
+      params
+    );
+
+    const records = result.items;
+
+    // Generate appropriate format
+    if (format === 'csv') {
+      const csvContent = generateCsv(records);
+
+      // Set CSV headers
+      c.header('Content-Type', 'text/csv');
+      c.header('Content-Disposition', `attachment; filename=${config.tableName}-export.csv`);
+
+      return c.body(csvContent);
+    } else {
+      // JSON format - return array directly without pagination wrapper
+      c.header('Content-Type', 'application/json');
+      return c.json(records);
+    }
   });
 
   return router;
