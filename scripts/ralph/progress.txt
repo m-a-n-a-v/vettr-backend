@@ -175,3 +175,72 @@ Details:
   - Refresh tokens stored hashed for security, never stored in plaintext
   - Token rotation requires new token generation and old token revocation on each refresh
 ---
+
+## US-008: Create stocks database schema
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created src/db/schema/stocks.ts with stocks table
+  - Columns: id (UUID PK), ticker (unique), name, exchange, sector, market_cap (double precision), price (double precision), price_change (double precision), vetr_score (integer), updated_at (timestamp)
+  - All column names use snake_case convention (market_cap, price_change, vetr_score, updated_at)
+- Added indexes on ticker, sector, and exchange for optimal query performance
+- Exported stocks table from src/db/schema/index.ts barrel export
+- npm run build passes with zero errors
+- Files changed: src/db/schema/stocks.ts (created), src/db/schema/index.ts (modified)
+- **Learnings for future iterations:**
+  - Drizzle's index() function takes table columns as parameters for creating indexes
+  - Use doublePrecision() for floating-point numbers (market_cap, price, price_change)
+  - Use integer() for whole numbers (vetr_score)
+  - ticker field is unique and indexed for fast lookups
+  - Indexes on sector and exchange enable efficient filtering and searching
+  - updatedAt timestamp uses defaultNow() for automatic timestamp management
+  - All schema files follow consistent pattern: pgTable definition with indexes callback
+---
+## US-009: Create filings and filing_reads database schema
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created src/db/schema/filings.ts with filings table
+  - Columns: id (UUID PK), stock_id (FK to stocks with CASCADE delete), type, title, date (timestamp), summary (text), is_material (boolean default false), source_url (nullable), created_at
+  - Supports multiple filing types: MD&A, Press Release, Financial Statements, Technical Report
+- Created filing_reads join table for per-user read tracking
+  - Composite primary key (user_id, filing_id) ensures one read record per user per filing
+  - Foreign keys to users and filings tables with CASCADE delete for automatic cleanup
+  - read_at timestamp tracks when user marked filing as read
+- Added indexes on stock_id and date for optimal query performance
+- Exported from schema/index.ts barrel export
+- npm run build passes with zero errors
+- Files changed: src/db/schema/filings.ts (created), src/db/schema/index.ts (modified), scripts/ralph/prd.json (modified)
+- **Learnings for future iterations:**
+  - Composite primary keys use primaryKey({ columns: [col1, col2] }) in table definition callback
+  - Join tables for many-to-many relationships use composite PKs instead of separate id column
+  - text() type in Drizzle for long-form content without length restrictions (better than varchar for summaries)
+  - Boolean fields with default values provide sensible defaults (is_material defaults to false)
+  - Foreign key CASCADE deletes ensure referential integrity (deleting stock removes all its filings)
+  - Indexes on foreign keys (stock_id) and frequently queried columns (date) improve query performance
+  - Per-user read status pattern: join table with user_id + entity_id composite PK
+---
+
+## US-010: Create executives database schema
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created src/db/schema/executives.ts with executives table
+  - Columns: id (UUID PK), stock_id (FK to stocks with CASCADE delete), name, title, years_at_company (double precision), previous_companies (jsonb array), education, specialization, social_linkedin (nullable), social_twitter (nullable), created_at, updated_at
+  - All column names use snake_case convention for consistency with database standards
+- Added indexes on stock_id and name for optimal query performance
+  - stock_id index enables efficient lookups of executives by company
+  - name index supports efficient search queries by executive name
+- Exported from schema/index.ts barrel export for clean imports
+- npm run build passes with zero errors
+- Files changed: src/db/schema/executives.ts (created), src/db/schema/index.ts (modified), scripts/ralph/prd.json (modified)
+- **Learnings for future iterations:**
+  - jsonb column type with .$type<string[]>() provides type-safe array storage in PostgreSQL
+  - previousCompanies uses JSONB to store array of company names for flexible career history tracking
+  - Double precision for yearsAtCompany allows fractional years (e.g., 2.5 years)
+  - Social media fields (LinkedIn, Twitter) are nullable since not all executives have public profiles
+  - Education and specialization are varchar fields with appropriate length constraints
+  - Foreign key CASCADE delete ensures executives are automatically removed when stock is deleted
+  - Default empty array [] for previousCompanies provides sensible default for new records
+  - Indexes on both foreign keys (stock_id) and searchable text fields (name) improve query performance
+---
