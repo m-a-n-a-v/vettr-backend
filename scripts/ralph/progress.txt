@@ -244,3 +244,52 @@ Details:
   - Default empty array [] for previousCompanies provides sensible default for new records
   - Indexes on both foreign keys (stock_id) and searchable text fields (name) improve query performance
 ---
+
+## US-011: Create alert_rules and alerts database schema
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created src/db/schema/alert-rules.ts with alert_rules table
+  - Columns: id (UUID PK), user_id (FK to users with CASCADE delete), stock_ticker, rule_type, trigger_conditions (jsonb), condition_operator (default 'AND'), frequency (default 'instant'), threshold (nullable double precision), is_active (default true), created_at, last_triggered_at (nullable)
+  - Supports flexible alert rules with JSONB trigger conditions for complex logic
+- Created src/db/schema/alerts.ts with alerts table
+  - Columns: id (UUID PK), user_id (FK to users with CASCADE delete), stock_id (FK to stocks with CASCADE delete), alert_rule_id (FK to alert_rules with SET NULL), alert_type, title, message (text), triggered_at, is_read (default false)
+  - alert_rule_id nullable allows manually-triggered alerts not associated with rules
+- Added indexes on user_id and stock_ticker for alert_rules table for optimal query performance
+- Added indexes on user_id, stock_id, and alert_rule_id for alerts table
+- Exported both schemas from schema/index.ts barrel export
+- npm run build passes with zero errors
+- Files changed: src/db/schema/alert-rules.ts (created), src/db/schema/alerts.ts (created), src/db/schema/index.ts (modified)
+- **Learnings for future iterations:**
+  - JSONB with .$type<Record<string, any>>() provides flexible storage for complex trigger conditions
+  - alert_rule_id uses 'set null' onDelete to preserve alert history even after rule deletion
+  - Separate alert_rules (configuration) from alerts (triggered events) enables rule reuse and historical tracking
+  - Indexed foreign keys (user_id, stock_id, alert_rule_id) ensure efficient queries for user alerts and stock-specific alerts
+  - doublePrecision for threshold field allows decimal values (e.g., price thresholds like 12.75)
+  - conditionOperator field enables AND/OR logic for multiple trigger conditions in a single rule
+  - frequency field supports different alert cadences: instant, daily, weekly, etc.
+  - isActive flag allows disabling rules without deletion, preserving configuration
+---
+---
+
+## US-012: Create watchlist_items database schema
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created src/db/schema/watchlists.ts with watchlist_items table
+  - Columns: user_id (UUID FK to users with CASCADE delete), stock_id (UUID FK to stocks with CASCADE delete), added_at (timestamp with defaultNow())
+  - Composite primary key (user_id, stock_id) ensures one watchlist entry per user per stock
+  - Foreign keys with CASCADE delete for automatic cleanup when user or stock is deleted
+- Added index on user_id for efficient "get user's watchlist" queries
+- Exported watchlistItems table from schema/index.ts barrel export
+- npm run build passes with zero errors
+- Files changed: src/db/schema/watchlists.ts (created), src/db/schema/index.ts (modified)
+- **Learnings for future iterations:**
+  - Watchlist uses many-to-many relationship pattern with composite PK on join table
+  - Tier limits (FREE=5, PRO=25, PREMIUM=unlimited) enforced at service layer, not database
+  - Composite primaryKey() syntax: primaryKey({ columns: [table.col1, table.col2] })
+  - Index on userId enables efficient filtering of watchlist items by user
+  - CASCADE delete on both foreign keys ensures referential integrity (removing user or stock cleans up watchlist entries)
+  - addedAt timestamp useful for "recently added" sorting and tracking when stocks were added to watchlist
+  - Pattern follows same conventions as filing_reads join table (composite PK, FKs with CASCADE)
+---
