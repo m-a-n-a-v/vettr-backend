@@ -1060,7 +1060,7 @@
         "Test POST /filings/:id/read marks as read"
       ],
       "priority": 75,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-076",

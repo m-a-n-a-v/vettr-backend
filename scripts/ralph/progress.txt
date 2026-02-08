@@ -1936,3 +1936,30 @@ Details:
   - Protected endpoints require Bearer token in Authorization header
   - Token enumeration attacks prevented by returning success even for invalid tokens in logout
 ---
+
+## US-075: Write integration tests for stock and filing endpoints
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created tests/integration/stocks.test.ts with comprehensive integration tests for stock and filing endpoints
+- Implemented 13 test cases covering all acceptance criteria:
+  - GET /stocks pagination, filtering by sector, sorting by vetr_score, and searching
+  - GET /stocks/search with query validation
+  - GET /stocks/:ticker with stock detail including executives and filings
+  - GET /filings pagination across all stocks
+  - GET /filings/:id with per-user read status
+  - POST /filings/:id/read to mark filings as read
+  - Authentication requirements for all protected endpoints
+- All tests use mocking pattern from auth integration tests (vi.mock for services)
+- Tests verify proper snake_case JSON responses and error handling
+- All 13 tests pass successfully
+- npm run build passes with zero errors
+- Files changed: tests/integration/stocks.test.ts (created)
+- **Learnings for future iterations:**
+  - Paginated responses use `data.data.items` and `data.data.pagination` structure (not `data.data` array)
+  - Integration tests follow the established pattern: mock services at module level, use vitest mocking
+  - Test helpers (createTestUser, createTestToken) simplify auth token generation
+  - Error messages in stderr during tests are expected when testing error cases (401, 404, 422)
+  - Service mocking allows testing route handlers without database dependencies
+  - Stock and filing DTOs properly map camelCase to snake_case in responses
+---
