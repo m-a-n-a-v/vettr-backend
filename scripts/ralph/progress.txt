@@ -933,3 +933,27 @@ Details:
   - sortColumnMap provides safe mapping from API sort parameter to actual Drizzle column reference
   - PaginationMeta.has_more calculated as offset + limit < total
 ---
+
+## US-037: Implement GET /v1/stocks endpoint
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created src/routes/stocks.routes.ts with GET /stocks endpoint
+  - Applied authMiddleware to all stock routes via stockRoutes.use('*', authMiddleware)
+  - Validates query params with Zod: limit (default 20), offset (default 0), sector, exchange, sort (enum), order (enum), search
+  - Clamps limit to 1-100 range and offset to 0+ for safety
+  - Calls getStocks() from stock.service.ts with parsed and typed query options
+  - Maps Drizzle camelCase fields to snake_case for API response (market_cap, price_change, vetr_score, updated_at)
+  - Returns paginated response using paginated() builder from utils/response.ts
+- Registered stock routes on main app in src/app.ts via app.route('/stocks', stockRoutes)
+- npm run build passes with zero errors
+- Files changed: src/routes/stocks.routes.ts (created), src/app.ts (modified)
+- **Learnings for future iterations:**
+  - Query params from Hono are always strings, need parseInt() for numeric values
+  - Zod schema validates query param format, but actual parsing/clamping done in handler for safety
+  - Sort/order params cast to union type with `as` after Zod validation ensures type safety
+  - paginated() helper from response.ts wraps items + pagination in standardized format
+  - Stock DTO mapping: Drizzle returns camelCase (marketCap, priceChange, vetrScore), API needs snake_case
+  - updatedAt.toISOString() converts Date to ISO 8601 string per API conventions
+  - Route pattern: use('*', authMiddleware) then define individual route handlers
+---
