@@ -2160,3 +2160,34 @@ Details:
   - Active users metric uses "created in last 30 days" as a proxy for activity
   - TypeScript nullable checks require explicit null handling before database operations
 ---
+
+## US-084: Add comprehensive API error documentation to OpenAPI spec
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Enhanced OpenAPI documentation in src/app.ts with comprehensive error documentation
+- Documented all 10 error codes with HTTP status codes and descriptions:
+  - AUTH_REQUIRED (401), AUTH_EXPIRED (401), AUTH_INVALID_CREDENTIALS (401)
+  - FORBIDDEN (403), TIER_LIMIT_EXCEEDED (403)
+  - NOT_FOUND (404), CONFLICT (409)
+  - VALIDATION_ERROR (422), RATE_LIMITED (429), INTERNAL_ERROR (500)
+- Added detailed error response format with JSON examples
+- Documented rate limiting by tier with table format:
+  - Unauthenticated: 5/min
+  - FREE: 60 reads/min, 30 writes/min
+  - PRO: 120 reads/min, 60 writes/min
+  - PREMIUM: 300 reads/min, 120 writes/min
+- Documented all rate limit headers (X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset, Retry-After)
+- Documented tier limits with feature comparison table (watchlist, sync, pulse)
+- Added authentication section explaining Bearer token usage
+- Added admin tag for admin endpoints documentation
+- Files changed: src/app.ts (modified)
+- **Learnings for future iterations:**
+  - OpenAPIHono's doc() method doesn't support 'components' property directly
+  - Documentation is best added to the 'description' field with markdown formatting
+  - Markdown tables render well in Swagger UI for tier comparisons
+  - JSON code blocks in markdown provide clear error response examples
+  - All error codes from utils/errors.ts should be documented in OpenAPI spec
+  - Rate limit headers documentation helps API consumers handle rate limiting properly
+  - Comprehensive error documentation reduces support burden and improves DX
+---
