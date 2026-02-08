@@ -1729,3 +1729,31 @@ Details:
   - Local_wins on non-existent entity creates new record with provided data
   - Strategy enforcement ensures data integrity (e.g., preventing client overwrites of server-authoritative data)
 ---
+
+## US-068: Implement sync API endpoints
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created src/routes/sync.routes.ts with three sync endpoints
+- POST /sync/pull - accepts last_synced_at and entities array, returns changes since timestamp
+- POST /sync/push - accepts changes array, processes and returns applied/conflicts
+- POST /sync/resolve - accepts resolutions array with strategy, returns resolved/failed items
+- All endpoints include Zod schema validation for request bodies
+- Validation errors return 422 VALIDATION_ERROR with detailed error information
+- Applied auth middleware to all sync routes (requires JWT authentication)
+- Tier-based rate limiting applied via global middleware
+- Registered sync routes on main app at /v1/sync/*
+- Updated routes/index.ts barrel export
+- npm run build passes with zero errors
+- Files changed: src/routes/sync.routes.ts (created), src/routes/index.ts (updated), src/app.ts (updated)
+- **Learnings for future iterations:**
+  - Zod schemas provide compile-time and runtime type safety for API endpoints
+  - datetime() validation ensures ISO 8601 timestamp format
+  - uuid() validation ensures valid UUID format for entity IDs
+  - enum() validation restricts values to allowed set (entities, actions, strategies)
+  - safeParse() allows custom error handling instead of throwing exceptions
+  - Auth middleware auto-injects user context (id, email, tier) into route handlers
+  - Global rate limiting middleware applies tier-based limits automatically
+  - Route registration order matters - more specific routes should be registered first
+  - Standardized error response format maintained across all validation failures
+---
