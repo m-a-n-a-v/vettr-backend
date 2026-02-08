@@ -3,7 +3,7 @@ import { adminAuthMiddleware } from '../middleware/admin-auth.js';
 import { adminService } from '../services/admin.service.js';
 import { success } from '../utils/response.js';
 import { createAdminCrudRoutes } from './admin-crud.factory.js';
-import { users, stocks, executives, filings, alertRules, alerts, vetrScoreHistory, redFlagHistory } from '../db/schema/index.js';
+import { users, stocks, executives, filings, alertRules, alerts, vetrScoreHistory, redFlagHistory, syncHistory } from '../db/schema/index.js';
 
 const adminRoutes = new Hono();
 
@@ -201,5 +201,27 @@ const redFlagHistoryRoutes = createAdminCrudRoutes({
 });
 
 adminRoutes.route('/red-flag-history', redFlagHistoryRoutes);
+
+/**
+ * CRUD routes for syncHistory table
+ * - GET /admin/sync-history - List sync history with pagination, search, sort, and filters
+ * - GET /admin/sync-history/:id - Get a single sync history record by ID
+ * - POST /admin/sync-history - Create a new sync history record
+ * - PUT /admin/sync-history/:id - Update a sync history record
+ * - DELETE /admin/sync-history/:id - Delete a sync history record
+ * - GET /admin/sync-history/export - Export sync history as CSV or JSON
+ * - POST /admin/sync-history/bulk - Bulk create sync history records
+ * - DELETE /admin/sync-history/bulk - Bulk delete sync history records
+ */
+const syncHistoryRoutes = createAdminCrudRoutes({
+  tableName: 'sync-history',
+  table: syncHistory,
+  primaryKey: 'id',
+  searchableColumns: ['status'],
+  filterableColumns: ['userId', 'status'],
+  sortableColumns: ['startedAt', 'completedAt', 'itemsSynced', 'status'],
+});
+
+adminRoutes.route('/sync-history', syncHistoryRoutes);
 
 export { adminRoutes };
