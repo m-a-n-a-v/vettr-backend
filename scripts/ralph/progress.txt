@@ -1828,3 +1828,28 @@ Details:
   - Tests can verify setup behavior by checking process.env values
   - Using crypto.randomUUID() in test helpers ensures unique test data across runs
 ---
+
+## US-071: Write unit tests for auth service
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created tests/unit/services/auth.service.test.ts with 20 comprehensive test cases
+- Tested createUser: valid data, duplicate email handling, database unavailable
+- Tested findByEmail: user found, user not found
+- Tested findByProviderId: provider match, provider mismatch, not found
+- Tested updateUser: profile field updates
+- Tested password utilities: hashing, comparison (correct and incorrect)
+- Tested JWT utilities: access token generation, verification, refresh token generation
+- Tested password validation: valid password, length requirement, uppercase requirement, number requirement
+- Tested storeRefreshToken: token storage and expiry
+- All 22 tests passing (including 2 placeholder tests from US-070)
+- npm run build passes with zero errors
+- Files changed: tests/unit/services/auth.service.test.ts (new)
+- **Learnings for future iterations:**
+  - Used vi.mock() to mock the database module for unit testing isolation
+  - createMockDb helper from db.helper.ts works well for mocking Drizzle queries
+  - Password and JWT utilities are pure functions, easy to test without mocks
+  - vitest runs fast with good output formatting
+  - Each test case should test a single behavior for clarity
+  - Database mock must be set up using vi.spyOn() on the db getter for each test
+---

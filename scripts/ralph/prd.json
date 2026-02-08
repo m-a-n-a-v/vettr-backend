@@ -1001,7 +1001,7 @@
         "At least 6 test cases passing"
       ],
       "priority": 71,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-072",
