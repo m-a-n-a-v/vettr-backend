@@ -1,7 +1,7 @@
-import { eq, ilike, or, sql, asc, desc } from 'drizzle-orm';
+import { eq, ilike, or, sql, asc, desc, and } from 'drizzle-orm';
 import { db } from '../config/database.js';
-import { stocks } from '../db/schema/index.js';
-import { InternalError } from '../utils/errors.js';
+import { stocks, executives, filings, watchlistItems } from '../db/schema/index.js';
+import { InternalError, NotFoundError } from '../utils/errors.js';
 import type { PaginationMeta } from '../types/pagination.js';
 
 export interface GetStocksOptions {
@@ -87,5 +87,81 @@ export async function getStocks(options: GetStocksOptions): Promise<GetStocksRes
       offset,
       has_more: offset + limit < total,
     },
+  };
+}
+
+export interface StockDetail {
+  stock: typeof stocks.$inferSelect;
+  executives_summary: {
+    total: number;
+    top: (typeof executives.$inferSelect)[];
+  };
+  recent_filings: (typeof filings.$inferSelect)[];
+  is_favorite: boolean;
+}
+
+export async function getStockByTicker(ticker: string, userId: string): Promise<StockDetail> {
+  if (!db) {
+    throw new InternalError('Database not available');
+  }
+
+  // Get stock by ticker
+  const stockResults = await db
+    .select()
+    .from(stocks)
+    .where(eq(stocks.ticker, ticker.toUpperCase()))
+    .limit(1);
+
+  const stock = stockResults[0];
+  if (!stock) {
+    throw new NotFoundError(`Stock with ticker '${ticker}' not found`);
+  }
+
+  // Get executives count and top 3
+  const [allExecutives, execCountResult] = await Promise.all([
+    db
+      .select()
+      .from(executives)
+      .where(eq(executives.stockId, stock.id))
+      .orderBy(desc(executives.yearsAtCompany))
+      .limit(3),
+    db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(executives)
+      .where(eq(executives.stockId, stock.id)),
+  ]);
+
+  const execTotal = execCountResult[0]?.count ?? 0;
+
+  // Get recent filings (last 5)
+  const recentFilings = await db
+    .select()
+    .from(filings)
+    .where(eq(filings.stockId, stock.id))
+    .orderBy(desc(filings.date))
+    .limit(5);
+
+  // Check if stock is in user's watchlist
+  const watchlistResult = await db
+    .select()
+    .from(watchlistItems)
+    .where(
+      and(
+        eq(watchlistItems.userId, userId),
+        eq(watchlistItems.stockId, stock.id)
+      )
+    )
+    .limit(1);
+
+  const isFavorite = watchlistResult.length > 0;
+
+  return {
+    stock,
+    executives_summary: {
+      total: execTotal,
+      top: allExecutives,
+    },
+    recent_filings: recentFilings,
+    is_favorite: isFavorite,
   };
 }

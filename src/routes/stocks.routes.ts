@@ -2,10 +2,15 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { validateQuery } from '../middleware/validator.js';
 import { authMiddleware } from '../middleware/auth.js';
-import { getStocks } from '../services/stock.service.js';
-import { paginated } from '../utils/response.js';
+import type { AuthUser } from '../middleware/auth.js';
+import { getStocks, getStockByTicker } from '../services/stock.service.js';
+import { paginated, success } from '../utils/response.js';
 
-const stockRoutes = new Hono();
+type Variables = {
+  user: AuthUser;
+};
+
+const stockRoutes = new Hono<{ Variables: Variables }>();
 
 // Apply auth middleware to all stock routes
 stockRoutes.use('*', authMiddleware);
@@ -53,6 +58,61 @@ stockRoutes.get('/', validateQuery(getStocksQuerySchema), async (c) => {
   }));
 
   return c.json(paginated(stockDtos, result.pagination), 200);
+});
+
+// GET /stocks/:ticker - Get stock detail with executives summary, recent filings, and watchlist status
+stockRoutes.get('/:ticker', async (c) => {
+  const ticker = c.req.param('ticker');
+  const user = c.get('user');
+
+  const detail = await getStockByTicker(ticker, user.id);
+
+  const stockDto = {
+    id: detail.stock.id,
+    ticker: detail.stock.ticker,
+    name: detail.stock.name,
+    exchange: detail.stock.exchange,
+    sector: detail.stock.sector,
+    market_cap: detail.stock.marketCap,
+    price: detail.stock.price,
+    price_change: detail.stock.priceChange,
+    vetr_score: detail.stock.vetrScore,
+    updated_at: detail.stock.updatedAt.toISOString(),
+  };
+
+  const executivesDtos = detail.executives_summary.top.map((exec) => ({
+    id: exec.id,
+    name: exec.name,
+    title: exec.title,
+    years_at_company: exec.yearsAtCompany,
+    previous_companies: exec.previousCompanies,
+    education: exec.education,
+    specialization: exec.specialization,
+    social_linkedin: exec.socialLinkedin,
+    social_twitter: exec.socialTwitter,
+  }));
+
+  const filingsDtos = detail.recent_filings.map((filing) => ({
+    id: filing.id,
+    stock_id: filing.stockId,
+    type: filing.type,
+    title: filing.title,
+    date: filing.date.toISOString(),
+    summary: filing.summary,
+    is_material: filing.isMaterial,
+    source_url: filing.sourceUrl,
+    created_at: filing.createdAt.toISOString(),
+  }));
+
+  return c.json(success({
+    ...stockDto,
+    executives_summary: {
+      total: detail.executives_summary.total,
+      top: executivesDtos,
+    },
+    recent_filings: filingsDtos,
+    is_favorite: detail.is_favorite,
+  }), 200);
 });
 
 export { stockRoutes };
