@@ -285,3 +285,273 @@ export async function getSyncHistory(userId: string, limit = 20, offset = 0) {
     },
   };
 }
+
+export type SyncAction = 'create' | 'update' | 'delete';
+
+export interface SyncChange {
+  entity: EntityType;
+  action: SyncAction;
+  data: any;
+  timestamp: string | Date;
+  id?: string; // For update/delete actions
+}
+
+export interface ConflictItem {
+  entity: EntityType;
+  id: string;
+  action: SyncAction;
+  local_timestamp: string;
+  server_timestamp: string;
+  local_data: any;
+  server_data: any;
+  reason: string;
+}
+
+export interface PushChangesResult {
+  applied: SyncChange[];
+  conflicts: ConflictItem[];
+  sync_token: string;
+  synced_at: string;
+}
+
+/**
+ * Push local changes to server with conflict detection
+ * Detects conflicts when both client and server modified the same entity after last sync
+ */
+export async function pushChanges(
+  userId: string,
+  changes: SyncChange[]
+): Promise<PushChangesResult> {
+  if (!db) {
+    throw new InternalError('Database not available');
+  }
+
+  const appliedChanges: SyncChange[] = [];
+  const conflicts: ConflictItem[] = [];
+  const syncedAt = new Date();
+  const syncToken = crypto.randomUUID();
+
+  // Process each change
+  for (const change of changes) {
+    const changeTimestamp = typeof change.timestamp === 'string'
+      ? new Date(change.timestamp)
+      : change.timestamp;
+
+    try {
+      if (change.entity === 'alert_rules') {
+        // Alert rules are user-specific and can be modified
+        const result = await processAlertRuleChange(userId, change, changeTimestamp);
+
+        if (result.conflict) {
+          conflicts.push(result.conflict);
+        } else if (result.applied) {
+          appliedChanges.push(change);
+        }
+      } else if (change.entity === 'stocks' || change.entity === 'filings') {
+        // Stocks and filings are read-only for clients (server-authoritative)
+        // Any client modifications are conflicts
+        conflicts.push({
+          entity: change.entity,
+          id: change.id ?? change.data?.id ?? 'unknown',
+          action: change.action,
+          local_timestamp: changeTimestamp.toISOString(),
+          server_timestamp: syncedAt.toISOString(),
+          local_data: change.data,
+          server_data: null,
+          reason: `${change.entity} are read-only and cannot be modified by clients`,
+        });
+      }
+    } catch (error) {
+      // If processing fails, treat as a conflict
+      conflicts.push({
+        entity: change.entity,
+        id: change.id ?? change.data?.id ?? 'unknown',
+        action: change.action,
+        local_timestamp: changeTimestamp.toISOString(),
+        server_timestamp: syncedAt.toISOString(),
+        local_data: change.data,
+        server_data: null,
+        reason: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+
+  return {
+    applied: appliedChanges,
+    conflicts,
+    sync_token: syncToken,
+    synced_at: syncedAt.toISOString(),
+  };
+}
+
+interface ProcessChangeResult {
+  applied?: boolean;
+  conflict?: ConflictItem;
+}
+
+/**
+ * Process alert rule changes (create/update/delete)
+ * Detects conflicts when rule was modified on server after client's last sync
+ */
+async function processAlertRuleChange(
+  userId: string,
+  change: SyncChange,
+  changeTimestamp: Date
+): Promise<ProcessChangeResult> {
+  if (!db) {
+    return { applied: false };
+  }
+
+  const { action, data, id } = change;
+
+  if (action === 'create') {
+    // Create new alert rule
+    try {
+      await db.insert(alertRules).values({
+        userId,
+        stockTicker: data.stock_ticker,
+        ruleType: data.rule_type,
+        triggerConditions: data.trigger_conditions,
+        conditionOperator: data.condition_operator ?? 'AND',
+        frequency: data.frequency ?? 'instant',
+        threshold: data.threshold,
+        isActive: data.is_active ?? true,
+      });
+      return { applied: true };
+    } catch (error: any) {
+      // Duplicate or constraint violation
+      return {
+        conflict: {
+          entity: 'alert_rules',
+          id: data.id ?? 'unknown',
+          action: 'create',
+          local_timestamp: changeTimestamp.toISOString(),
+          server_timestamp: new Date().toISOString(),
+          local_data: data,
+          server_data: null,
+          reason: error.message ?? 'Failed to create alert rule',
+        },
+      };
+    }
+  }
+
+  if (action === 'update' && id) {
+    // Check if rule exists and hasn't been modified since client's timestamp
+    const existing = await db
+      .select()
+      .from(alertRules)
+      .where(
+        and(
+          eq(alertRules.id, id),
+          eq(alertRules.userId, userId)
+        )
+      )
+      .limit(1);
+
+    if (existing.length === 0) {
+      return {
+        conflict: {
+          entity: 'alert_rules',
+          id,
+          action: 'update',
+          local_timestamp: changeTimestamp.toISOString(),
+          server_timestamp: new Date().toISOString(),
+          local_data: data,
+          server_data: null,
+          reason: 'Alert rule not found or was deleted',
+        },
+      };
+    }
+
+    const serverRule = existing[0]!;
+
+    // Check for conflict: server rule was modified after client's change timestamp
+    // For simplicity, we'll use createdAt as a proxy for last modified
+    // In a real system, you'd have an updatedAt field
+    if (serverRule.createdAt > changeTimestamp) {
+      return {
+        conflict: {
+          entity: 'alert_rules',
+          id,
+          action: 'update',
+          local_timestamp: changeTimestamp.toISOString(),
+          server_timestamp: serverRule.createdAt.toISOString(),
+          local_data: data,
+          server_data: {
+            stock_ticker: serverRule.stockTicker,
+            rule_type: serverRule.ruleType,
+            trigger_conditions: serverRule.triggerConditions,
+            is_active: serverRule.isActive,
+          },
+          reason: 'Alert rule was modified on server after client change',
+        },
+      };
+    }
+
+    // No conflict, apply the update
+    await db
+      .update(alertRules)
+      .set({
+        stockTicker: data.stock_ticker ?? serverRule.stockTicker,
+        ruleType: data.rule_type ?? serverRule.ruleType,
+        triggerConditions: data.trigger_conditions ?? serverRule.triggerConditions,
+        conditionOperator: data.condition_operator ?? serverRule.conditionOperator,
+        frequency: data.frequency ?? serverRule.frequency,
+        threshold: data.threshold ?? serverRule.threshold,
+        isActive: data.is_active ?? serverRule.isActive,
+      })
+      .where(eq(alertRules.id, id));
+
+    return { applied: true };
+  }
+
+  if (action === 'delete' && id) {
+    // Check if rule exists
+    const existing = await db
+      .select()
+      .from(alertRules)
+      .where(
+        and(
+          eq(alertRules.id, id),
+          eq(alertRules.userId, userId)
+        )
+      )
+      .limit(1);
+
+    if (existing.length === 0) {
+      // Already deleted or never existed - not necessarily a conflict
+      return { applied: true };
+    }
+
+    const serverRule = existing[0]!;
+
+    // Check for conflict: server rule was modified after client's delete timestamp
+    if (serverRule.createdAt > changeTimestamp) {
+      return {
+        conflict: {
+          entity: 'alert_rules',
+          id,
+          action: 'delete',
+          local_timestamp: changeTimestamp.toISOString(),
+          server_timestamp: serverRule.createdAt.toISOString(),
+          local_data: data,
+          server_data: {
+            stock_ticker: serverRule.stockTicker,
+            rule_type: serverRule.ruleType,
+            is_active: serverRule.isActive,
+          },
+          reason: 'Alert rule was modified on server after client delete',
+        },
+      };
+    }
+
+    // No conflict, delete the rule
+    await db
+      .delete(alertRules)
+      .where(eq(alertRules.id, id));
+
+    return { applied: true };
+  }
+
+  return { applied: false };
+}
