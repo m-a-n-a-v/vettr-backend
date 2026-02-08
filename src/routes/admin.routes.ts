@@ -3,7 +3,7 @@ import { adminAuthMiddleware } from '../middleware/admin-auth.js';
 import { adminService } from '../services/admin.service.js';
 import { success } from '../utils/response.js';
 import { createAdminCrudRoutes } from './admin-crud.factory.js';
-import { users, stocks, executives, filings, alertRules, alerts, vetrScoreHistory } from '../db/schema/index.js';
+import { users, stocks, executives, filings, alertRules, alerts, vetrScoreHistory, redFlagHistory } from '../db/schema/index.js';
 
 const adminRoutes = new Hono();
 
@@ -179,5 +179,27 @@ const vetrScoreHistoryRoutes = createAdminCrudRoutes({
 });
 
 adminRoutes.route('/vetr-score-history', vetrScoreHistoryRoutes);
+
+/**
+ * CRUD routes for redFlagHistory table
+ * - GET /admin/red-flag-history - List red flags with pagination, search, sort, and filters
+ * - GET /admin/red-flag-history/:id - Get a single red flag by ID
+ * - POST /admin/red-flag-history - Create a new red flag
+ * - PUT /admin/red-flag-history/:id - Update a red flag
+ * - DELETE /admin/red-flag-history/:id - Delete a red flag
+ * - GET /admin/red-flag-history/export - Export red flags as CSV or JSON
+ * - POST /admin/red-flag-history/bulk - Bulk create red flags
+ * - DELETE /admin/red-flag-history/bulk - Bulk delete red flags
+ */
+const redFlagHistoryRoutes = createAdminCrudRoutes({
+  tableName: 'red-flag-history',
+  table: redFlagHistory,
+  primaryKey: 'id',
+  searchableColumns: ['stockTicker', 'description'],
+  filterableColumns: ['stockTicker', 'flagType', 'severity'],
+  sortableColumns: ['stockTicker', 'flagType', 'severity', 'score', 'detectedAt'],
+});
+
+adminRoutes.route('/red-flag-history', redFlagHistoryRoutes);
 
 export { adminRoutes };
