@@ -8,6 +8,8 @@ import {
   updateRule,
   deleteRule,
   getRulesForUser,
+  getRulesForStock,
+  toggleActive,
 } from '../services/alert-rule.service.js';
 import { success } from '../utils/response.js';
 
@@ -114,6 +116,39 @@ alertRoutes.delete('/rules/:id', async (c) => {
   await deleteRule(ruleId, user.id);
 
   return c.json(success({ deleted: true }), 200);
+});
+
+// POST /alerts/rules/:id/enable - Enable alert rule
+alertRoutes.post('/rules/:id/enable', async (c) => {
+  const user = c.get('user');
+  const ruleId = c.req.param('id');
+
+  const rule = await toggleActive(ruleId, user.id, true);
+  const ruleDto = toAlertRuleDto(rule);
+
+  return c.json(success(ruleDto), 200);
+});
+
+// POST /alerts/rules/:id/disable - Disable alert rule
+alertRoutes.post('/rules/:id/disable', async (c) => {
+  const user = c.get('user');
+  const ruleId = c.req.param('id');
+
+  const rule = await toggleActive(ruleId, user.id, false);
+  const ruleDto = toAlertRuleDto(rule);
+
+  return c.json(success(ruleDto), 200);
+});
+
+// GET /stocks/:ticker/alerts/rules - Get all alert rules for a specific stock
+alertRoutes.get('/stocks/:ticker/rules', async (c) => {
+  const user = c.get('user');
+  const ticker = c.req.param('ticker');
+
+  const rules = await getRulesForStock(user.id, ticker);
+  const rulesDto = rules.map(toAlertRuleDto);
+
+  return c.json(success(rulesDto), 200);
 });
 
 export { alertRoutes };
