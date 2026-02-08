@@ -1559,3 +1559,29 @@ Details:
   - stockTicker normalized to uppercase on create and search for consistency
   - The alertRules schema has indexes on userId and stockTicker for efficient lookups
 ---
+
+## US-061: Implement alert rule CRUD endpoints
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created src/routes/alerts.routes.ts with complete CRUD implementation
+- Implemented GET /alerts/rules - lists all alert rules for authenticated user
+- Implemented POST /alerts/rules - creates new alert rule with validation (limit + duplicates)
+- Implemented PUT /alerts/rules/:id - updates existing rule with ownership validation
+- Implemented DELETE /alerts/rules/:id - deletes rule with ownership validation
+- All endpoints use proper snake_case JSON responses
+- Applied auth middleware to all alert routes
+- Registered alert routes on main app at /v1/alerts
+- Added alertRoutes export to routes/index.ts
+- npm run build passes with zero errors
+- Files changed: src/routes/alerts.routes.ts (created), src/routes/index.ts, src/app.ts
+- **Learnings for future iterations:**
+  - Alert service already had all CRUD operations implemented (createRule, updateRule, deleteRule, getRulesForUser)
+  - Service enforces MAX_RULES_PER_USER (50) with TierLimitError
+  - Service detects duplicate rules (same user + stock + type) with ConflictError
+  - Service validates ownership on update/delete with ForbiddenError
+  - DTO conversion helper (toAlertRuleDto) ensures consistent snake_case response format
+  - Zod schemas validate request body with proper types (enum for condition_operator and frequency)
+  - All timestamps converted to ISO strings in response
+  - Pattern follows users.routes.ts structure with validateBody middleware
+---
