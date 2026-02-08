@@ -1,8 +1,9 @@
-import { eq, desc, and, gte } from 'drizzle-orm';
+import { eq, desc, and, gte, sql } from 'drizzle-orm';
 import { db } from '../config/database.js';
 import { stocks, filings, executives, redFlagHistory } from '../db/schema/index.js';
 import { InternalError, NotFoundError } from '../utils/errors.js';
 import * as cache from './cache.service.js';
+import type { PaginationMeta } from '../types/pagination.js';
 
 // Types for data rows
 type StockRow = typeof stocks.$inferSelect;
@@ -603,4 +604,87 @@ async function saveRedFlagsToHistory(
     // Log but don't fail the detection if history save fails
     console.error(`Failed to save red flag history for ${stockTicker}:`, error);
   }
+}
+
+// --- History Query Functions ---
+
+/**
+ * Get paginated red flag history for a specific stock ticker.
+ */
+export async function getRedFlagHistoryForStock(
+  ticker: string,
+  options: { limit: number; offset: number },
+): Promise<{ flags: (typeof redFlagHistory.$inferSelect)[]; pagination: PaginationMeta }> {
+  const upperTicker = ticker.toUpperCase();
+
+  // Verify the stock exists
+  const stock = await getStockByTicker(upperTicker);
+  if (!stock) {
+    throw new NotFoundError(`Stock with ticker '${upperTicker}' not found`);
+  }
+
+  if (!db) {
+    throw new InternalError('Database not available');
+  }
+
+  const [countResult, flags] = await Promise.all([
+    db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(redFlagHistory)
+      .where(eq(redFlagHistory.stockTicker, upperTicker)),
+    db
+      .select()
+      .from(redFlagHistory)
+      .where(eq(redFlagHistory.stockTicker, upperTicker))
+      .orderBy(desc(redFlagHistory.detectedAt))
+      .limit(options.limit)
+      .offset(options.offset),
+  ]);
+
+  const total = countResult[0]?.count ?? 0;
+
+  return {
+    flags,
+    pagination: {
+      total,
+      limit: options.limit,
+      offset: options.offset,
+      has_more: options.offset + options.limit < total,
+    },
+  };
+}
+
+/**
+ * Get paginated global red flag history across all stocks.
+ */
+export async function getGlobalRedFlagHistory(
+  options: { limit: number; offset: number },
+): Promise<{ flags: (typeof redFlagHistory.$inferSelect)[]; pagination: PaginationMeta }> {
+  if (!db) {
+    throw new InternalError('Database not available');
+  }
+
+  const [countResult, flags] = await Promise.all([
+    db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(redFlagHistory),
+    db
+      .select()
+      .from(redFlagHistory)
+      .orderBy(desc(redFlagHistory.detectedAt))
+      .limit(options.limit)
+      .offset(options.offset),
+  ]);
+
+  const total = countResult[0]?.count ?? 0;
+
+  return {
+    flags,
+    pagination: {
+      total,
+      limit: options.limit,
+      offset: options.offset,
+      has_more: options.offset + options.limit < total,
+    },
+  };
 }

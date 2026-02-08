@@ -14,6 +14,8 @@ import {
   userRoutes,
   subscriptionRoutes,
   vetrScoreRoutes,
+  redFlagStockRoutes,
+  redFlagGlobalRoutes,
 } from './routes/index.js';
 import type { AuthUser } from './middleware/auth.js';
 
@@ -91,6 +93,8 @@ app.route('/health', healthRoutes);
 app.route('/auth', authRoutes);
 app.route('/stocks', stockRoutes);
 app.route('/stocks', vetrScoreRoutes);
+app.route('/stocks', redFlagStockRoutes);
+app.route('/red-flags', redFlagGlobalRoutes);
 app.route('/filings', filingRoutes);
 app.route('/executives', executiveRoutes);
 app.route('/users', userRoutes);
