@@ -1652,3 +1652,26 @@ Details:
   - Returns full stock data with added_at timestamp for each watchlist item
   - Follows established pattern: Hono route group with auth middleware, calls service layer, returns standardized success response
 ---
+
+## US-065: Create sync service - pull changes
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created src/services/sync.service.ts with pullChanges implementation
+- Implemented tier-based sync frequency enforcement (FREE: 24h, PRO: 12h, PREMIUM: 4h)
+- Support for entity types: stocks, filings, alert_rules
+- Returns sync_token (UUID) and synced_at timestamp with all changes since last sync
+- Tracks sync operations in sync_history table with status (pending/success/failed)
+- Created getSyncHistory helper function for retrieving user sync logs
+- npm run build passes with zero errors
+- Files changed: src/services/sync.service.ts (created)
+- **Learnings for future iterations:**
+  - Sync frequency enforcement uses last successful sync timestamp from sync_history table
+  - Changes are organized by entity type with updated/deleted arrays (deleted arrays currently empty as soft-delete not implemented)
+  - All timestamps returned as ISO 8601 strings for consistency
+  - Sync history record created at start with 'pending' status, updated to 'success'/'failed' on completion
+  - Error handling captures errors in sync_history.errors field for debugging
+  - Used crypto.randomUUID() for sync_token generation (Node.js 20+ built-in)
+  - Enforced tier limits by comparing hours since last sync with tier-specific thresholds
+  - ForbiddenError thrown with detailed error context when sync frequency limit exceeded
+---
