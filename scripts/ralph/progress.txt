@@ -347,3 +347,30 @@ Details:
   - All tables follow established patterns: UUID PKs with defaultRandom(), snake_case column names, appropriate indexes
   - Text type for errors field allows storing detailed error messages from failed sync operations
 ---
+
+## US-015: Create Zod request validation middleware
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created src/middleware/validator.ts with comprehensive Zod validation middleware
+- Implemented zValidator() factory function that validates request body, query params, or route params
+- Returns 422 VALIDATION_ERROR with structured error details on validation failure
+- Supports all three validation targets: 'body', 'query', and 'params'
+- Added convenience functions: validateBody(), validateQuery(), validateParams()
+- Error handling includes:
+  - Zod validation errors with formatted issues (path, message, code)
+  - JSON parsing errors for invalid request bodies
+  - Proper integration with existing ValidationError class
+- npm run build passes with zero errors
+- Files changed: src/middleware/validator.ts (created), scripts/ralph/prd.json (modified)
+- **Learnings for future iterations:**
+  - Hono middleware signature is (c: Context, next) => Promise<void>
+  - Use schema.safeParse() instead of parse() to avoid throwing ZodError directly
+  - Extract data from request using c.req.json() for body, c.req.query() for query, c.req.param() for params
+  - Validation errors should be thrown as ValidationError instances for consistent error handling
+  - Error details include target (body/query/params) and formatted issues array
+  - Handle JSON parsing errors separately from validation errors (SyntaxError for invalid JSON)
+  - TypeScript generics on zValidator<T extends ZodSchema> enable type inference
+  - Middleware factory pattern allows reusable validation logic across all routes
+  - Always await next() to continue middleware chain after successful validation
+---
