@@ -900,7 +900,7 @@
         "Register on main app"
       ],
       "priority": 64,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-065",

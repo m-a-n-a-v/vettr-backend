@@ -1630,3 +1630,25 @@ Details:
   - Important to find stock by ticker first, then use stock.id for watchlist operations (tables use UUIDs not tickers)
   - Include added_at timestamp in response for client-side sorting/display
 ---
+
+## US-064: Implement watchlist endpoints
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created src/routes/watchlist.routes.ts with three RESTful endpoints
+- GET /watchlist returns user's full watchlist with complete stock data
+- POST /watchlist/:ticker adds stock with tier limit validation (FREE=5, PRO=25, PREMIUM=unlimited)
+- DELETE /watchlist/:ticker removes stock from watchlist
+- Applied auth middleware to all routes
+- Registered watchlist routes on main app at /v1/watchlist
+- All endpoints return snake_case JSON using standardized response format
+- npm run build passes with zero errors
+- Files changed: src/routes/watchlist.routes.ts (created), src/routes/index.ts (updated), src/app.ts (updated)
+- **Learnings for future iterations:**
+  - Watchlist service (US-063) was already implemented with proper tier limit enforcement
+  - Service handles duplicate adds gracefully by catching Postgres unique constraint error (code 23505)
+  - Helper function toWatchlistItemDto converts camelCase database fields to snake_case JSON
+  - Service normalizes ticker to uppercase for consistent lookups
+  - Returns full stock data with added_at timestamp for each watchlist item
+  - Follows established pattern: Hono route group with auth middleware, calls service layer, returns standardized success response
+---
