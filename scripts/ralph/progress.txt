@@ -1408,3 +1408,56 @@ Details:
   - Route ordering: /trend and /compare must be defined before the parent /:ticker/vetr-score catch-all
   - No changes needed to app.ts or routes/index.ts since vetrScoreRoutes was already mounted at /stocks prefix
 ---
+
+## US-055: Create Red Flag detection service - consolidation and financing velocity
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created src/services/red-flag.service.ts with two detector functions
+- Implemented detectConsolidationVelocity(stockTicker): scans last 12 months of filings for acquisition/merger/consolidation keywords, scores 1→20pts, 2→40pts, 3→60pts, 4→80pts, 5+→100pts, weight 30%
+- Implemented detectFinancingVelocity(stockTicker): scans last 12 months of filings for financing keywords (private placement, prospectus, offering, etc.), early-stage threshold 3 events ($50M equiv), growth-stage threshold 5 events ($100M equiv), weight 25%
+- Added RedFlagDetail and DetectedFlagResult interfaces for typed results
+- Added internal helper functions getStockByTicker, getFilingsForTicker, getExecutivesForTicker (separate from vetr-score.service.ts to avoid circular deps)
+- npm run build passes with zero errors
+- Files changed: src/services/red-flag.service.ts (created), scripts/ralph/prd.json (modified)
+- **Learnings for future iterations:**
+  - Red flag detection relies on keyword matching against filing titles and summaries since the DB doesn't store explicit acquisition/financing event records
+  - Consolidation velocity uses a discrete step function (20pts per event) while financing velocity uses a continuous linear scale
+  - Early-stage vs growth-stage classification based on $500M market cap threshold
+  - Helper functions are duplicated from vetr-score.service.ts — could be refactored into a shared module in future if needed
+  - The service is designed for extensibility — US-056 will add executive churn, disclosure gaps, and debt trend detectors, US-057 will add composite scoring
+---
+
+## US-056: Implement executive churn, disclosure gaps, debt trend detectors
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Added three remaining Red Flag detectors to src/services/red-flag.service.ts
+- Implemented detectExecutiveChurn(stockTicker):
+  - Measures executive turnover by counting executives with <1 year tenure (yearsAtCompany < 1)
+  - Scoring: 1→25pts, 2→50pts, 3→75pts, 4+→100pts
+  - Weight: 20%
+  - Uses existing getExecutivesForTicker() helper
+- Implemented detectDisclosureGaps(stockTicker):
+  - Measures gap between most recent filing date and current date
+  - Scoring: overdue (120+ days)→100pts, 90+d→75pts, 60-89d→50pts, 30-59d→25pts, <30d→0pts
+  - No filings at all treated as overdue (100pts)
+  - Uses existing getFilingsForTicker() helper (ordered by date DESC, so [0] is most recent)
+  - Weight: 15%
+- Implemented detectDebtTrend(stockTicker):
+  - Analyzes filing content for debt-related vs revenue-positive keywords
+  - Debt keywords: debenture, credit facility, loan, debt, restructuring, default, covenant, etc.
+  - Revenue keywords: revenue growth, earnings growth, profit, positive cash flow, etc.
+  - Uses ratio of debt filings to total filings as the scoring input
+  - High debt ratio (50%+) with low revenue signals (<20%) → 100pts, 37.5%+→75pts, 25%+→50pts, 12.5%+→25pts
+  - Weight: 10%
+- npm run build passes with zero errors
+- Files changed: src/services/red-flag.service.ts (modified)
+- **Learnings for future iterations:**
+  - Executive churn detector leverages yearsAtCompany field directly — executives with <1 year tenure are considered recent hires replacing departed executives
+  - Disclosure gaps detector relies on filing list being ordered by date DESC (from getFilingsForTicker helper)
+  - Debt trend uses filing content analysis (keyword matching) as proxy since stock schema lacks explicit debt/revenue ratio fields
+  - All three detectors follow the same pattern as consolidation and financing velocity: return RedFlagDetail with flag_type, score, weight, weighted_score, description
+  - The 5 weights sum to 100%: consolidation (30%) + financing (25%) + churn (20%) + disclosure (15%) + debt (10%)
+  - US-057 will combine all 5 detectors into a composite red flag scoring function
+---
