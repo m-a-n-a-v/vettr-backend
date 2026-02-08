@@ -186,6 +186,53 @@ export async function verifyRefreshToken(
 }
 
 /**
+ * Find a user by their ID.
+ * Returns the user or null if not found.
+ */
+export async function findById(userId: string): Promise<UserRow | null> {
+  if (!db) {
+    throw new InternalError('Database not available');
+  }
+
+  const [user] = await db
+    .select()
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+
+  return user ?? null;
+}
+
+/**
+ * Find and verify a refresh token across all users.
+ * Iterates non-revoked, non-expired tokens and bcrypt-compares.
+ * Returns the matching token row and user ID if valid, null otherwise.
+ */
+export async function findAndVerifyRefreshToken(
+  rawToken: string,
+): Promise<{ tokenRow: typeof refreshTokens.$inferSelect; userId: string } | null> {
+  if (!db) {
+    throw new InternalError('Database not available');
+  }
+
+  const allTokens = await db
+    .select()
+    .from(refreshTokens)
+    .where(eq(refreshTokens.isRevoked, false));
+
+  for (const tokenRow of allTokens) {
+    if (tokenRow.expiresAt < new Date()) continue;
+
+    const matches = await bcrypt.compare(rawToken, tokenRow.tokenHash);
+    if (matches) {
+      return { tokenRow, userId: tokenRow.userId };
+    }
+  }
+
+  return null;
+}
+
+/**
  * Revoke a specific refresh token by its ID.
  */
 export async function revokeRefreshToken(tokenId: string): Promise<void> {

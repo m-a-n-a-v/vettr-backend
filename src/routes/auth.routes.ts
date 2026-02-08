@@ -4,7 +4,10 @@ import { validateBody } from '../middleware/validator.js';
 import {
   createUser,
   findByEmail,
+  findById,
   storeRefreshToken,
+  findAndVerifyRefreshToken,
+  revokeRefreshToken,
   verifyGoogleToken,
   verifyAppleToken,
   upsertOAuthUser,
@@ -241,6 +244,64 @@ authRoutes.post('/apple', validateBody(appleSchema), async (c) => {
     success({
       access_token: accessToken,
       refresh_token: refreshToken,
+      token_type: 'Bearer',
+      expires_in: 900,
+      user: {
+        id: user.id,
+        email: user.email,
+        display_name: user.displayName,
+        avatar_url: user.avatarUrl,
+        tier: user.tier,
+        auth_provider: user.authProvider,
+        created_at: user.createdAt.toISOString(),
+        updated_at: user.updatedAt.toISOString(),
+      },
+    }),
+    200
+  );
+});
+
+// Zod schema for refresh token request body
+const refreshSchema = z.object({
+  refresh_token: z.string().min(1, 'Refresh token is required'),
+});
+
+// POST /auth/refresh - Refresh access token using a valid refresh token
+authRoutes.post('/refresh', validateBody(refreshSchema), async (c) => {
+  const body = await c.req.json();
+  const { refresh_token } = body;
+
+  // Find and verify the refresh token (searches all non-revoked, non-expired tokens)
+  const result = await findAndVerifyRefreshToken(refresh_token);
+  if (!result) {
+    throw new AuthInvalidCredentialsError('Invalid or expired refresh token');
+  }
+
+  const { tokenRow, userId } = result;
+
+  // Revoke the old refresh token (token rotation)
+  await revokeRefreshToken(tokenRow.id);
+
+  // Look up the user to get current profile data
+  const user = await findById(userId);
+  if (!user) {
+    throw new AuthInvalidCredentialsError('User not found');
+  }
+
+  // Generate new access token
+  const accessToken = signAccessToken({
+    sub: user.id,
+    email: user.email,
+    tier: user.tier,
+  });
+
+  // Generate and store new refresh token
+  const { token: newRefreshToken } = await storeRefreshToken(user.id);
+
+  return c.json(
+    success({
+      access_token: accessToken,
+      refresh_token: newRefreshToken,
       token_type: 'Bearer',
       expires_in: 900,
       user: {
