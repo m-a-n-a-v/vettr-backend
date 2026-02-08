@@ -82,3 +82,23 @@ Details:
   - Console logging with emoji prefixes (✅, ⚠️, ❌, 💥) improves readability
   - Exported db is nullable in type system, services should handle null checks
 ---
+
+## US-004: Set up Upstash Redis client
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created src/config/redis.ts with Upstash Redis client initialization
+- Used @upstash/redis with REST URL and token from environment variables
+- Created src/services/cache.service.ts with comprehensive cache helpers: get, set, del, delMany, exists, ttl
+- All helpers include proper error handling and return gracefully when Redis unavailable
+- Follows same graceful degradation pattern as database.ts (fail-fast in production, warn in dev)
+- npm run build passes with zero errors
+- Files changed: src/config/redis.ts (created), src/services/cache.service.ts (created)
+- **Learnings for future iterations:**
+  - @upstash/redis uses REST API, so no persistent connections needed
+  - Cache service returns null/false when Redis unavailable, allowing services to proceed without caching
+  - setex() method combines set + expiry in single operation for TTL-based caching
+  - Added bonus helpers (delMany, exists, ttl) for future use cases
+  - TypeScript generics on get/set allow type-safe caching with proper inference
+  - Pattern: all cache operations try/catch with error logging, never throw to caller
+---
