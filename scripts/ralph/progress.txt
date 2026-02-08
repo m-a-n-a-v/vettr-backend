@@ -526,3 +526,28 @@ Details:
   - isMaterial flag distinguishes significant filings (technical reports, major announcements) from routine ones
   - Dates spread across Aug-Nov 2025 for realistic 6-month filing history
 ---
+
+## US-022: Create executive seed data
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created src/db/seed/executives.ts with 3-5 executives per stock for all 25 Canadian pilot stocks
+- Total of ~93 executives across all stocks with realistic data
+- Executive roles include: CEO, CFO, COO, VP Exploration, VP Operations, CTO, General Counsel, SVP Technical Services, etc.
+- Each executive includes: name, title, yearsAtCompany, previousCompanies (JSON array), education, specialization
+- socialLinkedin and socialTwitter set to null (as seed data)
+- Follows same pattern as filings.ts: looks up stock ID by ticker before inserting executives
+- Null check on db instance for development mode without DATABASE_URL
+- AG (NYSE) shares same executives as FR (TSX) since they represent the same company listed on different exchanges
+- npm run build passes with zero errors
+- Files changed: src/db/seed/executives.ts (created), scripts/ralph/prd.json (modified)
+- **Learnings for future iterations:**
+  - Executive seed data needs stock IDs (UUIDs) from database, same pattern as filings seed
+  - Used eq() from drizzle-orm for WHERE clause filtering on ticker
+  - Simple insert (not upsert) used since executives don't have a unique constraint to conflict on
+  - previousCompanies stored as string[] in JSONB column, matching schema definition
+  - yearsAtCompany uses decimal values (e.g., 10.5) for fractional years, matching doublePrecision schema
+  - Realistic mining industry titles and career histories (Canadian mining companies, Big Four accounting firms, etc.)
+  - Specializations reflect real mining disciplines: heap leach, SX-EW processing, epithermal deposits, etc.
+  - Education includes professional designations relevant to mining: P.Eng, P.Geo, CPA, CFA
+---
