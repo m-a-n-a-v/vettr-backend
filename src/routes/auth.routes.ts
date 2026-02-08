@@ -1,10 +1,10 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { validateBody } from '../middleware/validator.js';
-import { createUser, storeRefreshToken } from '../services/auth.service.js';
-import { hashPassword, validatePasswordStrength } from '../utils/password.js';
+import { createUser, findByEmail, storeRefreshToken } from '../services/auth.service.js';
+import { hashPassword, comparePassword, validatePasswordStrength } from '../utils/password.js';
 import { signAccessToken } from '../utils/jwt.js';
-import { ValidationError } from '../utils/errors.js';
+import { AuthInvalidCredentialsError, ValidationError } from '../utils/errors.js';
 import { success } from '../utils/response.js';
 
 const authRoutes = new Hono();
@@ -68,6 +68,65 @@ authRoutes.post('/signup', validateBody(signupSchema), async (c) => {
       },
     }),
     201
+  );
+});
+
+// Zod schema for login request body
+const loginSchema = z.object({
+  email: z.string().email('Invalid email address'),
+  password: z.string().min(1, 'Password is required'),
+});
+
+// POST /auth/login - Authenticate with email and password
+authRoutes.post('/login', validateBody(loginSchema), async (c) => {
+  const body = await c.req.json();
+  const { email, password } = body;
+
+  // Find user by email
+  const user = await findByEmail(email);
+  if (!user) {
+    throw new AuthInvalidCredentialsError('Invalid email or password');
+  }
+
+  // Verify user has a password (not an OAuth-only account)
+  if (!user.passwordHash) {
+    throw new AuthInvalidCredentialsError('Invalid email or password');
+  }
+
+  // Compare password with stored hash
+  const passwordValid = await comparePassword(password, user.passwordHash);
+  if (!passwordValid) {
+    throw new AuthInvalidCredentialsError('Invalid email or password');
+  }
+
+  // Generate access token
+  const accessToken = signAccessToken({
+    sub: user.id,
+    email: user.email,
+    tier: user.tier,
+  });
+
+  // Generate and store refresh token
+  const { token: refreshToken } = await storeRefreshToken(user.id);
+
+  return c.json(
+    success({
+      access_token: accessToken,
+      refresh_token: refreshToken,
+      token_type: 'Bearer',
+      expires_in: 900,
+      user: {
+        id: user.id,
+        email: user.email,
+        display_name: user.displayName,
+        avatar_url: user.avatarUrl,
+        tier: user.tier,
+        auth_provider: user.authProvider,
+        created_at: user.createdAt.toISOString(),
+        updated_at: user.updatedAt.toISOString(),
+      },
+    }),
+    200
   );
 });
 
