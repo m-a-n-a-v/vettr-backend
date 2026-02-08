@@ -971,7 +971,7 @@
         "npm run typecheck passes"
       ],
       "priority": 69,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-070",

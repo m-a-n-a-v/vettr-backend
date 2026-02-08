@@ -1757,3 +1757,42 @@ Details:
   - Route registration order matters - more specific routes should be registered first
   - Standardized error response format maintained across all validation failures
 ---
+
+## US-069: Register all remaining routes and verify full API
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Verified all 13 route groups are registered in src/app.ts:
+  1. healthRoutes (/health)
+  2. authRoutes (/auth)
+  3. stockRoutes (/stocks)
+  4. vetrScoreRoutes (/stocks/:ticker/vetr-score/*)
+  5. redFlagStockRoutes (/stocks/:ticker/red-flags/*)
+  6. redFlagGlobalRoutes (/red-flags/*)
+  7. filingRoutes (/filings)
+  8. executiveRoutes (/executives)
+  9. userRoutes (/users)
+  10. subscriptionRoutes (/subscription)
+  11. alertRoutes (/alerts)
+  12. watchlistRoutes (/watchlist)
+  13. syncRoutes (/sync)
+- All route groups exported from src/routes/index.ts barrel export
+- Health endpoint properly configured with DB and Redis status checks
+- OpenAPI spec available at GET /v1/openapi.json
+- Swagger UI documentation available at GET /v1/docs
+- npm run build passes with zero errors
+- npm run typecheck passes with zero errors
+- All middleware properly registered: request ID, logger, CORS, error handler, rate limiting
+- Complete API surface is now accessible under /v1/ prefix
+- Files verified: src/app.ts, src/routes/index.ts, src/routes/health.routes.ts
+- **Learnings for future iterations:**
+  - All routes properly namespaced under /v1/ base path via OpenAPIHono basePath
+  - Route registration order: health, auth, stocks (with nested vetr-score and red-flags), filings, executives, users, subscription, alerts, watchlist, sync
+  - Red flag routes split into two groups: stock-specific (mounted on /stocks) and global (mounted on /red-flags)
+  - VETR Score routes mounted on /stocks to provide /stocks/:ticker/vetr-score/* endpoints
+  - Middleware stack order: request ID → logger → CORS → error handler → rate limiting
+  - OpenAPI documentation auto-generated from Zod schemas via @hono/zod-openapi
+  - Health endpoint returns status, version, uptime, timestamp, DB status, Redis status
+  - API now complete with all CRUD operations, scoring engines, sync functionality
+  - Zero build errors, zero type errors - production-ready API foundation
+---
