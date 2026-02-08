@@ -1107,3 +1107,54 @@ Details:
   - Same DTO mapping pattern as filings.routes.ts for consistency
   - No service layer changes needed — route-only implementation leveraging existing filing.service.ts
 ---
+
+## US-044: Create executive service
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created src/services/executive.service.ts with four functions:
+  - getExecutivesForStock(stockId): Returns all executives for a stock, ordered by tenure (desc)
+  - searchByName(query, limit): Searches executives by name or title using ILIKE, default limit 10
+  - getExecutiveById(id): Returns single executive by UUID, throws NotFoundError if not found
+  - getExecutiveScore(stockId): Calculates executive team score (0-100) from three components
+- Executive score calculation:
+  - Team size: max 30pts (5+ executives = full score, 6pts per executive)
+  - Avg tenure: max 40pts (10+ years average = full score, linearly scaled)
+  - Specialization diversity: max 30pts (5+ unique specializations = full score, 6pts per unique spec)
+- All functions follow established service patterns: null db check, typed interfaces, Drizzle ORM queries
+- Exported ExecutiveScore interface for typed score results
+- npm run build passes with zero errors
+- Files changed: src/services/executive.service.ts (created)
+- **Learnings for future iterations:**
+  - Executive score calculation uses simple linear scaling capped at maximum (Math.min)
+  - Specialization diversity filters out null/empty strings before counting unique values
+  - searchByName searches both name AND title fields for flexible executive lookup
+  - getExecutivesForStock returns all executives (no pagination) since team sizes are small (3-5 per stock)
+  - Set() used for counting unique specializations — efficient deduplication
+  - Service follows same pattern as stock.service.ts and filing.service.ts
+---
+
+## US-045: Implement executive endpoints
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created src/routes/executives.routes.ts with two endpoints:
+  - GET /executives/search?q=&limit= - search executives by name or title using ILIKE
+  - GET /executives/:id - get executive detail with full career history
+- Added GET /stocks/:ticker/executives to src/routes/stocks.routes.ts
+  - Resolves ticker to stock record, returns 404 if ticker not found
+  - Returns all executives for the stock via getExecutivesForStock() from executive.service.ts
+  - Route placed before /:ticker catch-all to avoid matching "executives" as a ticker
+- Registered executive routes on main app in src/app.ts via app.route('/executives', executiveRoutes)
+- All endpoints return snake_case JSON DTOs with full executive fields
+- Auth middleware applied globally to both executive routes and stock routes
+- npm run build passes with zero errors
+- Files changed: src/routes/executives.routes.ts (created), src/routes/stocks.routes.ts (modified), src/app.ts (modified)
+- **Learnings for future iterations:**
+  - Executive routes follow same pattern as filing routes: Hono instance with Variables type, auth middleware
+  - Stock-specific executive endpoint (/stocks/:ticker/executives) placed in stocks.routes.ts for URL consistency
+  - Route ordering matters: /:ticker/executives must be before /:ticker to match correctly
+  - Executive service was fully implemented in US-044, only route handlers needed
+  - DTO mapping pattern consistent across all routes: Drizzle camelCase → API snake_case
+  - No pagination needed for stock executives since team sizes are small (3-5 per stock)
+---
