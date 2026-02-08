@@ -169,10 +169,27 @@ app.use('*', secureHeaders());
 app.use('*', bodyLimit({ maxSize: 1024 * 1024 }));
 
 // CORS middleware - configurable via environment variable
+// Supports comma-separated origins (e.g., 'http://localhost:5173,http://localhost:3000')
+// or wildcard '*' for all origins
+const corsOrigin = (() => {
+  if (env.CORS_ORIGIN === '*') {
+    return '*';
+  }
+
+  const allowedOrigins = env.CORS_ORIGIN.split(',').map(origin => origin.trim());
+
+  return (origin: string) => {
+    if (allowedOrigins.includes(origin)) {
+      return origin;
+    }
+    return allowedOrigins[0]; // Fallback to first origin
+  };
+})();
+
 app.use(
   '*',
   cors({
-    origin: env.CORS_ORIGIN,
+    origin: corsOrigin,
     credentials: true,
   })
 );
