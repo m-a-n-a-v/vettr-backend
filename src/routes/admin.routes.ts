@@ -3,7 +3,7 @@ import { adminAuthMiddleware } from '../middleware/admin-auth.js';
 import { adminService } from '../services/admin.service.js';
 import { success } from '../utils/response.js';
 import { createAdminCrudRoutes } from './admin-crud.factory.js';
-import { users, stocks, executives, filings } from '../db/schema/index.js';
+import { users, stocks, executives, filings, alertRules } from '../db/schema/index.js';
 
 const adminRoutes = new Hono();
 
@@ -113,5 +113,27 @@ const filingsRoutes = createAdminCrudRoutes({
 });
 
 adminRoutes.route('/filings', filingsRoutes);
+
+/**
+ * CRUD routes for alertRules table
+ * - GET /admin/alert-rules - List alert rules with pagination, search, sort, and filters
+ * - GET /admin/alert-rules/:id - Get a single alert rule by ID
+ * - POST /admin/alert-rules - Create a new alert rule
+ * - PUT /admin/alert-rules/:id - Update an alert rule
+ * - DELETE /admin/alert-rules/:id - Delete an alert rule
+ * - GET /admin/alert-rules/export - Export alert rules as CSV or JSON
+ * - POST /admin/alert-rules/bulk - Bulk create alert rules
+ * - DELETE /admin/alert-rules/bulk - Bulk delete alert rules
+ */
+const alertRulesRoutes = createAdminCrudRoutes({
+  tableName: 'alert-rules',
+  table: alertRules,
+  primaryKey: 'id',
+  searchableColumns: ['stockTicker', 'ruleType'],
+  filterableColumns: ['userId', 'stockTicker', 'ruleType', 'isActive', 'frequency'],
+  sortableColumns: ['stockTicker', 'ruleType', 'isActive', 'createdAt', 'lastTriggeredAt'],
+});
+
+adminRoutes.route('/alert-rules', alertRulesRoutes);
 
 export { adminRoutes };
