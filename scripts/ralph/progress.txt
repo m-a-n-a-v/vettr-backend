@@ -1880,3 +1880,31 @@ Details:
   - Weighted combination tests ensure mathematical correctness of score calculation
   - Tests exceeded minimum requirement (35 tests vs 8 required)
 ---
+
+## US-073: Write unit tests for Red Flag detection
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created tests/unit/services/red-flag.service.test.ts with comprehensive test coverage
+- Implemented tests for all 5 individual detectors:
+  - detectConsolidationVelocity: 5 test cases covering 0, 1, 2, 3, and 5+ events
+  - detectFinancingVelocity: 3 test cases covering early-stage and growth-stage thresholds
+  - detectExecutiveChurn: 4 test cases covering 0, 1, 2, and 4+ executives with recent churn
+  - detectDisclosureGaps: 6 test cases covering all gap ranges (0-30, 30-59, 60-89, 90-119, 120+ days, and no filings)
+  - detectDebtTrend: 4 test cases covering no debt, high debt with low revenue, elevated debt, and no recent filings
+- Implemented tests for severity classification: 4 test cases covering Low, Moderate, High, and Critical
+- Implemented tests for composite scoring: 4 test cases verifying correct weights, weighted combination, perfect scores, and zero scores
+- Total: 30 test cases, all passing
+- Verified weights sum to 1.0 (consolidation 30%, financing 25%, executive churn 20%, disclosure gaps 15%, debt trend 10%)
+- npm run build passes with zero errors
+- Files changed: tests/unit/services/red-flag.service.test.ts (created)
+- **Learnings for future iterations:**
+  - Mocking database queries in unit tests requires careful setup of the mock chain (from, where, limit, orderBy, then)
+  - Each detector function can be tested independently by mocking the database layer
+  - Test coverage should include boundary cases (0 events, threshold boundaries, max events)
+  - Severity classification can be tested with simple logic verification without full integration
+  - Composite scoring tests should verify both individual weights and the final weighted sum
+  - Following the same testing pattern as vetr-score.service.test.ts ensures consistency across test suites
+  - Mock types should match the actual schema inference types for type safety
+  - 30 tests provide thorough coverage of all detector logic, scoring, and edge cases
+---
