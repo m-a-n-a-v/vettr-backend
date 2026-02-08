@@ -11,3 +11,6 @@ export * from './alert-rules.js';
 export * from './alerts.js';
 export * from './watchlists.js';
 export * from './vetr-scores.js';
+export * from './red-flags.js';
+export * from './sync.js';
+export * from './user-settings.js';
