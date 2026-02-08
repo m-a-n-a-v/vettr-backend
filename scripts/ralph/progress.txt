@@ -1083,3 +1083,27 @@ Details:
   - Auth middleware applied via filingRoutes.use('*', authMiddleware) covers all sub-routes including /:id and /:id/read
   - Hono parameterized routes /:id and /:id/read coexist cleanly without conflicts
 ---
+
+## US-043: Implement GET /v1/stocks/:ticker/filings
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Added GET /stocks/:ticker/filings endpoint to src/routes/stocks.routes.ts
+  - Validates query params with Zod: limit (default 20), offset (default 0), type (optional filing type filter)
+  - Resolves ticker to stock record via direct DB query, returns 404 if ticker not found
+  - Calls getFilingsByStock() from filing.service.ts with stock ID and parsed options
+  - Maps Drizzle camelCase fields to snake_case for API response
+  - Returns paginated response using paginated() builder
+- Route registered BEFORE /:ticker catch-all to avoid /:ticker matching "filings" as a ticker param
+- Reused existing getFilingsByStock() from filing.service.ts (implemented in US-040) — no service changes needed
+- Auth middleware already applied globally to all stock routes
+- npm run build passes with zero errors
+- Files changed: src/routes/stocks.routes.ts (modified)
+- **Learnings for future iterations:**
+  - Route ordering in Hono: /:ticker/filings must be defined before /:ticker to match correctly
+  - Ticker resolution pattern: direct DB query (eq + toUpperCase) is simpler than calling getStockByTicker() which does extra work (executives, filings, watchlist)
+  - getFilingsByStock() accepts stockId (UUID) not ticker — need to resolve ticker to stock first
+  - Filing type filter is optional — when omitted, all filing types are returned
+  - Same DTO mapping pattern as filings.routes.ts for consistency
+  - No service layer changes needed — route-only implementation leveraging existing filing.service.ts
+---
