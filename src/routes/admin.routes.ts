@@ -3,7 +3,7 @@ import { adminAuthMiddleware } from '../middleware/admin-auth.js';
 import { adminService } from '../services/admin.service.js';
 import { success } from '../utils/response.js';
 import { createAdminCrudRoutes } from './admin-crud.factory.js';
-import { users, stocks } from '../db/schema/index.js';
+import { users, stocks, executives } from '../db/schema/index.js';
 
 const adminRoutes = new Hono();
 
@@ -69,5 +69,27 @@ const stocksRoutes = createAdminCrudRoutes({
 });
 
 adminRoutes.route('/stocks', stocksRoutes);
+
+/**
+ * CRUD routes for executives table
+ * - GET /admin/executives - List executives with pagination, search, sort, and filters
+ * - GET /admin/executives/:id - Get a single executive by ID
+ * - POST /admin/executives - Create a new executive
+ * - PUT /admin/executives/:id - Update an executive
+ * - DELETE /admin/executives/:id - Delete an executive
+ * - GET /admin/executives/export - Export executives as CSV or JSON
+ * - POST /admin/executives/bulk - Bulk create executives
+ * - DELETE /admin/executives/bulk - Bulk delete executives
+ */
+const executivesRoutes = createAdminCrudRoutes({
+  tableName: 'executives',
+  table: executives,
+  primaryKey: 'id',
+  searchableColumns: ['name', 'title', 'specialization'],
+  filterableColumns: ['stockId'],
+  sortableColumns: ['name', 'title', 'yearsAtCompany', 'createdAt', 'updatedAt'],
+});
+
+adminRoutes.route('/executives', executivesRoutes);
 
 export { adminRoutes };
