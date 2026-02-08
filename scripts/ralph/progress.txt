@@ -123,3 +123,30 @@ Details:
   - ResponseMeta interface ensures consistency across all response types
   - snake_case used for all JSON fields (timestamp, request_id, has_more, etc.) per API standards
 ---
+## US-006: Create custom error classes and global error handler
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created src/utils/errors.ts with comprehensive error class hierarchy
+  - AppError base class with statusCode, code, details, isOperational properties
+  - Subclasses: AuthRequiredError, AuthExpiredError, AuthInvalidCredentialsError, ForbiddenError, NotFoundError, ValidationError, RateLimitError, TierLimitError, ConflictError, InternalError
+  - All error codes defined as TypeScript union type
+  - Proper prototype chain setup for instanceof checks
+- Created src/middleware/error-handler.ts with global error handler
+  - Handles AppError instances with proper status codes
+  - Handles Zod validation errors with 422 status
+  - Handles generic HTTP errors
+  - Hides sensitive error details in production, shows stack traces in development
+  - Logs all errors with timestamp for debugging
+- Registered error handler on Hono app using app.onError()
+- npm run build passes with zero errors
+- Files changed: src/utils/errors.ts (created), src/middleware/error-handler.ts (created), src/app.ts (modified)
+- **Learnings for future iterations:**
+  - Hono's c.json() requires status codes to be cast as `any` to avoid TypeScript errors with ContentfulStatusCode type
+  - AppError base class should include isOperational flag to distinguish between operational and programming errors
+  - Error.captureStackTrace() maintains proper stack traces in V8 engines
+  - Object.setPrototypeOf() required after super() call for proper instanceof behavior with custom error classes
+  - Error handler middleware receives (err, c) signature in Hono
+  - Environment-based error detail exposure prevents leaking sensitive info in production
+  - All errors logged to console for debugging, should integrate with structured logging service later
+---
