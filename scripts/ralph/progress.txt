@@ -2059,3 +2059,31 @@ Details:
   - URL parsing (new URL()) safely extracts clean path without query params
   - All log output to console.log/warn/error, production can redirect to logging service
 ---
+
+## US-080: Create comprehensive .env.example documentation
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Completely rewrote .env.example with comprehensive documentation (219 insertions, 16 deletions)
+- Added detailed comments for all environment variables with clear REQUIRED vs OPTIONAL labeling
+- Documented where to obtain each credential:
+  - Neon PostgreSQL: Complete setup instructions with dashboard navigation
+  - Upstash Redis: Step-by-step guide to get REST URL and token
+  - JWT_SECRET: Commands to generate secure random values
+  - Google OAuth: Full Google Cloud Console setup flow
+  - Apple Sign-In: Apple Developer portal navigation
+- Included example values and format specifications for all variables
+- Added Quick Start Guide section for minimal and full setup paths
+- Added Security Checklist with 7 critical security items
+- Documented development vs production requirements for each variable
+- All environment variables from env.ts are documented
+- npm run build passes with zero errors
+- Files changed: .env.example
+- **Learnings for future iterations:**
+  - .env.example is a critical onboarding document for new developers
+  - Clear categorization (Server, Database, Auth, Redis, OAuth, CORS) improves readability
+  - "Where to get it" instructions eliminate need for separate setup documentation
+  - Security checklist helps prevent common misconfigurations
+  - Quick Start Guide provides two clear paths: minimal (local dev) and full (production)
+  - DEV OPTIONAL vs PRODUCTION REQUIRED labeling clarifies deployment requirements
+---
