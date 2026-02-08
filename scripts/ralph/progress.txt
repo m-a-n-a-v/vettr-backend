@@ -1158,3 +1158,26 @@ Details:
   - DTO mapping pattern consistent across all routes: Drizzle camelCase → API snake_case
   - No pagination needed for stock executives since team sizes are small (3-5 per stock)
 ---
+
+## US-046: Create user service for profile and settings
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created src/services/user.service.ts with four functions:
+  - getProfile(userId): Looks up user by ID, throws NotFoundError if not found
+  - updateProfile(userId, input): Updates display_name and/or avatar_url, sets updatedAt
+  - getSettings(userId): Returns user settings JSONB, creates default settings on first access
+  - updateSettings(userId, settings): Merges provided settings into existing settings JSONB
+- Default settings created on first access: notifications_enabled, push_alerts, email_alerts, dark_mode, language
+- Settings stored as JSONB in user_settings table (one record per user via unique FK)
+- All functions follow established service patterns: null db check, typed interfaces, Drizzle ORM queries
+- npm run build passes with zero errors
+- Files changed: src/services/user.service.ts (created), scripts/ralph/prd.json (modified)
+- **Learnings for future iterations:**
+  - user_settings table has unique constraint on userId, so one settings record per user
+  - getSettings() creates default settings on first access (lazy initialization pattern)
+  - updateSettings() uses shallow merge ({ ...current, ...new }) for merging settings updates
+  - Settings JSONB allows flexible schema-free storage for app preferences
+  - UpdateProfileInput uses optional fields so only changed fields are updated
+  - Reused users table type inference via $inferSelect for UserProfile type
+---
