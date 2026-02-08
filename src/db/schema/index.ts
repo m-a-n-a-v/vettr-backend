@@ -4,3 +4,4 @@
  */
 
 export * from './users.js';
+export * from './stocks.js';
