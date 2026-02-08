@@ -600,3 +600,24 @@ Details:
   - AccessTokenPayload interface will be reused by auth middleware (c.set('user', payload))
   - JWT_SECRET has development default in env.ts, but should be overridden in production
 ---
+
+## US-025: Create password utility functions
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created src/utils/password.ts with three utility functions:
+  - hashPassword(password): Hashes plaintext password using bcrypt with cost factor 12
+  - comparePassword(password, hash): Compares plaintext password against bcrypt hash
+  - validatePasswordStrength(password): Validates min 8 chars, at least 1 uppercase, at least 1 number
+- Exported PasswordValidationResult interface with valid boolean and errors string array
+- Uses async bcrypt.hash() and bcrypt.compare() (never sync versions)
+- npm run build passes with zero errors
+- Files changed: src/utils/password.ts (created), scripts/ralph/prd.json (modified)
+- **Learnings for future iterations:**
+  - bcrypt cost factor 12 provides good security/performance balance
+  - bcrypt.hash() and bcrypt.compare() are async and return Promises
+  - Password validation is synchronous (pure string checks), no need for async
+  - Regex patterns: /[A-Z]/ for uppercase, /[0-9]/ for digits
+  - PasswordValidationResult interface with errors array provides descriptive feedback to clients
+  - validatePasswordStrength collects all errors (doesn't short-circuit) so users see all issues at once
+---
