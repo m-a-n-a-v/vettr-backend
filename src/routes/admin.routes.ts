@@ -6,7 +6,7 @@ import { createAdminCrudRoutes } from './admin-crud.factory.js';
 import { users, stocks, executives, filings, alertRules, alerts, vetrScoreHistory, redFlagHistory, syncHistory, userSettings, refreshTokens } from '../db/schema/index.js';
 import { watchlistItemsRoutes, filingReadsRoutes, redFlagAcknowledgmentsRoutes } from './admin-composite-pk.routes.js';
 import { db } from '../config/database.js';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { NotFoundError, ValidationError } from '../utils/errors.js';
 import { calculateVetrScore } from '../services/vetr-score.service.js';
 import { runAllSeeds } from '../db/seed/index.js';
@@ -425,6 +425,248 @@ adminRoutes.post('/seed/run', async (c) => {
     console.error('Seed error:', error);
     throw new Error(`Seed failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
+});
+
+/**
+ * Analytics Endpoints
+ * These endpoints return aggregated data for charts and analytics
+ */
+
+/**
+ * GET /admin/analytics/user-growth
+ * Returns daily new user signup counts for the last 90 days
+ * Returns: { data: Array<{ date: string, count: number }> }
+ */
+adminRoutes.get('/analytics/user-growth', async (c) => {
+  if (!db) {
+    throw new Error('Database not initialized');
+  }
+
+  const result = await db.execute(sql`
+    SELECT
+      DATE(created_at) as date,
+      COUNT(*)::int as count
+    FROM users
+    WHERE created_at >= NOW() - INTERVAL '90 days'
+    GROUP BY DATE(created_at)
+    ORDER BY date ASC
+  `);
+
+  const data = result.rows.map((row: any) => ({
+    date: row.date,
+    count: row.count,
+  }));
+
+  return c.json(success({ data }));
+});
+
+/**
+ * GET /admin/analytics/score-distribution
+ * Returns VETR score distribution buckets for the latest score per stock ticker
+ * Returns: { data: Array<{ range: string, count: number }> }
+ */
+adminRoutes.get('/analytics/score-distribution', async (c) => {
+  if (!db) {
+    throw new Error('Database not initialized');
+  }
+
+  const result = await db.execute(sql`
+    WITH latest_scores AS (
+      SELECT DISTINCT ON (stock_ticker)
+        stock_ticker,
+        overall_score
+      FROM vetr_score_history
+      ORDER BY stock_ticker, calculated_at DESC
+    )
+    SELECT
+      CASE
+        WHEN overall_score BETWEEN 0 AND 20 THEN '0-20'
+        WHEN overall_score BETWEEN 21 AND 40 THEN '21-40'
+        WHEN overall_score BETWEEN 41 AND 60 THEN '41-60'
+        WHEN overall_score BETWEEN 61 AND 80 THEN '61-80'
+        WHEN overall_score BETWEEN 81 AND 100 THEN '81-100'
+        ELSE 'Unknown'
+      END as range,
+      COUNT(*)::int as count
+    FROM latest_scores
+    GROUP BY range
+    ORDER BY range ASC
+  `);
+
+  const data = result.rows.map((row: any) => ({
+    range: row.range,
+    count: row.count,
+  }));
+
+  return c.json(success({ data }));
+});
+
+/**
+ * GET /admin/analytics/red-flag-trends
+ * Returns red flag counts grouped by date and severity for the last 30 days
+ * Returns: { data: Array<{ date: string, severity: string, count: number }> }
+ */
+adminRoutes.get('/analytics/red-flag-trends', async (c) => {
+  if (!db) {
+    throw new Error('Database not initialized');
+  }
+
+  const result = await db.execute(sql`
+    SELECT
+      DATE(detected_at) as date,
+      severity,
+      COUNT(*)::int as count
+    FROM red_flag_history
+    WHERE detected_at >= NOW() - INTERVAL '30 days'
+    GROUP BY DATE(detected_at), severity
+    ORDER BY date ASC, severity ASC
+  `);
+
+  const data = result.rows.map((row: any) => ({
+    date: row.date,
+    severity: row.severity,
+    count: row.count,
+  }));
+
+  return c.json(success({ data }));
+});
+
+/**
+ * GET /admin/analytics/filing-activity
+ * Returns daily filing counts for the last 30 days
+ * Returns: { data: Array<{ date: string, count: number }> }
+ */
+adminRoutes.get('/analytics/filing-activity', async (c) => {
+  if (!db) {
+    throw new Error('Database not initialized');
+  }
+
+  const result = await db.execute(sql`
+    SELECT
+      DATE(created_at) as date,
+      COUNT(*)::int as count
+    FROM filings
+    WHERE created_at >= NOW() - INTERVAL '30 days'
+    GROUP BY DATE(created_at)
+    ORDER BY date ASC
+  `);
+
+  const data = result.rows.map((row: any) => ({
+    date: row.date,
+    count: row.count,
+  }));
+
+  return c.json(success({ data }));
+});
+
+/**
+ * GET /admin/analytics/alert-activity
+ * Returns daily alert counts for the last 30 days
+ * Returns: { data: Array<{ date: string, count: number }> }
+ */
+adminRoutes.get('/analytics/alert-activity', async (c) => {
+  if (!db) {
+    throw new Error('Database not initialized');
+  }
+
+  const result = await db.execute(sql`
+    SELECT
+      DATE(triggered_at) as date,
+      COUNT(*)::int as count
+    FROM alerts
+    WHERE triggered_at >= NOW() - INTERVAL '30 days'
+    GROUP BY DATE(triggered_at)
+    ORDER BY date ASC
+  `);
+
+  const data = result.rows.map((row: any) => ({
+    date: row.date,
+    count: row.count,
+  }));
+
+  return c.json(success({ data }));
+});
+
+/**
+ * GET /admin/analytics/tier-breakdown
+ * Returns user count grouped by tier
+ * Returns: { data: Array<{ tier: string, count: number }> }
+ */
+adminRoutes.get('/analytics/tier-breakdown', async (c) => {
+  if (!db) {
+    throw new Error('Database not initialized');
+  }
+
+  const result = await db.execute(sql`
+    SELECT
+      tier,
+      COUNT(*)::int as count
+    FROM users
+    GROUP BY tier
+    ORDER BY tier ASC
+  `);
+
+  const data = result.rows.map((row: any) => ({
+    tier: row.tier,
+    count: row.count,
+  }));
+
+  return c.json(success({ data }));
+});
+
+/**
+ * GET /admin/analytics/stock-health
+ * Returns the 10 stocks with lowest VETR scores and the 10 stocks with most red flags
+ * Returns: { data: { lowest_scores: Array<{ ticker, name, vetr_score }>, most_flags: Array<{ ticker, name, flag_count }> } }
+ */
+adminRoutes.get('/analytics/stock-health', async (c) => {
+  if (!db) {
+    throw new Error('Database not initialized');
+  }
+
+  // Get 10 stocks with lowest VETR scores
+  const lowestScoresResult = await db.execute(sql`
+    SELECT
+      ticker,
+      name,
+      vetr_score
+    FROM stocks
+    WHERE vetr_score IS NOT NULL
+    ORDER BY vetr_score ASC
+    LIMIT 10
+  `);
+
+  const lowestScores = lowestScoresResult.rows.map((row: any) => ({
+    ticker: row.ticker,
+    name: row.name,
+    vetr_score: row.vetr_score,
+  }));
+
+  // Get 10 stocks with most red flags
+  const mostFlagsResult = await db.execute(sql`
+    SELECT
+      s.ticker,
+      s.name,
+      COUNT(rf.id)::int as flag_count
+    FROM stocks s
+    LEFT JOIN red_flag_history rf ON s.ticker = rf.stock_ticker
+    GROUP BY s.ticker, s.name
+    ORDER BY flag_count DESC
+    LIMIT 10
+  `);
+
+  const mostFlags = mostFlagsResult.rows.map((row: any) => ({
+    ticker: row.ticker,
+    name: row.name,
+    flag_count: row.flag_count,
+  }));
+
+  return c.json(success({
+    data: {
+      lowest_scores: lowestScores,
+      most_flags: mostFlags,
+    },
+  }));
 });
 
 export { adminRoutes };
