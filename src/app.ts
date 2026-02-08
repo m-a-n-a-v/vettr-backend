@@ -16,6 +16,7 @@ import {
   vetrScoreRoutes,
   redFlagStockRoutes,
   redFlagGlobalRoutes,
+  alertRoutes,
 } from './routes/index.js';
 import type { AuthUser } from './middleware/auth.js';
 
@@ -99,5 +100,6 @@ app.route('/filings', filingRoutes);
 app.route('/executives', executiveRoutes);
 app.route('/users', userRoutes);
 app.route('/subscription', subscriptionRoutes);
+app.route('/alerts', alertRoutes);
 
 export { app };

@@ -55,7 +55,7 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   if [[ "$TOOL" == "amp" ]]; then
     OUTPUT=$(cat "$SCRIPT_DIR/prompt.md" | amp --dangerously-allow-all 2>&1 | tee /dev/stderr) || true
   else
-    OUTPUT=$(/opt/homebrew/bin/claude --dangerously-skip-permissions --model sonnet --print "Read the file scripts/ralph/CLAUDE.md and follow the instructions in it. Read scripts/ralph/prd.json to find the next story with passes=false and implement it." 2>&1 | tee /dev/stderr) || true
+    OUTPUT=$(/opt/homebrew/bin/claude --dangerously-skip-permissions --model claude-sonnet-4-5 --print "Read the file scripts/ralph/CLAUDE.md and follow the instructions in it. Read scripts/ralph/prd.json to find the next story with passes=false and implement it." 2>&1 | tee /dev/stderr) || true
   fi
 
   # Check for completion signal
