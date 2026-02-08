@@ -5,6 +5,7 @@ import { authMiddleware } from '../middleware/auth.js';
 import type { AuthUser } from '../middleware/auth.js';
 import { getStocks, getStockByTicker, searchStocks } from '../services/stock.service.js';
 import { getFilingsByStock } from '../services/filing.service.js';
+import { getExecutivesForStock } from '../services/executive.service.js';
 import { paginated, success } from '../utils/response.js';
 import { NotFoundError, InternalError } from '../utils/errors.js';
 import { eq } from 'drizzle-orm';
@@ -142,6 +143,46 @@ stockRoutes.get('/:ticker/filings', validateQuery(getStockFilingsQuerySchema), a
   }));
 
   return c.json(paginated(filingDtos, result.pagination), 200);
+});
+
+// GET /stocks/:ticker/executives - Get all executives for a stock
+stockRoutes.get('/:ticker/executives', async (c) => {
+  if (!db) {
+    throw new InternalError('Database not available');
+  }
+
+  const ticker = c.req.param('ticker');
+
+  // Resolve ticker to stock record
+  const stockResults = await db
+    .select()
+    .from(stocks)
+    .where(eq(stocks.ticker, ticker.toUpperCase()))
+    .limit(1);
+
+  const stock = stockResults[0];
+  if (!stock) {
+    throw new NotFoundError(`Stock with ticker '${ticker}' not found`);
+  }
+
+  const execs = await getExecutivesForStock(stock.id);
+
+  const executiveDtos = execs.map((exec) => ({
+    id: exec.id,
+    stock_id: exec.stockId,
+    name: exec.name,
+    title: exec.title,
+    years_at_company: exec.yearsAtCompany,
+    previous_companies: exec.previousCompanies,
+    education: exec.education,
+    specialization: exec.specialization,
+    social_linkedin: exec.socialLinkedin,
+    social_twitter: exec.socialTwitter,
+    created_at: exec.createdAt.toISOString(),
+    updated_at: exec.updatedAt.toISOString(),
+  }));
+
+  return c.json(success(executiveDtos), 200);
 });
 
 // GET /stocks/:ticker - Get stock detail with executives summary, recent filings, and watchlist status
