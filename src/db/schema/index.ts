@@ -10,3 +10,4 @@ export * from './executives.js';
 export * from './alert-rules.js';
 export * from './alerts.js';
 export * from './watchlists.js';
+export * from './vetr-scores.js';
