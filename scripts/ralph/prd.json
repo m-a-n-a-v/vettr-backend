@@ -548,7 +548,7 @@
         "npm run build passes"
       ],
       "priority": 39,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-040",
@@ -561,7 +561,7 @@
         "npm run build passes"
       ],
       "priority": 40,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-041",
@@ -576,7 +576,7 @@
         "npm run build passes"
       ],
       "priority": 41,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-042",

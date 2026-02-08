@@ -985,3 +985,75 @@ Details:
   - Stock detail pattern: base stock data spread with nested objects for related data
   - is_favorite requires both userId and stockId for watchlist lookup
 ---
+
+## US-039: Implement GET /v1/stocks/search endpoint with caching
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Added searchStocks() function to src/services/stock.service.ts
+  - Searches by name or ticker using ILIKE with wildcard pattern
+  - Caches results in Redis for 2 minutes (key: search:{query}:{limit})
+  - Cache key uses lowercase query for case-insensitive cache hits
+  - Accepts query string and limit parameter (default 10)
+  - Results ordered by ticker ascending
+- Added GET /stocks/search route to src/routes/stocks.routes.ts
+  - Validates query params with Zod: q (required, min 1 char), limit (optional, default 10)
+  - Clamps limit to 1-50 range
+  - Returns array of StockDto in snake_case format via success() builder
+  - Route registered BEFORE /:ticker to avoid "search" matching as a ticker param
+- npm run build and npm run typecheck both pass with zero errors
+- Files changed: src/services/stock.service.ts (modified), src/routes/stocks.routes.ts (modified)
+- **Learnings for future iterations:**
+  - Route ordering matters in Hono: /search must be defined before /:ticker parameterized route
+  - Cache key pattern: search:{query_lowercase}:{limit} for deterministic keys
+  - import * as cache from './cache.service.js' provides clean namespace for cache operations
+  - Cache gracefully returns null when Redis unavailable, so searchStocks falls through to DB query
+  - 2-minute TTL (120s) balances freshness vs database load for search results
+---
+
+## US-040: Create filing service
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created src/services/filing.service.ts with four core functions:
+  - getLatestFilings({ limit, offset }): Paginated latest filings across all stocks with stock ticker/name via INNER JOIN
+  - getFilingsByStock(stockId, { limit, offset, type }): Stock-specific filings with optional type filter
+  - getFilingById(filingId, userId): Single filing detail with per-user is_read status via filing_reads join table
+  - markAsRead(filingId, userId): Upserts into filing_reads table (idempotent via onConflictDoNothing)
+- All functions follow established service pattern: null db check, typed interfaces, Drizzle ORM queries
+- Exported TypeScript interfaces: GetFilingsOptions, GetFilingsByStockOptions, FilingWithStock, GetLatestFilingsResult, GetFilingsByStockResult, FilingDetail
+- npm run build passes with zero errors
+- Files changed: src/services/filing.service.ts (created)
+- **Learnings for future iterations:**
+  - Drizzle's innerJoin() with eq() condition provides clean SQL JOIN syntax for fetching related data
+  - and() from drizzle-orm used for combining WHERE conditions (stockId + type filter, userId + filingId)
+  - onConflictDoNothing() enables idempotent upsert for filing_reads (marking as read twice is a no-op)
+  - Filing detail pattern: separate queries for filing data and read status, then combine in return object
+  - getLatestFilings joins with stocks table to include stock_ticker and stock_name in response
+  - getFilingsByStock accepts stockId (UUID) not ticker — caller must resolve ticker to stockId first
+  - markAsRead verifies filing exists before inserting read record to provide clear 404 error
+  - Pagination pattern consistent with stock.service.ts: count query + data query with limit/offset
+---
+
+## US-041: Implement GET /v1/filings endpoint
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created src/routes/filings.routes.ts with GET /filings endpoint
+  - Applied authMiddleware to all filing routes via filingRoutes.use('*', authMiddleware)
+  - Validates query params with Zod: limit (default 20), offset (default 0)
+  - Clamps limit to 1-100 range and offset to 0+ for safety
+  - Calls getLatestFilings() from filing.service.ts with parsed options
+  - Maps Drizzle camelCase fields to snake_case for API response
+  - Includes stock_ticker and stock_name from joined stocks table in each filing response
+  - Returns paginated response using paginated() builder from utils/response.ts
+- Registered filing routes on main app in src/app.ts via app.route('/filings', filingRoutes)
+- npm run build passes with zero errors
+- Files changed: src/routes/filings.routes.ts (created), src/app.ts (modified), scripts/ralph/prd.json (modified)
+- **Learnings for future iterations:**
+  - Filing route follows same pattern as stocks.routes.ts: Hono instance with Variables type, auth middleware, Zod query validation
+  - getLatestFilings() returns FilingWithStock objects with nested filing + stock_ticker/stock_name, requiring flattening in DTO mapping
+  - Filing dates returned as ISO 8601 strings via .toISOString() per API conventions
+  - Route registered at /filings prefix, so full path is /v1/filings
+  - Filing DTO includes both filing fields and stock context (stock_ticker, stock_name) for client convenience
+---
