@@ -1,7 +1,8 @@
 import { eq, desc, and, gte } from 'drizzle-orm';
 import { db } from '../config/database.js';
-import { stocks, filings, executives } from '../db/schema/index.js';
+import { stocks, filings, executives, redFlagHistory } from '../db/schema/index.js';
 import { InternalError, NotFoundError } from '../utils/errors.js';
+import * as cache from './cache.service.js';
 
 // Types for data rows
 type StockRow = typeof stocks.$inferSelect;
@@ -481,4 +482,125 @@ export async function detectDebtTrend(stockTicker: string): Promise<RedFlagDetai
     weighted_score: Math.round(score * weight),
     description,
   };
+}
+
+// --- Severity Classification ---
+
+/**
+ * Classify severity based on composite score.
+ *
+ * - Low: < 30
+ * - Moderate: 30-60
+ * - High: 60-85
+ * - Critical: > 85
+ */
+function classifySeverity(compositeScore: number): DetectedFlagResult['severity'] {
+  if (compositeScore > 85) return 'Critical';
+  if (compositeScore >= 60) return 'High';
+  if (compositeScore >= 30) return 'Moderate';
+  return 'Low';
+}
+
+// --- Composite Red Flag Detection ---
+
+const RED_FLAG_CACHE_TTL = 24 * 60 * 60; // 24 hours in seconds
+
+/**
+ * Detect all red flags for a stock ticker.
+ *
+ * Runs all 5 detectors in parallel, calculates the weighted composite score,
+ * determines severity, caches the result in Redis (24h TTL), and saves
+ * individual flags to the red_flag_history table.
+ *
+ * @param ticker - Stock ticker symbol
+ * @returns DetectedFlagResult with composite score, severity, and per-flag breakdown
+ */
+export async function detectRedFlags(ticker: string): Promise<DetectedFlagResult> {
+  const upperTicker = ticker.toUpperCase();
+  const cacheKey = `red_flags:${upperTicker}`;
+
+  // Check cache first
+  const cached = await cache.get<DetectedFlagResult>(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  // Verify the stock exists
+  const stock = await getStockByTicker(upperTicker);
+  if (!stock) {
+    throw new NotFoundError(`Stock with ticker '${upperTicker}' not found`);
+  }
+
+  // Run all 5 detectors in parallel
+  const [consolidation, financing, executiveChurn, disclosureGaps, debtTrend] =
+    await Promise.all([
+      detectConsolidationVelocity(upperTicker),
+      detectFinancingVelocity(upperTicker),
+      detectExecutiveChurn(upperTicker),
+      detectDisclosureGaps(upperTicker),
+      detectDebtTrend(upperTicker),
+    ]);
+
+  const flags: RedFlagDetail[] = [
+    consolidation,
+    financing,
+    executiveChurn,
+    disclosureGaps,
+    debtTrend,
+  ];
+
+  // Composite score = sum of weighted scores
+  const compositeScore = Math.round(
+    flags.reduce((sum, flag) => sum + flag.score * flag.weight, 0)
+  );
+
+  const severity = classifySeverity(compositeScore);
+  const detectedAt = new Date().toISOString();
+
+  const result: DetectedFlagResult = {
+    ticker: upperTicker,
+    composite_score: compositeScore,
+    severity,
+    flags,
+    detected_at: detectedAt,
+  };
+
+  // Cache the result with 24h TTL
+  await cache.set(cacheKey, result, RED_FLAG_CACHE_TTL);
+
+  // Save individual flags to red_flag_history table
+  await saveRedFlagsToHistory(upperTicker, flags, severity, detectedAt);
+
+  return result;
+}
+
+/**
+ * Save individual red flag detections to the red_flag_history table.
+ */
+async function saveRedFlagsToHistory(
+  stockTicker: string,
+  flags: RedFlagDetail[],
+  overallSeverity: DetectedFlagResult['severity'],
+  detectedAt: string,
+): Promise<void> {
+  if (!db) {
+    return;
+  }
+
+  try {
+    const detectedDate = new Date(detectedAt);
+    const records = flags.map((flag) => ({
+      stockTicker,
+      flagType: flag.flag_type,
+      severity: classifySeverity(flag.score) as string,
+      score: flag.score,
+      description: flag.description,
+      detectedAt: detectedDate,
+    }));
+
+    await db.insert(redFlagHistory).values(records);
+  } catch (error) {
+    // Log but don't fail the detection if history save fails
+    console.error(`Failed to save red flag history for ${stockTicker}:`, error);
+  }
 }
