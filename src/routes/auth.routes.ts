@@ -1,7 +1,13 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { validateBody } from '../middleware/validator.js';
-import { createUser, findByEmail, storeRefreshToken } from '../services/auth.service.js';
+import {
+  createUser,
+  findByEmail,
+  storeRefreshToken,
+  verifyGoogleToken,
+  upsertOAuthUser,
+} from '../services/auth.service.js';
 import { hashPassword, comparePassword, validatePasswordStrength } from '../utils/password.js';
 import { signAccessToken } from '../utils/jwt.js';
 import { AuthInvalidCredentialsError, ValidationError } from '../utils/errors.js';
@@ -98,6 +104,59 @@ authRoutes.post('/login', validateBody(loginSchema), async (c) => {
   if (!passwordValid) {
     throw new AuthInvalidCredentialsError('Invalid email or password');
   }
+
+  // Generate access token
+  const accessToken = signAccessToken({
+    sub: user.id,
+    email: user.email,
+    tier: user.tier,
+  });
+
+  // Generate and store refresh token
+  const { token: refreshToken } = await storeRefreshToken(user.id);
+
+  return c.json(
+    success({
+      access_token: accessToken,
+      refresh_token: refreshToken,
+      token_type: 'Bearer',
+      expires_in: 900,
+      user: {
+        id: user.id,
+        email: user.email,
+        display_name: user.displayName,
+        avatar_url: user.avatarUrl,
+        tier: user.tier,
+        auth_provider: user.authProvider,
+        created_at: user.createdAt.toISOString(),
+        updated_at: user.updatedAt.toISOString(),
+      },
+    }),
+    200
+  );
+});
+
+// Zod schema for Google OAuth request body
+const googleSchema = z.object({
+  id_token: z.string().min(1, 'Google ID token is required'),
+});
+
+// POST /auth/google - Authenticate with Google OAuth
+authRoutes.post('/google', validateBody(googleSchema), async (c) => {
+  const body = await c.req.json();
+  const { id_token } = body;
+
+  // Verify the Google ID token
+  const tokenInfo = await verifyGoogleToken(id_token);
+
+  // Upsert user (create if new, update if existing)
+  const user = await upsertOAuthUser({
+    provider: 'google',
+    providerId: tokenInfo.sub,
+    email: tokenInfo.email,
+    displayName: tokenInfo.name || tokenInfo.email.split('@')[0],
+    avatarUrl: tokenInfo.picture,
+  });
 
   // Generate access token
   const accessToken = signAccessToken({
