@@ -1,0 +1,175 @@
+import { eq, desc } from 'drizzle-orm';
+import { db } from '../config/database.js';
+import { executives, filings, stocks } from '../db/schema/index.js';
+import { InternalError } from '../utils/errors.js';
+
+// Types for component inputs
+type ExecutiveRow = typeof executives.$inferSelect;
+type FilingRow = typeof filings.$inferSelect;
+
+/**
+ * Pedigree Score Component (weight: 25%)
+ *
+ * Calculates the executive team pedigree score based on three sub-components:
+ * - Experience (50pts max): Based on average years of experience across the team. 20+ years average = 50pts, linearly scaled.
+ * - Tenure Stability (30pts max): Based on average tenure at current company. 10+ years average = 30pts, linearly scaled.
+ * - Specialization (20pts max): Based on number of unique specializations. 5+ unique specializations = 20pts, 4pts per specialization.
+ *
+ * @param execList - Array of executive records for a stock
+ * @returns Score 0-100
+ */
+export function pedigreeScore(execList: ExecutiveRow[]): number {
+  if (execList.length === 0) {
+    return 0;
+  }
+
+  // Experience score (50pts max at 20yr avg)
+  // Use yearsAtCompany + estimated previous experience from previousCompanies
+  const avgExperience =
+    execList.reduce((sum, exec) => {
+      const previousYears = (exec.previousCompanies ?? []).length * 3; // ~3 years per previous company
+      return sum + exec.yearsAtCompany + previousYears;
+    }, 0) / execList.length;
+  const experienceScore = Math.min(Math.round((avgExperience / 20) * 50), 50);
+
+  // Tenure stability score (30pts max at 10yr avg)
+  const avgTenure =
+    execList.reduce((sum, exec) => sum + exec.yearsAtCompany, 0) / execList.length;
+  const tenureStabilityScore = Math.min(Math.round((avgTenure / 10) * 30), 30);
+
+  // Specialization score (20pts max at 5+ unique specializations)
+  const uniqueSpecializations = new Set(
+    execList
+      .map((e) => e.specialization)
+      .filter((s): s is string => s !== null && s !== undefined && s.length > 0)
+  );
+  const specializationScore = Math.min(uniqueSpecializations.size * 4, 20);
+
+  return experienceScore + tenureStabilityScore + specializationScore;
+}
+
+/**
+ * Filing Velocity Score Component (weight: 20%)
+ *
+ * Calculates the filing velocity score based on three sub-components:
+ * - Regularity (40pts max): Based on filing frequency. 12+ filings in last year = 40pts (monthly), scaled linearly.
+ * - Timeliness (30pts max): Based on filing recency. Most recent filing 0-7 days ago = 30pts, 30+ days = 0pts, linearly interpolated.
+ * - Quality (30pts max): Based on filing content quality indicators — material filings and type diversity.
+ *
+ * @param filingList - Array of filing records for a stock
+ * @returns Score 0-100
+ */
+export function filingVelocityScore(filingList: FilingRow[]): number {
+  if (filingList.length === 0) {
+    return 0;
+  }
+
+  const now = new Date();
+  const oneYearAgo = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+
+  // Filter filings from last 12 months
+  const recentFilings = filingList.filter((f) => f.date >= oneYearAgo);
+
+  // Regularity score (40pts max at 12+ filings per year)
+  const filingCount = recentFilings.length;
+  const regularityScore = Math.min(Math.round((filingCount / 12) * 40), 40);
+
+  // Timeliness score (30pts max)
+  // Based on most recent filing age: 0-7 days = full, 30+ days = 0
+  const sortedByDate = [...filingList].sort((a, b) => b.date.getTime() - a.date.getTime());
+  const mostRecent = sortedByDate[0];
+  let timelinessScore = 0;
+  if (mostRecent) {
+    const daysSinceLastFiling = (now.getTime() - mostRecent.date.getTime()) / (1000 * 60 * 60 * 24);
+    if (daysSinceLastFiling <= 7) {
+      timelinessScore = 30;
+    } else if (daysSinceLastFiling >= 30) {
+      timelinessScore = 0;
+    } else {
+      // Linear interpolation between 7 and 30 days
+      timelinessScore = Math.round(30 * (1 - (daysSinceLastFiling - 7) / 23));
+    }
+  }
+
+  // Quality score (30pts max)
+  // Material filings (15pts): proportion of material filings
+  const materialCount = recentFilings.filter((f) => f.isMaterial).length;
+  const materialScore =
+    recentFilings.length > 0
+      ? Math.min(Math.round((materialCount / recentFilings.length) * 15), 15)
+      : 0;
+
+  // Type diversity (15pts): number of unique filing types (4+ = full score)
+  const uniqueTypes = new Set(recentFilings.map((f) => f.type));
+  const diversityScore = Math.min(uniqueTypes.size * 3.75, 15);
+  const qualityScore = Math.round(materialScore + diversityScore);
+
+  return regularityScore + timelinessScore + qualityScore;
+}
+
+/**
+ * Red Flag Component (weight: 25%)
+ *
+ * Inverts the red flag composite score so that lower red flags = higher VETR score.
+ * A stock with no red flags (composite = 0) gets 100 points.
+ * A stock with maximum red flags (composite = 100) gets 0 points.
+ *
+ * @param redFlagCompositeScore - The composite red flag score (0-100)
+ * @returns Score 0-100
+ */
+export function redFlagComponent(redFlagCompositeScore: number): number {
+  const clamped = Math.max(0, Math.min(100, redFlagCompositeScore));
+  return Math.round(100 - clamped);
+}
+
+/**
+ * Get executives for a stock ticker from the database.
+ * Helper used by the VETR Score calculation pipeline.
+ */
+export async function getExecutivesForTicker(ticker: string): Promise<ExecutiveRow[]> {
+  if (!db) {
+    throw new InternalError('Database not available');
+  }
+
+  const stock = await db
+    .select({ id: stocks.id })
+    .from(stocks)
+    .where(eq(stocks.ticker, ticker.toUpperCase()))
+    .limit(1);
+
+  if (stock.length === 0) {
+    return [];
+  }
+
+  return db
+    .select()
+    .from(executives)
+    .where(eq(executives.stockId, stock[0].id))
+    .orderBy(desc(executives.yearsAtCompany));
+}
+
+/**
+ * Get filings for a stock ticker from the database.
+ * Helper used by the VETR Score calculation pipeline.
+ */
+export async function getFilingsForTicker(ticker: string): Promise<FilingRow[]> {
+  if (!db) {
+    throw new InternalError('Database not available');
+  }
+
+  const stock = await db
+    .select({ id: stocks.id })
+    .from(stocks)
+    .where(eq(stocks.ticker, ticker.toUpperCase()))
+    .limit(1);
+
+  if (stock.length === 0) {
+    return [];
+  }
+
+  return db
+    .select()
+    .from(filings)
+    .where(eq(filings.stockId, stock[0].id))
+    .orderBy(desc(filings.date));
+}
