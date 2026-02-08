@@ -293,3 +293,57 @@ Details:
   - addedAt timestamp useful for "recently added" sorting and tracking when stocks were added to watchlist
   - Pattern follows same conventions as filing_reads join table (composite PK, FKs with CASCADE)
 ---
+
+## US-013: Create vetr_score_history database schema
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created src/db/schema/vetr-scores.ts with vetr_score_history table
+  - Columns: id (UUID PK), stock_ticker, overall_score (int), pedigree_score (int), filing_velocity_score (int), red_flag_score (int), growth_score (int), governance_score (int), bonus_points (int default 0), penalty_points (int default 0), calculated_at (timestamp with defaultNow())
+  - All column names use snake_case convention for consistency with database standards
+- Added indexes on stock_ticker and calculated_at for optimal query performance
+  - stock_ticker index enables efficient lookups of score history by company
+  - calculated_at index supports efficient time-based queries and sorting
+- Exported vetrScoreHistory table from schema/index.ts barrel export
+- npm run build passes with zero errors
+- Files changed: src/db/schema/vetr-scores.ts (created), src/db/schema/index.ts (modified), scripts/ralph/prd.json (modified)
+- **Learnings for future iterations:**
+  - VETR Score breakdown into 5 component scores (pedigree, filing_velocity, red_flag, growth, governance) enables detailed analysis
+  - Bonus and penalty points stored separately allow tracking of adjustments to base score
+  - Historical tracking via calculated_at timestamp enables trend analysis over time
+  - stock_ticker stored as varchar instead of FK to stocks table - provides flexibility if score calculated before stock fully onboarded
+  - All score fields are integers (0-100 range) for consistency with VETR Score algorithm
+  - Default values for bonusPoints and penaltyPoints (0) ensure clean data when no adjustments applied
+  - Index on calculated_at crucial for time-series queries (e.g., "get score history for last 6 months")
+  - Pattern follows same conventions as other schema files (pgTable with indexes callback)
+---
+
+## US-014: Create red_flag_history, red_flag_acknowledgments, sync_history, user_settings schemas
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created src/db/schema/red-flags.ts with red_flag_history and red_flag_acknowledgments tables
+  - red_flag_history: id (UUID PK), stock_ticker, flag_type, severity, score (double), description (text), detected_at
+  - Indexes on stock_ticker, detected_at, and flag_type for optimal query performance
+  - red_flag_acknowledgments: composite PK (user_id, red_flag_id), acknowledged_at timestamp
+  - Supports per-user acknowledgment of red flags with CASCADE delete for referential integrity
+- Created src/db/schema/sync.ts with sync_history table
+  - Columns: id (UUID PK), user_id (FK to users), started_at, completed_at (nullable), items_synced (int default 0), status, errors (text nullable)
+  - Indexes on user_id and started_at for efficient sync history queries
+  - Tracks sync operations for offline-first mobile app functionality
+- Created src/db/schema/user-settings.ts with user_settings table
+  - Columns: id (UUID PK), user_id (unique FK to users), settings (jsonb default {}), updated_at
+  - One settings record per user, stored as flexible JSONB for extensibility
+- Exported all new schemas from schema/index.ts barrel export
+- npm run build passes with zero errors
+- Files changed: src/db/schema/red-flags.ts (created), src/db/schema/sync.ts (created), src/db/schema/user-settings.ts (created), src/db/schema/index.ts (modified)
+- **Learnings for future iterations:**
+  - Index syntax in Drizzle: import `index` from drizzle-orm/pg-core, use `index('name').on(table.column)` pattern
+  - Red flag severity levels: Low (<30), Moderate (30-60), High (60-85), Critical (>85) will be used in detection service
+  - Red flag types will include: consolidation_velocity, financing_velocity, executive_churn, disclosure_gaps, debt_trend
+  - Sync status values: pending, success, failed (simple state machine for sync operations)
+  - User settings as JSONB allows flexible schema-free storage for app preferences, notification settings, etc.
+  - Composite PK on red_flag_acknowledgments prevents duplicate acknowledgments (one per user per flag)
+  - All tables follow established patterns: UUID PKs with defaultRandom(), snake_case column names, appropriate indexes
+  - Text type for errors field allows storing detailed error messages from failed sync operations
+---
