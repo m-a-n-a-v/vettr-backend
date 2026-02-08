@@ -1461,3 +1461,31 @@ Details:
   - The 5 weights sum to 100%: consolidation (30%) + financing (25%) + churn (20%) + disclosure (15%) + debt (10%)
   - US-057 will combine all 5 detectors into a composite red flag scoring function
 ---
+
+## US-057: Implement composite red flag scoring with caching
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Added `detectRedFlags(ticker)` function to src/services/red-flag.service.ts
+  - Runs all 5 detectors in parallel (consolidation velocity, financing velocity, executive churn, disclosure gaps, debt trend)
+  - Calculates weighted composite score as sum of (score × weight) for each detector
+  - Classifies severity: Low (<30), Moderate (30-60), High (60-85), Critical (>85)
+  - Returns DetectedFlagResult with composite score, severity, and per-flag breakdown
+- Added Redis caching with 24h TTL (key: `red_flags:{TICKER}`)
+  - Checks cache first, returns cached result if available
+  - Caches fresh result after calculation
+- Added `saveRedFlagsToHistory()` to persist individual flags to red_flag_history table
+  - Each flag saved with its own severity classification (per-flag, not overall)
+  - Graceful error handling: logs failure but doesn't fail the detection
+- Added `classifySeverity()` helper for severity classification
+- Added imports: `redFlagHistory` from schema, `cache` service
+- NotFoundError now used when stock ticker doesn't exist (was imported but unused before)
+- npm run build passes with zero errors
+- Files changed: src/services/red-flag.service.ts (modified)
+- **Learnings for future iterations:**
+  - Promise.all() for running detectors in parallel significantly improves performance
+  - Cache key pattern `red_flags:{TICKER}` consistent with vetr_score cache pattern
+  - Per-flag severity classification differs from overall composite severity
+  - saveRedFlagsToHistory uses try/catch to avoid failing the main operation on DB errors
+  - redFlagHistory table uses individual flag severity, not the composite severity
+---
