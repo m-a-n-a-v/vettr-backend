@@ -3,6 +3,7 @@ import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { errorHandler } from './middleware/error-handler.js';
 import { env } from './config/env.js';
+import { healthRoutes } from './routes/health.routes.js';
 
 // Define context variables type
 type Variables = {
@@ -32,16 +33,7 @@ app.use(
 // Global error handler
 app.onError(errorHandler);
 
-// Health check
-app.get('/health', (c) => {
-  return c.json({
-    success: true,
-    data: {
-      status: 'healthy',
-      version: '1.0.0',
-      timestamp: new Date().toISOString(),
-    },
-  });
-});
+// Register routes
+app.route('/health', healthRoutes);
 
 export { app };
