@@ -480,3 +480,26 @@ Details:
   - The OpenAPI spec at /v1/openapi.json is auto-populated as routes are registered via @hono/zod-openapi
   - This was a minimal change — just 2 lines added (import + route registration)
 ---
+
+## US-020: Create stock seed data (25 Canadian pilot stocks)
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created src/db/seed/stocks.ts with 25 Canadian stock seed data entries
+- Stocks include: NXE, ARIS, LUN, FM, TKO, ERO, CS, MAG, FVI, WPM, AEM, OR, ELD, SII, BTO, NGD, IMG, MND, LUG, KRR, RIO, SBB, GPL, FR, AG
+- Exchanges represented: TSX (majority), TSXV (RIO), NYSE (AG)
+- Sectors covered: Uranium, Gold, Base Metals, Copper, Silver, Precious Metals, Financial Services
+- Each stock includes realistic: ticker, name, exchange, sector, market_cap, price, price_change, vetr_score
+- Exported seedStocks() function using Drizzle upsert (onConflictDoUpdate on ticker) for idempotent re-seeding
+- Market caps range from $95M (GPL) to $42.3B (AEM) for realistic distribution
+- VETR scores range from 35 (GPL) to 91 (AEM) for varied scoring
+- npm run build passes with zero errors
+- Files changed: src/db/seed/stocks.ts (created)
+- **Learnings for future iterations:**
+  - Drizzle's onConflictDoUpdate() enables upsert pattern on unique columns (ticker)
+  - Set clause in onConflictDoUpdate excludes the conflict target column (ticker)
+  - seedStocks() is async and returns count for progress reporting
+  - Null check on db instance enables graceful skip when DATABASE_URL not configured
+  - Stock data follows the exact column names from the stocks schema (camelCase in TypeScript)
+  - Created seed directory at src/db/seed/ for all seed files
+---
