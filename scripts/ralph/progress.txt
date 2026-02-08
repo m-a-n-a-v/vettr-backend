@@ -1535,3 +1535,27 @@ Details:
   - The trend endpoint uses parallel DB queries for efficiency (5 queries: total, last 30d, prev 30d, by severity, by type)
   - rowCount from drizzle insert can be used to detect if insert was a no-op (conflict)
 ---
+
+## US-060: Create alert rule service with tier limits
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created src/services/alert-rule.service.ts with full CRUD + tier limit enforcement
+- Implemented createRule(): validates max 50 rules per user (TIER_LIMIT_EXCEEDED), detects duplicate rules (same stock + type) with CONFLICT error, inserts with .returning()
+- Implemented updateRule(): validates ownership (FORBIDDEN), checks for duplicate on ruleType change, partial update with only provided fields
+- Implemented deleteRule(): validates ownership (FORBIDDEN), deletes rule
+- Implemented getRulesForUser(): returns all rules for a user ordered by created_at
+- Implemented getRulesForStock(): returns rules for a specific stock ticker filtered to current user
+- Implemented toggleActive(): validates ownership, sets isActive to true/false
+- All functions check `if (!db)` and throw InternalError for graceful dev mode handling
+- Uses existing error classes: TierLimitError, ConflictError, ForbiddenError, NotFoundError, InternalError
+- npm run build passes with zero errors
+- Files changed: src/services/alert-rule.service.ts (created), scripts/ralph/prd.json (modified)
+- **Learnings for future iterations:**
+  - Max rules per user is 50 (flat limit, not tier-based) as specified in acceptance criteria
+  - Duplicate detection: same userId + stockTicker + ruleType = conflict
+  - Ownership validation pattern: find by ID, check userId matches, throw ForbiddenError if not
+  - Partial update pattern: build updateData object only with defined fields to avoid overwriting with undefined
+  - stockTicker normalized to uppercase on create and search for consistency
+  - The alertRules schema has indexes on userId and stockTicker for efficient lookups
+---
