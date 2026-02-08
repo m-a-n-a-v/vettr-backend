@@ -908,3 +908,28 @@ Details:
   - When future route groups are added (stocks, filings, etc.), they automatically get rate limiting from the global middleware
   - Auth routes effectively have dual rate limiting: global (read/write) + auth-specific — this is intentional as auth endpoints should be extra protected
 ---
+
+## US-036: Create stock service with pagination and filtering
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created src/services/stock.service.ts with getStocks() function supporting full query options
+- Supports pagination with total count via sql`count(*)::int` query
+- Supports filtering by sector and exchange via eq() conditions
+- Supports sorting by ticker, name, vetr_score, market_cap, price with asc/desc order
+- Supports search by name or ticker using ilike() with wildcard pattern
+- Used sql.join() to combine multiple WHERE conditions with AND
+- Sort column mapping via sortColumnMap object for type-safe column references
+- Returns GetStocksResult with stocks array and PaginationMeta
+- npm run build passes with zero errors
+- Files changed: src/services/stock.service.ts (created), scripts/ralph/prd.json (modified)
+- **Learnings for future iterations:**
+  - Drizzle's ilike() function handles case-insensitive pattern matching (PostgreSQL ILIKE)
+  - or() from drizzle-orm combines conditions with OR logic, returns SQL | undefined so needs ! assertion
+  - sql.join() with sql` AND ` separator combines array of conditions into single WHERE clause
+  - sql<number>`count(*)::int` provides type-safe count query with PostgreSQL cast to integer
+  - asc() and desc() from drizzle-orm wrap columns for ORDER BY direction
+  - Pattern: build conditions array, then join for WHERE clause — clean and composable
+  - sortColumnMap provides safe mapping from API sort parameter to actual Drizzle column reference
+  - PaginationMeta.has_more calculated as offset + limit < total
+---
