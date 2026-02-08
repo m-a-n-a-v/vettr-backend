@@ -1963,3 +1963,29 @@ Details:
   - Service mocking allows testing route handlers without database dependencies
   - Stock and filing DTOs properly map camelCase to snake_case in responses
 ---
+
+## US-076: Write integration tests for scoring endpoints
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created tests/integration/scoring.test.ts with comprehensive integration tests for VETR Score and Red Flag endpoints
+- Implemented 13 passing test cases covering all scoring endpoints
+- Tests verify GET /stocks/:ticker/vetr-score with component breakdowns
+- Tests verify GET /stocks/:ticker/vetr-score/history with configurable months parameter
+- Tests verify GET /stocks/:ticker/red-flags with composite score and severity classification
+- Tests verify POST /red-flags/:id/acknowledge for per-user acknowledgment
+- Tests include authentication requirements, error handling (404 for invalid tickers/IDs), and edge cases
+- Additional tests for GET /stocks/:ticker/vetr-score/trend and /compare endpoints
+- All tests use mocked services following existing integration test patterns from auth.test.ts and stocks.test.ts
+- Total test count: 130 passed (7 test files)
+- Files changed: tests/integration/scoring.test.ts (created)
+- npm run build passes with zero errors
+- **Learnings for future iterations:**
+  - Integration test pattern: mock services with vi.mock(), use createTestUser() and createTestToken() helpers
+  - Mock both the service function and return values to isolate endpoint logic from service implementation
+  - Test structure: describe blocks for each endpoint, it blocks for specific scenarios (happy path, auth required, error cases)
+  - Authentication tests: verify 401 responses for missing tokens, 404 for non-existent resources
+  - Red Flag and VETR Score tests require mocking complex nested response objects with all expected fields
+  - snake_case used consistently in all API responses (composite_score, flag_type, detected_at, etc.)
+  - Tests verify both data shape and service function call signatures
+---
