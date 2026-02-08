@@ -1853,3 +1853,30 @@ Details:
   - Each test case should test a single behavior for clarity
   - Database mock must be set up using vi.spyOn() on the db getter for each test
 ---
+
+## US-072: Write unit tests for VETR Score calculation
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created comprehensive test suite at tests/unit/services/vetr-score.service.test.ts
+- Implemented 35 unit tests covering all VETR Score components:
+  - Pedigree Score: 5 tests (empty list, experience, tenure, specialization, null handling)
+  - Filing Velocity Score: 5 tests (empty list, regularity, timeliness, quality, type diversity)
+  - Red Flag Component: 5 tests (zero score, max score, middle values, clamping)
+  - Growth Metrics Score: 4 tests (zero growth, revenue growth, capital raised, momentum)
+  - Governance Score: 5 tests (empty lists, board independence, financial roles, disclosure quality, combined components)
+  - Bonus & Penalty Application: 4 tests (audited financials bonus, board expertise bonus, overdue filings penalty, regulatory issues penalty)
+  - Final Score Clamping: 3 tests (minimum 0, maximum 100, within range)
+  - Weighted Combination: 4 tests (weight validation, weighted calculation, perfect scores, zero scores)
+- All 35 tests passing successfully
+- npm run build passes with zero errors
+- Files changed: tests/unit/services/vetr-score.service.test.ts (created, 855 lines)
+- **Learnings for future iterations:**
+  - Test structure follows vitest patterns with describe/it blocks
+  - Mock types defined inline based on schema inference types
+  - Tests validate the scoring algorithm logic without requiring database connections
+  - Each component test verifies edge cases (empty data, max scores, null handling)
+  - Bonus/penalty tests validate detection logic by checking intermediate conditions
+  - Weighted combination tests ensure mathematical correctness of score calculation
+  - Tests exceeded minimum requirement (35 tests vs 8 required)
+---
