@@ -1489,3 +1489,30 @@ Details:
   - saveRedFlagsToHistory uses try/catch to avoid failing the main operation on DB errors
   - redFlagHistory table uses individual flag severity, not the composite severity
 ---
+
+## US-058: Implement Red Flag API endpoints
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created src/routes/red-flags.routes.ts with two route groups:
+  - redFlagStockRoutes (mounted at /stocks): handles /stocks/:ticker/red-flags and /stocks/:ticker/red-flags/history
+  - redFlagGlobalRoutes (mounted at /red-flags): handles /red-flags/history
+- GET /stocks/:ticker/red-flags - calls detectRedFlags(ticker), returns composite score with per-flag breakdown
+- GET /stocks/:ticker/red-flags/history - paginated flag history for a specific stock from red_flag_history table
+- GET /red-flags/history?limit=20 - global paginated flag history across all stocks
+- Added getRedFlagHistoryForStock() and getGlobalRedFlagHistory() to src/services/red-flag.service.ts
+  - Both use parallel count + data queries with Promise.all for performance
+  - Stock-specific history validates stock exists first (throws NotFoundError)
+  - Both return proper PaginationMeta with total, limit, offset, has_more
+- All endpoints use auth middleware, Zod query validation, and snake_case response format
+- Updated src/routes/index.ts to export redFlagStockRoutes and redFlagGlobalRoutes
+- Updated src/app.ts to mount both route groups
+- npm run build passes with zero errors
+- Files changed: src/services/red-flag.service.ts, src/routes/red-flags.routes.ts (new), src/routes/index.ts, src/app.ts
+- **Learnings for future iterations:**
+  - When routes need multiple mount points (e.g., /stocks/:ticker/red-flags AND /red-flags/history), use two separate Hono route groups
+  - Both groups are exported from the same file and mounted at different prefixes in app.ts
+  - History routes place the more specific path (/history) before the catch-all to avoid route conflicts
+  - Drizzle's sql`count(*)::int` template literal is used for typed count queries
+  - PaginationMeta type imported from types/pagination.ts for consistent pagination response shape
+---
