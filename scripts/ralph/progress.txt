@@ -150,3 +150,28 @@ Details:
   - Environment-based error detail exposure prevents leaking sensitive info in production
   - All errors logged to console for debugging, should integrate with structured logging service later
 ---
+
+## US-007: Create users and refresh_tokens database schema
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created src/db/schema/users.ts with users table
+  - Columns: id (UUID PK), email (unique), display_name, avatar_url (nullable), tier (default 'free'), password_hash (nullable), auth_provider (default 'email'), auth_provider_id (nullable), created_at, updated_at
+  - Supports multiple authentication providers: email/password, Google OAuth, Apple Sign In
+- Created refresh_tokens table
+  - Columns: id (UUID PK), user_id (FK to users with CASCADE delete), token_hash, expires_at, is_revoked (default false), created_at
+  - Supports token rotation for enhanced security
+- Created src/db/schema/index.ts barrel export for clean imports across the codebase
+- All column names use snake_case convention (display_name, avatar_url, auth_provider, etc.)
+- npm run build passes with zero errors
+- Files changed: src/db/schema/users.ts (created), src/db/schema/index.ts (created)
+- **Learnings for future iterations:**
+  - Drizzle ORM uses camelCase in TypeScript but automatically maps to snake_case in SQL
+  - Use .references() for foreign keys with onDelete: 'cascade' for automatic cleanup
+  - Use .defaultRandom() for UUID primary keys (generates UUIDv4 at database level)
+  - Nullable fields (password_hash, avatar_url, auth_provider_id) allow flexibility for different auth flows
+  - password_hash nullable because OAuth users don't have passwords
+  - auth_provider_id stores the provider's unique ID for the user (Google sub, Apple user ID, etc.)
+  - Refresh tokens stored hashed for security, never stored in plaintext
+  - Token rotation requires new token generation and old token revocation on each refresh
+---
