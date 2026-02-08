@@ -26,3 +26,59 @@ Project: VETTR Backend
 - @hono/zod-openapi + @hono/swagger-ui: API documentation
 
 ---
+
+## US-001: Initialize project with TypeScript, Hono, and essential dependencies
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Ran npm install successfully (164 packages installed)
+- Verified src/index.ts starts Hono server on PORT 3000 via @hono/node-server
+- Verified src/app.ts exports configured Hono app with /v1 base path
+- npm run build compiles successfully with zero errors
+- Tested GET /v1/health endpoint returns proper JSON response
+- Files changed: package-lock.json (added)
+- **Learnings for future iterations:**
+  - Project scaffold was already in place with basic structure
+  - Build system works correctly with ESM imports (.js extensions)
+  - Health endpoint follows standardized response format with success/data pattern
+  - All npm scripts are correctly configured (dev, build, test, typecheck)
+  - Basic middleware (logger, cors) already registered on Hono app
+---
+
+## US-002: Configure environment variable validation with Zod
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created src/config/env.ts with Zod schema for environment validation
+- Validated PORT, NODE_ENV, DATABASE_URL, JWT_SECRET, UPSTASH vars
+- Set appropriate defaults: PORT=3000, NODE_ENV=development, JWT_SECRET has dev default
+- Made DATABASE_URL and Upstash Redis vars optional for local development
+- Made OAuth credentials (Google, Apple) optional
+- Added safeParse with error formatting and process.exit(1) on validation failure
+- npm run build passes with zero errors
+- Files changed: src/config/env.ts (created)
+- **Learnings for future iterations:**
+  - Zod's transform() method useful for converting string env vars to numbers
+  - Using .optional() allows graceful degradation in development mode
+  - safeParse() provides better error messages than parse() for env validation
+  - process.exit(1) after validation errors prevents app from starting with bad config
+---
+
+## US-003: Set up Drizzle ORM with Neon PostgreSQL connection
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created src/config/database.ts exporting Drizzle db instance
+- Configured Neon serverless driver with Pool and DATABASE_URL from env
+- Added graceful error handling with different behaviors for dev vs production
+- Database features disabled when DATABASE_URL not set (useful for development)
+- Production mode exits if database connection fails (fail-fast principle)
+- npm run build passes with zero errors
+- Files changed: src/config/database.ts (created)
+- **Learnings for future iterations:**
+  - Neon's Pool class from @neondatabase/serverless handles connection pooling automatically
+  - Drizzle's drizzle() function accepts the pool and returns a typed database client
+  - Graceful degradation pattern useful: warn in dev, exit in production
+  - Console logging with emoji prefixes (✅, ⚠️, ❌, 💥) improves readability
+  - Exported db is nullable in type system, services should handle null checks
+---

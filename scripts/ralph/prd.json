@@ -17,7 +17,7 @@
         "npm run dev starts server and GET /v1/health returns JSON"
       ],
       "priority": 1,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-002",
@@ -31,7 +31,7 @@
         "npm run build passes"
       ],
       "priority": 2,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-003",
@@ -45,7 +45,7 @@
         "npm run build passes"
       ],
       "priority": 3,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-004",
