@@ -4,7 +4,12 @@ import { validateQuery } from '../middleware/validator.js';
 import { authMiddleware } from '../middleware/auth.js';
 import type { AuthUser } from '../middleware/auth.js';
 import { getStocks, getStockByTicker, searchStocks } from '../services/stock.service.js';
+import { getFilingsByStock } from '../services/filing.service.js';
 import { paginated, success } from '../utils/response.js';
+import { NotFoundError, InternalError } from '../utils/errors.js';
+import { eq } from 'drizzle-orm';
+import { db } from '../config/database.js';
+import { stocks } from '../db/schema/index.js';
 
 type Variables = {
   user: AuthUser;
@@ -89,6 +94,54 @@ stockRoutes.get('/search', validateQuery(searchStocksQuerySchema), async (c) => 
   }));
 
   return c.json(success(stockDtos), 200);
+});
+
+// Zod schema for GET /stocks/:ticker/filings query params
+const getStockFilingsQuerySchema = z.object({
+  limit: z.string().optional().default('20'),
+  offset: z.string().optional().default('0'),
+  type: z.string().optional(),
+});
+
+// GET /stocks/:ticker/filings - Get filings for a specific stock
+stockRoutes.get('/:ticker/filings', validateQuery(getStockFilingsQuerySchema), async (c) => {
+  if (!db) {
+    throw new InternalError('Database not available');
+  }
+
+  const ticker = c.req.param('ticker');
+
+  // Resolve ticker to stock record
+  const stockResults = await db
+    .select()
+    .from(stocks)
+    .where(eq(stocks.ticker, ticker.toUpperCase()))
+    .limit(1);
+
+  const stock = stockResults[0];
+  if (!stock) {
+    throw new NotFoundError(`Stock with ticker '${ticker}' not found`);
+  }
+
+  const query = c.req.query();
+  const limit = Math.min(Math.max(parseInt(query.limit || '20', 10) || 20, 1), 100);
+  const offset = Math.max(parseInt(query.offset || '0', 10) || 0, 0);
+
+  const result = await getFilingsByStock(stock.id, { limit, offset, type: query.type });
+
+  const filingDtos = result.filings.map((filing) => ({
+    id: filing.id,
+    stock_id: filing.stockId,
+    type: filing.type,
+    title: filing.title,
+    date: filing.date.toISOString(),
+    summary: filing.summary,
+    is_material: filing.isMaterial,
+    source_url: filing.sourceUrl,
+    created_at: filing.createdAt.toISOString(),
+  }));
+
+  return c.json(paginated(filingDtos, result.pagination), 200);
 });
 
 // GET /stocks/:ticker - Get stock detail with executives summary, recent filings, and watchlist status
