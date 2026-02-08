@@ -846,3 +846,41 @@ Details:
   - success(null) from response builder works cleanly for endpoints that return no data
   - Pattern: auth middleware first, then validation middleware, then handler
 ---
+
+## US-034: Create tier-based rate limiting middleware
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created src/middleware/rate-limit.ts with comprehensive tier-based rate limiting
+- Used @upstash/ratelimit v2 with sliding window algorithm for smooth rate limiting
+- Implemented two middleware functions:
+  - rateLimitMiddleware: For general endpoints, auto-detects read/write from HTTP method
+  - authRateLimitMiddleware: For auth endpoints with stricter limits
+- Rate limits by tier:
+  - Unauth: 5/min (all categories)
+  - FREE: reads 60/min, writes 30/min, auth 10/min
+  - PRO: reads 120/min, writes 60/min, auth 10/min
+  - PREMIUM: reads 300/min, writes 120/min, auth 10/min
+  - Auth (unauthenticated): 5/min
+- Features:
+  - Automatic tier detection from Hono context (c.get('user'))
+  - Identifier based on user ID (authenticated) or IP address (unauthenticated)
+  - Rate limit headers: X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset
+  - Retry-After header on 429 responses
+  - Lazy Ratelimit instance creation with caching
+  - Graceful degradation: skips rate limiting when Redis unavailable (dev mode)
+  - Fail-open: allows requests through if Redis errors occur
+- npm run build and npm run typecheck both pass with zero errors
+- Files changed: src/middleware/rate-limit.ts (created), scripts/ralph/prd.json (modified)
+- **Learnings for future iterations:**
+  - @upstash/ratelimit v2 Ratelimit.slidingWindow() creates the limiter configuration
+  - Ratelimit constructor takes { redis, limiter, prefix } options
+  - limiter.limit(identifier) returns { success, limit, remaining, reset }
+  - Reset value is a Unix timestamp in milliseconds
+  - Retry-After header should be in seconds (ceil of (reset - now) / 1000)
+  - Lazy initialization with Map cache avoids creating limiters until needed
+  - Category detection from HTTP method: GET/HEAD/OPTIONS = read, everything else = write
+  - Fail-open pattern: catch Redis errors and allow request through (better than blocking all traffic)
+  - Two separate middleware exports allow different rate limit strategies for auth vs general endpoints
+  - getTierFromContext() uses try/catch for c.get('user') since it may not be set for unauthenticated requests
+---
