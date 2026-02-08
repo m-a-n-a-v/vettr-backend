@@ -2035,3 +2035,27 @@ Details:
   - Sanitization utilities should handle strings, objects, and arrays recursively for complete coverage
   - Security middleware order matters: request ID → logger → security headers → body limit → CORS → error handler → rate limit
 ---
+
+## US-079: Add request timing and structured logging
+Status: ✅ COMPLETE
+Date: 2026-02-08
+Details:
+- Created src/middleware/request-logger.ts with structured JSON logging middleware
+- Replaced Hono's default logger with custom request timing middleware
+- Log format: JSON with timestamp, request_id, method, path, status, duration_ms
+- Added intelligent log levels: error (5xx), warn (4xx or >500ms), info (normal)
+- Slow requests (>500ms) logged with warning level and slow_request flag
+- Updated src/index.ts with structured startup logging including version, environment, port
+- Startup logs include server_starting and server_ready events in JSON format
+- All quality checks pass: npm run build, npm run typecheck, npm run test
+- Files changed: src/middleware/request-logger.ts (created), src/app.ts, src/index.ts
+- **Learnings for future iterations:**
+  - Structured JSON logging makes parsing and monitoring much easier in production
+  - Middleware timing calculated using Date.now() diff before/after next()
+  - Log levels based on both status codes AND duration provides good signal-to-noise ratio
+  - Request ID (already in context from earlier middleware) included in all logs for tracing
+  - Startup logs with version/env/port help correlate deployments with log streams
+  - Tests automatically output structured logs, confirming middleware works correctly
+  - URL parsing (new URL()) safely extracts clean path without query params
+  - All log output to console.log/warn/error, production can redirect to logging service
+---
