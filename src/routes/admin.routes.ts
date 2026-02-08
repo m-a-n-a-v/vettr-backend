@@ -3,7 +3,7 @@ import { adminAuthMiddleware } from '../middleware/admin-auth.js';
 import { adminService } from '../services/admin.service.js';
 import { success } from '../utils/response.js';
 import { createAdminCrudRoutes } from './admin-crud.factory.js';
-import { users, stocks, executives } from '../db/schema/index.js';
+import { users, stocks, executives, filings } from '../db/schema/index.js';
 
 const adminRoutes = new Hono();
 
@@ -91,5 +91,27 @@ const executivesRoutes = createAdminCrudRoutes({
 });
 
 adminRoutes.route('/executives', executivesRoutes);
+
+/**
+ * CRUD routes for filings table
+ * - GET /admin/filings - List filings with pagination, search, sort, and filters
+ * - GET /admin/filings/:id - Get a single filing by ID
+ * - POST /admin/filings - Create a new filing
+ * - PUT /admin/filings/:id - Update a filing
+ * - DELETE /admin/filings/:id - Delete a filing
+ * - GET /admin/filings/export - Export filings as CSV or JSON
+ * - POST /admin/filings/bulk - Bulk create filings
+ * - DELETE /admin/filings/bulk - Bulk delete filings
+ */
+const filingsRoutes = createAdminCrudRoutes({
+  tableName: 'filings',
+  table: filings,
+  primaryKey: 'id',
+  searchableColumns: ['title', 'summary'],
+  filterableColumns: ['stockId', 'type', 'isMaterial'],
+  sortableColumns: ['title', 'type', 'date', 'isMaterial', 'createdAt'],
+});
+
+adminRoutes.route('/filings', filingsRoutes);
 
 export { adminRoutes };
