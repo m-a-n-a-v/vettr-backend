@@ -243,3 +243,242 @@ export async function detectFinancingVelocity(stockTicker: string): Promise<RedF
         : `${eventCount} financing event${eventCount > 1 ? 's' : ''} detected in the last 12 months for ${stage} company (threshold: ${threshold})`,
   };
 }
+
+// --- Red Flag Detector: Executive Churn (weight: 20%) ---
+
+/**
+ * Detect Executive Churn red flag.
+ *
+ * Measures the rate of executive turnover by looking at executives with
+ * low tenure (less than 1 year at the company), which indicates recent
+ * departures and replacements.
+ *
+ * Scoring:
+ * - 1 recent change → 25pts
+ * - 2 recent changes → 50pts
+ * - 3 recent changes → 75pts
+ * - 4+ recent changes → 100pts
+ *
+ * Weight: 20%
+ *
+ * @param stockTicker - Stock ticker symbol
+ * @returns RedFlagDetail with score and description
+ */
+export async function detectExecutiveChurn(stockTicker: string): Promise<RedFlagDetail> {
+  const upperTicker = stockTicker.toUpperCase();
+  const executiveList = await getExecutivesForTicker(upperTicker);
+
+  // Executives with less than 1 year tenure indicate recent churn
+  const recentChanges = executiveList.filter((e) => e.yearsAtCompany < 1);
+  const churnCount = recentChanges.length;
+
+  let score: number;
+
+  if (churnCount === 0) {
+    score = 0;
+  } else if (churnCount === 1) {
+    score = 25;
+  } else if (churnCount === 2) {
+    score = 50;
+  } else if (churnCount === 3) {
+    score = 75;
+  } else {
+    score = 100;
+  }
+
+  const weight = 0.20;
+
+  return {
+    flag_type: 'executive_churn',
+    score,
+    weight,
+    weighted_score: Math.round(score * weight),
+    description:
+      churnCount === 0
+        ? 'No significant executive turnover detected'
+        : `${churnCount} executive${churnCount > 1 ? 's' : ''} with less than 1 year tenure (indicates recent turnover)`,
+  };
+}
+
+// --- Red Flag Detector: Disclosure Gaps (weight: 15%) ---
+
+/**
+ * Detect Disclosure Gaps red flag.
+ *
+ * Measures the gap between the most recent filing and the current date.
+ * Longer gaps indicate potential disclosure issues or regulatory non-compliance.
+ *
+ * Scoring:
+ * - Overdue (no filings in 120+ days) → 100pts
+ * - 90+ days since last filing → 75pts
+ * - 60-89 days → 50pts
+ * - 30-59 days → 25pts
+ * - Less than 30 days → 0pts
+ *
+ * Weight: 15%
+ *
+ * @param stockTicker - Stock ticker symbol
+ * @returns RedFlagDetail with score and description
+ */
+export async function detectDisclosureGaps(stockTicker: string): Promise<RedFlagDetail> {
+  const upperTicker = stockTicker.toUpperCase();
+  const filingList = await getFilingsForTicker(upperTicker);
+
+  const weight = 0.15;
+
+  // If no filings at all, consider it overdue
+  if (filingList.length === 0) {
+    return {
+      flag_type: 'disclosure_gaps',
+      score: 100,
+      weight,
+      weighted_score: Math.round(100 * weight),
+      description: 'No filings found — disclosure status unknown (treated as overdue)',
+    };
+  }
+
+  // filingList is ordered by date DESC, so first entry is most recent
+  const mostRecentFiling = filingList[0];
+  const now = new Date();
+  const daysSinceLastFiling = Math.floor(
+    (now.getTime() - mostRecentFiling.date.getTime()) / (1000 * 60 * 60 * 24)
+  );
+
+  let score: number;
+  let description: string;
+
+  if (daysSinceLastFiling >= 120) {
+    score = 100;
+    description = `Overdue: ${daysSinceLastFiling} days since last filing`;
+  } else if (daysSinceLastFiling >= 90) {
+    score = 75;
+    description = `${daysSinceLastFiling} days since last filing (90+ day gap)`;
+  } else if (daysSinceLastFiling >= 60) {
+    score = 50;
+    description = `${daysSinceLastFiling} days since last filing (60-89 day gap)`;
+  } else if (daysSinceLastFiling >= 30) {
+    score = 25;
+    description = `${daysSinceLastFiling} days since last filing (30-59 day gap)`;
+  } else {
+    score = 0;
+    description = `Last filing ${daysSinceLastFiling} days ago — disclosures are current`;
+  }
+
+  return {
+    flag_type: 'disclosure_gaps',
+    score,
+    weight,
+    weighted_score: Math.round(score * weight),
+    description,
+  };
+}
+
+// --- Red Flag Detector: Debt Trend (weight: 10%) ---
+
+/**
+ * Detect Debt Trend red flag.
+ *
+ * Analyzes filing content for signs of increasing debt burden relative to revenue growth.
+ * Uses filing keywords to detect debt-related activity and revenue growth signals.
+ *
+ * Since explicit financial data (debt, revenue) is not stored in the schema,
+ * this detector uses filing content analysis as a proxy:
+ * - Counts debt-related filings (debentures, credit facilities, debt restructuring)
+ * - Counts revenue-positive filings (revenue growth, earnings, profit)
+ * - High debt activity with low revenue signals = high risk
+ *
+ * Scoring:
+ * - 100%+ debt signals with <20% revenue signals → 100pts
+ * - 75%+ debt signals → 75pts
+ * - 50%+ debt signals → 50pts
+ * - 25%+ debt signals → 25pts
+ * - Less → 0pts
+ *
+ * Weight: 10%
+ *
+ * @param stockTicker - Stock ticker symbol
+ * @returns RedFlagDetail with score and description
+ */
+export async function detectDebtTrend(stockTicker: string): Promise<RedFlagDetail> {
+  const upperTicker = stockTicker.toUpperCase();
+  const filingList = await getFilingsForTicker(upperTicker);
+
+  const now = new Date();
+  const oneYearAgo = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+
+  const recentFilings = filingList.filter((f) => f.date >= oneYearAgo);
+  const weight = 0.10;
+
+  if (recentFilings.length === 0) {
+    return {
+      flag_type: 'debt_trend',
+      score: 0,
+      weight,
+      weighted_score: 0,
+      description: 'No recent filings to assess debt trend',
+    };
+  }
+
+  // Debt-related keywords
+  const debtKeywords = [
+    'debenture', 'credit facility', 'credit agreement', 'loan',
+    'debt', 'borrowing', 'leverage', 'restructuring',
+    'default', 'covenant', 'interest payment',
+  ];
+
+  // Revenue-positive keywords
+  const revenueKeywords = [
+    'revenue growth', 'revenue increase', 'earnings growth',
+    'profit', 'positive cash flow', 'record revenue',
+    'strong quarter', 'beat estimates',
+  ];
+
+  const debtFilings = recentFilings.filter((f) => {
+    const titleLower = f.title?.toLowerCase() ?? '';
+    const summaryLower = f.summary?.toLowerCase() ?? '';
+    return debtKeywords.some(
+      (kw) => titleLower.includes(kw) || summaryLower.includes(kw)
+    );
+  });
+
+  const revenueFilings = recentFilings.filter((f) => {
+    const titleLower = f.title?.toLowerCase() ?? '';
+    const summaryLower = f.summary?.toLowerCase() ?? '';
+    return revenueKeywords.some(
+      (kw) => titleLower.includes(kw) || summaryLower.includes(kw)
+    );
+  });
+
+  const totalFilings = recentFilings.length;
+  const debtRatio = debtFilings.length / totalFilings;
+  const revenueRatio = revenueFilings.length / totalFilings;
+
+  let score: number;
+  let description: string;
+
+  // High debt activity with low revenue growth is the most concerning
+  if (debtRatio >= 0.5 && revenueRatio < 0.2) {
+    score = 100;
+    description = `High debt activity (${debtFilings.length}/${totalFilings} filings) with minimal revenue growth signals — significant debt concern`;
+  } else if (debtRatio >= 0.375) {
+    score = 75;
+    description = `Elevated debt activity (${debtFilings.length}/${totalFilings} filings) detected in recent filings`;
+  } else if (debtRatio >= 0.25) {
+    score = 50;
+    description = `Moderate debt activity (${debtFilings.length}/${totalFilings} filings) detected in recent filings`;
+  } else if (debtRatio >= 0.125) {
+    score = 25;
+    description = `Minor debt activity (${debtFilings.length}/${totalFilings} filings) detected in recent filings`;
+  } else {
+    score = 0;
+    description = 'No significant debt trend concerns detected';
+  }
+
+  return {
+    flag_type: 'debt_trend',
+    score,
+    weight,
+    weighted_score: Math.round(score * weight),
+    description,
+  };
+}
