@@ -3,7 +3,7 @@ import { adminAuthMiddleware } from '../middleware/admin-auth.js';
 import { adminService } from '../services/admin.service.js';
 import { success } from '../utils/response.js';
 import { createAdminCrudRoutes } from './admin-crud.factory.js';
-import { users, stocks, executives, filings, alertRules, alerts } from '../db/schema/index.js';
+import { users, stocks, executives, filings, alertRules, alerts, vetrScoreHistory } from '../db/schema/index.js';
 
 const adminRoutes = new Hono();
 
@@ -157,5 +157,27 @@ const alertsRoutes = createAdminCrudRoutes({
 });
 
 adminRoutes.route('/alerts', alertsRoutes);
+
+/**
+ * CRUD routes for vetrScoreHistory table
+ * - GET /admin/vetr-score-history - List VETR score history with pagination, search, sort, and filters
+ * - GET /admin/vetr-score-history/:id - Get a single VETR score record by ID
+ * - POST /admin/vetr-score-history - Create a new VETR score record
+ * - PUT /admin/vetr-score-history/:id - Update a VETR score record
+ * - DELETE /admin/vetr-score-history/:id - Delete a VETR score record
+ * - GET /admin/vetr-score-history/export - Export VETR score history as CSV or JSON
+ * - POST /admin/vetr-score-history/bulk - Bulk create VETR score records
+ * - DELETE /admin/vetr-score-history/bulk - Bulk delete VETR score records
+ */
+const vetrScoreHistoryRoutes = createAdminCrudRoutes({
+  tableName: 'vetr-score-history',
+  table: vetrScoreHistory,
+  primaryKey: 'id',
+  searchableColumns: ['stockTicker'],
+  filterableColumns: ['stockTicker'],
+  sortableColumns: ['stockTicker', 'overallScore', 'pedigreeScore', 'filingVelocityScore', 'redFlagScore', 'growthScore', 'governanceScore', 'calculatedAt'],
+});
+
+adminRoutes.route('/vetr-score-history', vetrScoreHistoryRoutes);
 
 export { adminRoutes };
