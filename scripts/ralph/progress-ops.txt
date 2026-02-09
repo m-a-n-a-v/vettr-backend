@@ -1352,3 +1352,58 @@ Files changed:
 - Filter options can have placeholder entries with empty options array if the actual values need to be fetched from the API
 - DataTable accepts empty function callbacks (e.g., onEdit={() => {}}) for disabled features
 ---
+
+## OPS-043: VETR scores table page
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-ops-dashboard
+Details:
+- Created full CRUD implementation for VETR score history table page
+- Integrated useTable hook with endpoint 'vetr-score-history' and queryKey 'admin-vetr-scores'
+- Implemented SearchInput for searching by stock ticker
+- Implemented FilterBar with stockTicker filter (though empty options since it's typically a text input)
+- Implemented ExportButton with CSV/JSON export functionality via useExport hook
+- Implemented DataTable with 10 columns: stockTicker (monospace font), overallScore (Badge with color based on score: red <40, yellow 40-70, green >70), pedigreeScore, filingVelocityScore, redFlagScore, growthScore, governanceScore (all formatted to 1 decimal), bonusPoints (green with + prefix), penaltyPoints (red with - prefix), calculatedAt (formatted with toLocaleString)
+- Implemented Create/Edit modal with FormField inputs for all 9 score fields (stockTicker as text, all others as number type)
+- Implemented delete action with ConfirmDialog in danger variant
+- All CRUD operations show toast notifications on success/error
+- Route was already registered at /vetr-scores in router.tsx
+- npm run build passes successfully in vettr-ops-dashboard directory
+Files changed:
+- src/pages/VetrScores.tsx (modified from placeholder to full implementation)
+
+**Learnings for future iterations:**
+- Component interfaces: SearchInput doesn't take a value prop (manages its own state internally), FilterBar takes onFilterChange instead of onChange and value, FormField doesn't support step or required props, ConfirmDialog doesn't have a title prop
+- Badge variant mapping for scores: 'error' for <40, 'warning' for 40-70, 'success' for >70
+- Form data pattern: Keep form state as strings, convert to numbers with parseFloat when submitting
+- Grid layout pattern: Use grid-cols-2 for dual-column form inputs to save vertical space
+- Formatting patterns: toFixed(1) for score decimals, toLocaleString() for dates, color coding for bonus/penalty points
+---
+
+## OPS-044: Red flags table page
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-ops-dashboard
+Details:
+- Created full RedFlags.tsx page component with complete CRUD functionality
+- Implemented useTable hook integration with endpoint 'red-flag-history' and queryKey 'admin-red-flags'
+- Added SearchInput for searching stockTicker and description fields
+- Added FilterBar with severity filter (Low, Moderate, High, Critical), flagType filter, and stockTicker filter
+- Configured DataTable with columns: stockTicker (bold), flagType, severity (Badge with color: info for Low, warning for Moderate, error for High/Critical), score (formatted to 2 decimals), description (truncated to 100 chars), detectedAt (formatted date)
+- Created Create/Edit modals with FormField inputs for stockTicker, flagType, severity (select dropdown), score (number input), and description (textarea)
+- Implemented delete functionality with ConfirmDialog (danger variant)
+- Added export functionality with CSV and JSON format support
+- Route was already registered at /red-flags in router.tsx
+- npm run build passes successfully
+Files changed:
+- /Users/manav/Space/code/vettr-ops-dashboard/src/pages/RedFlags.tsx (created full implementation)
+
+**Learnings for future iterations:**
+- The RedFlags page follows the same pattern as other table pages (Alerts, VetrScores, etc.)
+- Severity badge variant mapping: Low → info, Moderate → warning, High/Critical → error
+- The getSeverityVariant helper function handles case-insensitive severity matching
+- Score is stored as a number in the interface but needs to be formatted to 2 decimals for display using toFixed(2)
+- Form data for score is stored as string for the input, then parsed to float on submit using parseFloat()
+- Description is truncated to 100 characters in the table for readability
+- The route was already pre-registered in router.tsx, so no router changes were needed
+---
