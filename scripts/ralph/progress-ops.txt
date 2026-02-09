@@ -1582,3 +1582,33 @@ Files changed:
 - State reset after import prevents accidental re-imports
 - The DataTable component works well for previewing arbitrary data structures
 ---
+
+## OPS-051: Re-seed data action with confirmation
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-ops-dashboard
+Details:
+- Added Quick Actions section to Dashboard.tsx below the Stock Health section
+- Created Re-Seed Database button styled as a warning/destructive action (amber background)
+- Integrated ConfirmDialog with danger variant asking for confirmation before re-seeding
+- Implemented handleReseed async function that calls POST /v1/admin/seed/run
+- Added loading state with spinner icon displayed on button during re-seed operation
+- Button is disabled while re-seeding to prevent duplicate requests
+- Success handler shows toast notification with response message and invalidates all TanStack Query cache to refresh dashboard data
+- Error handler shows toast notification with error message from API response
+- Properly handles API response shape: { success: boolean, data: { message: string } }
+- npm run build passes with no TypeScript errors
+
+Files changed:
+- src/pages/Dashboard.tsx (modified - added re-seed functionality)
+
+**Learnings for future iterations:**
+- TanStack Query cache invalidation: Use queryClient.invalidateQueries() without arguments to invalidate all queries
+- React state management: Use useState for dialog visibility and loading states
+- Toast notifications: Import toast from 'react-hot-toast', use toast.success() and toast.error()
+- Button disabled state: Use disabled prop with conditional className for visual feedback
+- Loading spinners: Use SVG animate-spin class from Tailwind for rotation animation
+- API client usage: apiPost<ResponseType>(url) with proper TypeScript typing for responses
+- Error handling: Access error.response?.data?.error?.message for API error messages
+- The Quick Actions section provides a central location for destructive/admin-only operations
+---

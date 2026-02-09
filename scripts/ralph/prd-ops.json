@@ -878,7 +878,7 @@
         "npm run build passes in the vettr-ops-dashboard directory"
       ],
       "priority": 51,
-      "passes": false
+      "passes": true
     },
     {
       "id": "OPS-052",
