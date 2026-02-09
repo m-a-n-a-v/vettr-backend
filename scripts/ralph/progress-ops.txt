@@ -848,3 +848,213 @@ Files changed:
 - Frontend directory: All frontend commits in /Users/manav/Space/code/vettr-ops-dashboard/
 - No .js extensions needed in frontend imports (Vite handles module resolution)
 ---
+## OPS-029: Create useExport hook for file downloads
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-ops-dashboard
+Details:
+- Created src/hooks/useExport.ts with useExport(endpoint: string) hook
+- Implemented exportData(format: 'csv' | 'json', filters?: Record<string, string>) function
+- Implemented isExporting state that is true during download request and false when complete
+- exportData calls GET /v1/admin/{endpoint}/export?format={format} with filters as query params
+- Uses axios with responseType: 'blob' to download binary data
+- On success: creates Blob from response data, creates object URL with URL.createObjectURL()
+- Creates temporary <a> element with href=objectURL and download attribute set to {endpoint}-export.{format}
+- Programmatically clicks the link to trigger browser download
+- Cleans up by removing the link element and revoking the object URL with URL.revokeObjectURL()
+- Shows success toast notification when download completes
+- On error: extracts error message from blob response (reads blob as text, parses JSON) or axios error
+- Shows error toast notification with extracted error message
+- npm run build passes with no TypeScript errors
+Files changed:
+- src/hooks/useExport.ts (created)
+
+**Learnings for future iterations:**
+- Blob download pattern: Use responseType: 'blob' in axios to receive binary data for file downloads
+- Object URL creation: URL.createObjectURL(blob) creates a temporary URL that can be used in <a> href
+- Programmatic download: Create temporary <a> element, set href and download attributes, call click(), then remove
+- URL cleanup: Always call URL.revokeObjectURL() after download to release memory
+- Blob error handling: When API returns error as blob (not JSON), read blob.text() and parse as JSON to extract error message
+- Filter params pattern: Add filter_ prefix to filter object keys when passing to API (matches backend expectations)
+- React state management: useState for isExporting boolean, set true before request, false in finally block
+- Toast notifications: toast.success() for successful downloads, toast.error() for failures
+- Frontend imports: No .js extension needed in imports (Vite handles module resolution)
+- Working directory: Frontend stories use /Users/manav/Space/code/vettr-ops-dashboard/ for commits
+---
+## OPS-030: Create useAnalytics hooks for dashboard data
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-ops-dashboard
+Details:
+- Created src/hooks/useAnalytics.ts with 8 dedicated analytics hooks
+- Implemented useMetrics() hook with queryKey ['metrics'] fetching GET /v1/admin/metrics
+- Implemented useUserGrowth() hook with queryKey ['analytics', 'user-growth'] for 90-day user growth data
+- Implemented useScoreDistribution() hook for VETR score distribution buckets
+- Implemented useRedFlagTrends() hook for 30-day red flag trends by severity
+- Implemented useFilingActivity() hook for 30-day filing activity data
+- Implemented useAlertActivity() hook for 30-day alert activity data
+- Implemented useTierBreakdown() hook for user tier distribution
+- Implemented useStockHealth() hook returning lowest scores and most flagged stocks
+- All hooks use @tanstack/react-query's useQuery for data fetching and caching
+- All hooks extract data from standard API response shape: response.data.data (API returns { success, data, meta })
+- Added comprehensive TypeScript type definitions for all analytics data structures
+- Each hook has JSDoc comments explaining its purpose and return data structure
+- npm run build passes with no TypeScript errors
+Files changed:
+- src/hooks/useAnalytics.ts (created)
+
+**Learnings for future iterations:**
+- TanStack Query caching: Each hook has unique queryKey array for independent caching (e.g., ['analytics', 'user-growth'])
+- API response extraction pattern: response.data.data extracts the nested data from { success, data: { data: [...] }, meta } structure
+- TypeScript interface organization: Define interfaces for each data type (UserGrowthData, ScoreDistributionData, etc.) for type safety
+- Generic API response types: ApiResponse<T> interface wraps the standard { success, data: T, meta } shape
+- Analytics data structures: User growth and activity data use { date, count } shape, breakdown data uses { category, count } shape
+- Stock health data: Combines two arrays (lowest_scores and most_flags) in a single response object
+- Metrics data structure: Nested database_stats object contains counts for all tables, plus top-level performance metrics
+- Hook naming convention: use{EntityName} pattern for clarity (useUserGrowth, useScoreDistribution, etc.)
+- TanStack Query return type: useQuery returns { data, isLoading, error, refetch } for consumption by components
+- Frontend imports: No .js extension needed in imports (Vite handles module resolution automatically)
+- Working directory: All frontend commits in /Users/manav/Space/code/vettr-ops-dashboard/
+---
+## OPS-031: Dashboard page with metrics summary cards
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-ops-dashboard
+Details:
+- Updated src/pages/Dashboard.tsx to display system metrics using useMetrics() hook
+- Implemented 6 StatCard components showing: Total Users, Total Stocks, Total Filings, Total Alerts, Avg Response Time, and Uptime
+- Each StatCard displays appropriate icon using inline SVG (users, chart, document, bell, clock, server icons)
+- Added formatUptime() helper function to format uptime_seconds as days/hours/minutes (e.g., "5d 3h" or "12h" or "45m")
+- Implemented loading skeleton state with 6 animated placeholder cards using animate-pulse
+- Implemented error state with red error banner when metrics request fails
+- Used responsive grid layout: 1 column on mobile, 2 on md, 3 on lg, 4 on xl breakpoints
+- All metric values formatted with toLocaleString() for thousand separators
+- npm run build passes with no TypeScript errors
+Files changed:
+- src/pages/Dashboard.tsx (modified)
+
+**Learnings for future iterations:**
+- TailwindCSS responsive grid: grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 creates adaptive layout
+- Loading skeleton pattern: Array spread [...Array(6)] creates placeholder elements, animate-pulse adds loading animation
+- Optional chaining for safe access: metrics?.database_stats.users prevents crashes when data is undefined during loading
+- Uptime formatting: Convert seconds to days/hours/minutes using Math.floor and modulo operations
+- SVG icon inline pattern: Use inline SVG with stroke="currentColor" to inherit text color from Tailwind classes
+- useMetrics() hook returns { data, isLoading, error } from TanStack Query for complete query state
+- Error handling pattern: Check error state first and return early with error UI before rendering main content
+- Frontend Dashboard component is already registered in router.tsx from OPS-024 (routes defined for all pages)
+- The StatCard component displays optional change percentage but metrics endpoint doesn't provide change data yet
+- Frontend directory: All frontend commits in /Users/manav/Space/code/vettr-ops-dashboard/
+---
+## OPS-032: Dashboard user growth line chart
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-ops-dashboard
+Details:
+- Added user growth line chart section to src/pages/Dashboard.tsx below the metrics cards
+- Imported useUserGrowth hook from hooks/useAnalytics and Recharts components (LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer)
+- Created formatChartDate() helper function to format dates as 'MMM DD' for the X-axis labels
+- Implemented loading skeleton with animated gray bars during data fetch
+- Implemented Recharts LineChart with 300px height wrapped in ResponsiveContainer
+- Configured XAxis with date formatting using formatChartDate tickFormatter
+- Configured YAxis with count values and gray stroke color
+- Configured Tooltip with custom styling (white background, border, rounded corners) and formatted labels
+- Implemented Line component with blue stroke (#3b82f6), 2px width, dots at data points, and active dot highlighting
+- Added empty state with icon and "No data available" message when data array is empty
+- Chart wrapped in white card with "User Growth (90 Days)" title, rounded corners, and shadow
+- npm run build passes with no TypeScript errors
+Files changed:
+- src/pages/Dashboard.tsx (modified)
+
+**Learnings for future iterations:**
+- Recharts ResponsiveContainer: Use width="100%" and fixed height (e.g., 300) for responsive charts that maintain aspect ratio
+- Recharts XAxis tickFormatter: Pass a function to format tick labels (e.g., formatChartDate for date formatting)
+- Recharts Tooltip customization: Use contentStyle, labelFormatter, and formatter props for custom tooltip appearance and content
+- Date formatting pattern: Use date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) for 'MMM DD' format
+- Recharts Line component: type="monotone" creates smooth curved lines, strokeWidth controls line thickness, dot and activeDot configure point markers
+- Loading skeleton for charts: Use a flexbox container with animated pulse bars to indicate loading state
+- Empty state pattern: Show centered icon and message when data array is empty or undefined
+- CartesianGrid: Use strokeDasharray="3 3" for dashed grid lines, stroke="#e5e7eb" for subtle gray color
+- Color scheme: Use Tailwind blue (#3b82f6) for primary chart colors, gray (#6b7280) for axes and text
+- Frontend Recharts imports: Import specific components from 'recharts' package (not 'recharts/lib' submodules)
+- TypeScript Tooltip formatter: Type the value parameter as number for proper type safety in Tooltip formatter functions
+---
+## OPS-033: Dashboard score distribution bar chart and tier breakdown pie chart
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-ops-dashboard
+Details:
+- Added score distribution bar chart and tier breakdown pie chart to Dashboard.tsx below the user growth chart
+- Imported useScoreDistribution and useTierBreakdown hooks from useAnalytics.ts
+- Imported additional Recharts components: BarChart, Bar, PieChart, Pie, Cell, Legend
+- Created two-column chart section using grid grid-cols-1 lg:grid-cols-2 gap-6 for responsive layout
+- Implemented score distribution bar chart (left column):
+  - Uses useScoreDistribution() hook to fetch score range buckets (0-20, 21-40, 41-60, 61-80, 81-100)
+  - Renders Recharts BarChart with XAxis showing score ranges and YAxis showing count
+  - Each bar colored by range using getScoreColor() helper: red (#ef4444) for 0-40, yellow (#eab308) for 41-80, green (#22c55e) for 81-100
+  - Used Cell component to apply individual colors to each bar
+  - Wrapped in ResponsiveContainer with height 300 inside white card with title "VETR Score Distribution"
+- Implemented tier breakdown pie chart (right column):
+  - Uses useTierBreakdown() hook to fetch user tier distribution (free, pro, premium)
+  - Renders Recharts PieChart with distinct colors per tier: gray (#94a3b8) for free, blue (#3b82f6) for pro, amber (#f59e0b) for premium
+  - Pie labels show tier name, count, and percentage: "tier: count (percent%)"
+  - Used Cell component with tierColors mapping to apply colors
+  - Added Legend at bottom with formatted tier names (capitalized)
+  - Wrapped in ResponsiveContainer with height 300 inside white card with title "User Tier Breakdown"
+- Both charts show loading skeletons with animate-pulse while data loads
+- Both charts show "No data available" empty state with icon when data arrays are empty
+- npm run build passes with no TypeScript errors
+Files changed:
+- src/pages/Dashboard.tsx (modified - added score distribution bar chart and tier breakdown pie chart)
+
+**Learnings for future iterations:**
+- Recharts BarChart pattern: Use Bar with dataKey="count", apply individual colors using Cell component and map over data
+- Recharts Bar styling: radius={[4, 4, 0, 0]} rounds the top corners of bars for a modern look
+- Recharts Cell component: Wrap inside Bar/Pie to apply individual colors to each data point, use fill prop with color value
+- Recharts PieChart pattern: Use Pie with cx="50%" cy="50%" for centering, labelLine={false} to disable label lines
+- Pie chart labels: label prop accepts function receiving { tier, count, percent } to customize label text
+- Pie chart Legend: Use Legend component with verticalAlign="bottom" height={36}, formatter function to transform legend labels
+- Color helper functions: Create getScoreColor() function to map score ranges to colors based on range prefix
+- Color mapping objects: tierColors Record<string, string> maps tier names to specific colors for consistent theming
+- Two-column responsive layout: grid grid-cols-1 lg:grid-cols-2 gap-6 creates side-by-side charts on large screens, stacked on mobile
+- Frontend Recharts imports: BarChart, Bar, PieChart, Pie, Cell, Legend all imported from 'recharts' package
+- Empty state icons: Use appropriate SVG icons for different chart types (bar chart icon for bar chart, pie chart icon for pie chart)
+- Working directory: All frontend commits in /Users/manav/Space/code/vettr-ops-dashboard/
+---
+## OPS-034: Dashboard red flags, filing activity, and stock health sections
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-ops-dashboard
+Details:
+- Added red flag trends section to Dashboard.tsx using useRedFlagTrends() hook
+- Implemented Recharts AreaChart with stacked areas per severity level (Low, Moderate, High, Critical) over 30 days
+- Created transformRedFlagTrendsData() helper function to transform { date, severity, count } array into { date, Low, Moderate, High, Critical } format for stacked area chart
+- Configured XAxis with date formatting, YAxis with count, distinct colors per severity (gray for Low, yellow for Moderate, amber for High, red for Critical)
+- Added Tooltip showing all severity counts and Legend at top of chart
+- Added filing activity section using useFilingActivity() hook with Recharts BarChart
+- Bar chart shows daily filing counts for last 30 days with blue bars, XAxis as dates, YAxis as count
+- Added stock health section using useStockHealth() hook
+- Implemented two-column responsive grid layout (side-by-side on lg screens, stacked on mobile)
+- Created "Lowest VETR Scores" table with ticker, name, score columns showing top 10 stocks with lowest scores
+- Created "Most Red Flags" table with ticker, name, flag_count columns showing top 10 stocks with most red flags
+- Both tables styled with TailwindCSS classes, hover states on rows, color-coded badges for scores (red <40, yellow 40-70, green >70)
+- All three sections wrapped in white cards with titles, rounded corners, and shadows
+- Implemented loading skeletons with animate-pulse for all three sections
+- Implemented empty states with icons and "No data available" messages when data is empty
+- npm run build passes with no TypeScript errors
+Files changed:
+- src/pages/Dashboard.tsx (modified - added red flag trends area chart, filing activity bar chart, and stock health tables)
+
+**Learnings for future iterations:**
+- Recharts AreaChart stacked pattern: Use stackId="1" on all Area components to create stacked areas, type="monotone" for smooth curves
+- Data transformation for stacked charts: API returns { date, severity, count } rows, need to transform to { date, Low: x, Moderate: y, High: z, Critical: w } for Recharts stacked areas
+- Map-based transformation: Use Map<string, Record<string, number>> to aggregate counts by date and severity, then convert to array
+- Area component ordering: Areas are rendered in order, so list them from bottom to top for proper stacking visual (Low, Moderate, High, Critical)
+- Legend positioning: verticalAlign="top" height={36} positions legend above chart for stacked area charts
+- Table responsive layout: grid grid-cols-1 lg:grid-cols-2 gap-6 creates side-by-side tables on large screens, stacked on mobile
+- Table styling patterns: Use bg-gray-50 for thead, divide-y divide-gray-200 for row separators, hover:bg-gray-50 for row hover
+- Score badge coloring: Inline conditional className based on score value for dynamic color (red/yellow/green backgrounds)
+- Truncate long text: truncate max-w-[200px] classes prevent table cell overflow for long stock names
+- Empty state for tables: Show "No data available" text when array is empty or undefined
+- Frontend working directory: All frontend commits in /Users/manav/Space/code/vettr-ops-dashboard/
+- Recharts imports: AreaChart and Area components imported from 'recharts' package for area/line charts
+---
