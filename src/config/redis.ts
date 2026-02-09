@@ -1,31 +1,55 @@
-import { Redis } from 'ioredis';
+import { Redis as IORedis } from 'ioredis';
+import { Redis as UpstashRedis } from '@upstash/redis';
 import { env } from './env.js';
 
 /**
- * Redis client using ioredis (standard TCP driver).
+ * Redis client with dual-mode support:
+ * - Local/TCP: Uses ioredis (for Docker Redis via REDIS_URL)
+ * - Serverless: Uses @upstash/redis REST (for Vercel via UPSTASH_REDIS_REST_URL/TOKEN)
  *
- * Works with both:
- * - Local Docker Redis (redis://localhost:6379)
- * - Upstash Redis TCP endpoint (rediss://default:xxx@xxx.upstash.io:6379)
- *
- * Gracefully handles missing configuration in development mode.
+ * Auto-detected based on which env vars are present.
+ * Exports a unified interface that works for both.
  */
-export let redis: Redis | null = null;
 
-if (env.REDIS_URL) {
+export type RedisMode = 'ioredis' | 'upstash' | 'none';
+
+export let redis: IORedis | null = null;
+export let upstashRedis: UpstashRedis | null = null;
+export let redisMode: RedisMode = 'none';
+
+if (env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN) {
+  // Serverless mode: use Upstash REST client
   try {
-    redis = new Redis(env.REDIS_URL, {
+    upstashRedis = new UpstashRedis({
+      url: env.UPSTASH_REDIS_REST_URL,
+      token: env.UPSTASH_REDIS_REST_TOKEN,
+    });
+    redisMode = 'upstash';
+    console.log('✅ Redis client connected (Upstash REST)');
+  } catch (error) {
+    console.error('❌ Failed to initialize Upstash Redis client:', error);
+    if (env.NODE_ENV === 'production') {
+      console.error('💥 Redis is required in production. Exiting...');
+      process.exit(1);
+    }
+  }
+} else if (env.REDIS_URL) {
+  // Local/TCP mode: use ioredis
+  try {
+    redis = new IORedis(env.REDIS_URL, {
       maxRetriesPerRequest: 3,
       lazyConnect: false,
     });
 
     redis.on('connect', () => {
-      console.log('✅ Redis client connected');
+      console.log('✅ Redis client connected (ioredis TCP)');
     });
 
     redis.on('error', (err: Error) => {
       console.error('❌ Redis connection error:', err.message);
     });
+
+    redisMode = 'ioredis';
   } catch (error) {
     console.error('❌ Failed to initialize Redis client:', error);
     if (env.NODE_ENV === 'production') {
@@ -37,9 +61,16 @@ if (env.REDIS_URL) {
   }
 } else {
   if (env.NODE_ENV === 'production') {
-    console.error('💥 REDIS_URL is required in production. Exiting...');
+    console.error('💥 Redis configuration required in production. Set REDIS_URL or UPSTASH_REDIS_REST_URL+TOKEN. Exiting...');
     process.exit(1);
   } else {
     console.warn('⚠️  Redis configuration missing. Caching and rate limiting disabled in development.');
   }
+}
+
+/**
+ * Helper: check if any Redis client is available
+ */
+export function isRedisAvailable(): boolean {
+  return redisMode !== 'none';
 }

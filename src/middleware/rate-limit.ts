@@ -1,13 +1,14 @@
 import type { Context, Next } from 'hono';
-import { redis } from '../config/redis.js';
+import { redis, upstashRedis, redisMode } from '../config/redis.js';
 import { RateLimitError } from '../utils/errors.js';
 
 /**
  * Tier-based rate limit configurations.
  * Sliding window algorithm for smooth rate limiting.
  *
- * Uses ioredis directly (works with both local Redis and Upstash TCP).
- * Replaces @upstash/ratelimit with a simple sliding-window implementation.
+ * Dual-mode:
+ * - ioredis: Uses sorted sets for sliding window (local Redis)
+ * - Upstash REST: Uses Upstash's built-in script evaluation
  */
 
 type RateLimitTier = 'unauth' | 'free' | 'pro' | 'premium';
@@ -15,7 +16,7 @@ type RateLimitCategory = 'read' | 'write' | 'auth';
 
 interface RateLimitConfig {
   requests: number;
-  windowMs: number; // window in milliseconds
+  windowMs: number;
 }
 
 const RATE_LIMITS: Record<RateLimitTier, Record<RateLimitCategory, RateLimitConfig>> = {
@@ -41,13 +42,7 @@ const RATE_LIMITS: Record<RateLimitTier, Record<RateLimitCategory, RateLimitConf
   },
 };
 
-/**
- * Sliding window rate limiter using Redis sorted sets.
- * Each request is stored as a member with timestamp as score.
- * Expired entries are removed, and the count of remaining entries
- * determines if the request is allowed.
- */
-async function checkRateLimit(
+async function checkRateLimitIORedis(
   identifier: string,
   tier: RateLimitTier,
   category: RateLimitCategory
@@ -61,20 +56,13 @@ async function checkRateLimit(
   const now = Date.now();
   const windowStart = now - config.windowMs;
 
-  // Use a pipeline for atomic operations
   const pipeline = redis.pipeline();
-  // Remove expired entries outside the window
   pipeline.zremrangebyscore(key, 0, windowStart);
-  // Count current entries in window
   pipeline.zcard(key);
-  // Add the current request
   pipeline.zadd(key, now, `${now}:${Math.random().toString(36).slice(2)}`);
-  // Set expiry on the key to auto-cleanup
   pipeline.expire(key, Math.ceil(config.windowMs / 1000));
 
   const results = await pipeline.exec();
-
-  // results[1] is the ZCARD result: [error, count]
   const currentCount = (results?.[1]?.[1] as number) || 0;
   const remaining = Math.max(0, config.requests - currentCount - 1);
   const reset = now + config.windowMs;
@@ -87,9 +75,54 @@ async function checkRateLimit(
   };
 }
 
-/**
- * Determine the rate limit category based on HTTP method.
- */
+async function checkRateLimitUpstash(
+  identifier: string,
+  tier: RateLimitTier,
+  category: RateLimitCategory
+): Promise<{ success: boolean; limit: number; remaining: number; reset: number }> {
+  if (!upstashRedis) {
+    return { success: true, limit: 0, remaining: 0, reset: 0 };
+  }
+
+  const config = RATE_LIMITS[tier][category];
+  const key = `ratelimit:${tier}:${category}:${identifier}`;
+  const now = Date.now();
+  const windowStart = now - config.windowMs;
+
+  // Use Upstash pipeline
+  const pipeline = upstashRedis.pipeline();
+  pipeline.zremrangebyscore(key, 0, windowStart);
+  pipeline.zcard(key);
+  pipeline.zadd(key, { score: now, member: `${now}:${Math.random().toString(36).slice(2)}` });
+  pipeline.expire(key, Math.ceil(config.windowMs / 1000));
+
+  const results = await pipeline.exec();
+  const currentCount = (results?.[1] as number) || 0;
+  const remaining = Math.max(0, config.requests - currentCount - 1);
+  const reset = now + config.windowMs;
+
+  return {
+    success: currentCount < config.requests,
+    limit: config.requests,
+    remaining,
+    reset,
+  };
+}
+
+async function checkRateLimit(
+  identifier: string,
+  tier: RateLimitTier,
+  category: RateLimitCategory
+): Promise<{ success: boolean; limit: number; remaining: number; reset: number }> {
+  if (redisMode === 'upstash') {
+    return checkRateLimitUpstash(identifier, tier, category);
+  }
+  if (redisMode === 'ioredis') {
+    return checkRateLimitIORedis(identifier, tier, category);
+  }
+  return { success: true, limit: 0, remaining: 0, reset: 0 };
+}
+
 function getCategoryFromMethod(method: string): RateLimitCategory {
   if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') {
     return 'read';
@@ -97,10 +130,6 @@ function getCategoryFromMethod(method: string): RateLimitCategory {
   return 'write';
 }
 
-/**
- * Determine the tier from context.
- * If user is authenticated, use their tier. Otherwise, 'unauth'.
- */
 function getTierFromContext(c: Context): RateLimitTier {
   try {
     const user = c.get('user');
@@ -112,15 +141,11 @@ function getTierFromContext(c: Context): RateLimitTier {
       return 'free';
     }
   } catch {
-    // user not set in context (unauthenticated request)
+    // user not set in context
   }
   return 'unauth';
 }
 
-/**
- * Get a unique identifier for the requester.
- * Uses user ID if authenticated, otherwise falls back to IP address.
- */
 function getIdentifier(c: Context): string {
   try {
     const user = c.get('user');
@@ -135,13 +160,8 @@ function getIdentifier(c: Context): string {
   return `ip:${ip}`;
 }
 
-/**
- * Rate limiting middleware for general endpoints (read/write).
- * Determines tier from auth context and category from HTTP method.
- * Gracefully skips rate limiting when Redis is unavailable.
- */
 export async function rateLimitMiddleware(c: Context, next: Next): Promise<void> {
-  if (!redis) {
+  if (redisMode === 'none') {
     await next();
     return;
   }
@@ -171,20 +191,14 @@ export async function rateLimitMiddleware(c: Context, next: Next): Promise<void>
     if (error instanceof RateLimitError) {
       throw error;
     }
-    // If rate limiting fails (Redis error), allow the request through
     console.warn('⚠️  Rate limiting check failed, allowing request:', error);
   }
 
   await next();
 }
 
-/**
- * Rate limiting middleware specifically for auth endpoints.
- * Uses 'auth' category with stricter limits.
- * Gracefully skips rate limiting when Redis is unavailable.
- */
 export async function authRateLimitMiddleware(c: Context, next: Next): Promise<void> {
-  if (!redis) {
+  if (redisMode === 'none') {
     await next();
     return;
   }
