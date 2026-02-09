@@ -1639,3 +1639,33 @@ Details:
   - The pattern of adding customActions to BulkActionBar can be reused for other bulk operations on different tables
 ---
 
+
+## OPS-053: Date and number formatting utilities
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-ops-dashboard
+Details:
+- Created src/lib/formatters.ts with comprehensive formatting utilities
+- Implemented formatDate() - formats ISO date strings as 'Jan 15, 2025 3:45 PM' using Intl.DateTimeFormat
+- Implemented formatDateShort() - formats dates as 'Jan 15' for chart axes
+- Implemented formatRelativeTime() - returns relative time strings like '2 hours ago', '3 days ago', 'just now'
+- Implemented formatNumber() - formats numbers with thousand separators (1,234,567)
+- Implemented formatCurrency() - formats as $1,234.56 with 2 decimal places
+- Implemented formatMarketCap() - formats large numbers with suffixes ($1.5B, $234.5M, $45.2K)
+- Implemented formatPercentage() - formats percentages with sign (+12.5%, -3.2%)
+- Implemented getPercentageColorClass() - returns appropriate Tailwind color class (text-green-600 or text-red-600) for percentage values
+- Implemented truncateUuid() - returns first 8 characters of UUID followed by '...'
+- All functions handle edge cases: null/undefined values, invalid dates, NaN numbers
+- npm run build passes with no TypeScript errors
+
+Files changed:
+- src/lib/formatters.ts (created)
+
+**Learnings for future iterations:**
+- Intl.DateTimeFormat API provides consistent, localized date/time formatting across browsers
+- Relative time formatting is useful for recent events (sync history, alerts, etc.)
+- Market cap formatting should handle trillions, billions, millions, and thousands with single decimal precision
+- Percentage color classes can be used directly in React components for conditional styling
+- All formatting functions should gracefully handle null/undefined/invalid inputs by returning empty strings
+- Frontend utilities do NOT need .js extensions in imports (Vite handles this automatically, unlike backend ESM)
+---
