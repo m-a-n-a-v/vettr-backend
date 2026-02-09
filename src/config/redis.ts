@@ -1,19 +1,31 @@
-import { Redis } from '@upstash/redis';
+import { Redis } from 'ioredis';
 import { env } from './env.js';
 
 /**
- * Upstash Redis client for caching and rate limiting.
+ * Redis client using ioredis (standard TCP driver).
+ *
+ * Works with both:
+ * - Local Docker Redis (redis://localhost:6379)
+ * - Upstash Redis TCP endpoint (rediss://default:xxx@xxx.upstash.io:6379)
+ *
  * Gracefully handles missing configuration in development mode.
  */
 export let redis: Redis | null = null;
 
-if (env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN) {
+if (env.REDIS_URL) {
   try {
-    redis = new Redis({
-      url: env.UPSTASH_REDIS_REST_URL,
-      token: env.UPSTASH_REDIS_REST_TOKEN,
+    redis = new Redis(env.REDIS_URL, {
+      maxRetriesPerRequest: 3,
+      lazyConnect: false,
     });
-    console.log('✅ Redis client initialized');
+
+    redis.on('connect', () => {
+      console.log('✅ Redis client connected');
+    });
+
+    redis.on('error', (err: Error) => {
+      console.error('❌ Redis connection error:', err.message);
+    });
   } catch (error) {
     console.error('❌ Failed to initialize Redis client:', error);
     if (env.NODE_ENV === 'production') {
@@ -25,7 +37,7 @@ if (env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN) {
   }
 } else {
   if (env.NODE_ENV === 'production') {
-    console.error('💥 UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN are required in production. Exiting...');
+    console.error('💥 REDIS_URL is required in production. Exiting...');
     process.exit(1);
   } else {
     console.warn('⚠️  Redis configuration missing. Caching and rate limiting disabled in development.');

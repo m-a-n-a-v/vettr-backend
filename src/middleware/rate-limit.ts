@@ -1,11 +1,13 @@
 import type { Context, Next } from 'hono';
-import { Ratelimit } from '@upstash/ratelimit';
 import { redis } from '../config/redis.js';
 import { RateLimitError } from '../utils/errors.js';
 
 /**
  * Tier-based rate limit configurations.
  * Sliding window algorithm for smooth rate limiting.
+ *
+ * Uses ioredis directly (works with both local Redis and Upstash TCP).
+ * Replaces @upstash/ratelimit with a simple sliding-window implementation.
  */
 
 type RateLimitTier = 'unauth' | 'free' | 'pro' | 'premium';
@@ -13,53 +15,76 @@ type RateLimitCategory = 'read' | 'write' | 'auth';
 
 interface RateLimitConfig {
   requests: number;
-  window: string;
+  windowMs: number; // window in milliseconds
 }
 
 const RATE_LIMITS: Record<RateLimitTier, Record<RateLimitCategory, RateLimitConfig>> = {
   unauth: {
-    read: { requests: 5, window: '1 m' },
-    write: { requests: 5, window: '1 m' },
-    auth: { requests: 5, window: '1 m' },
+    read: { requests: 5, windowMs: 60_000 },
+    write: { requests: 5, windowMs: 60_000 },
+    auth: { requests: 5, windowMs: 60_000 },
   },
   free: {
-    read: { requests: 60, window: '1 m' },
-    write: { requests: 30, window: '1 m' },
-    auth: { requests: 10, window: '1 m' },
+    read: { requests: 60, windowMs: 60_000 },
+    write: { requests: 30, windowMs: 60_000 },
+    auth: { requests: 10, windowMs: 60_000 },
   },
   pro: {
-    read: { requests: 120, window: '1 m' },
-    write: { requests: 60, window: '1 m' },
-    auth: { requests: 10, window: '1 m' },
+    read: { requests: 120, windowMs: 60_000 },
+    write: { requests: 60, windowMs: 60_000 },
+    auth: { requests: 10, windowMs: 60_000 },
   },
   premium: {
-    read: { requests: 300, window: '1 m' },
-    write: { requests: 120, window: '1 m' },
-    auth: { requests: 10, window: '1 m' },
+    read: { requests: 300, windowMs: 60_000 },
+    write: { requests: 120, windowMs: 60_000 },
+    auth: { requests: 10, windowMs: 60_000 },
   },
 };
 
 /**
- * Cache of Ratelimit instances keyed by "tier:category".
- * Created lazily on first use.
+ * Sliding window rate limiter using Redis sorted sets.
+ * Each request is stored as a member with timestamp as score.
+ * Expired entries are removed, and the count of remaining entries
+ * determines if the request is allowed.
  */
-const rateLimiters = new Map<string, Ratelimit>();
-
-function getRateLimiter(tier: RateLimitTier, category: RateLimitCategory): Ratelimit | null {
-  if (!redis) return null;
-
-  const key = `${tier}:${category}`;
-  let limiter = rateLimiters.get(key);
-  if (limiter) return limiter;
+async function checkRateLimit(
+  identifier: string,
+  tier: RateLimitTier,
+  category: RateLimitCategory
+): Promise<{ success: boolean; limit: number; remaining: number; reset: number }> {
+  if (!redis) {
+    return { success: true, limit: 0, remaining: 0, reset: 0 };
+  }
 
   const config = RATE_LIMITS[tier][category];
-  limiter = new Ratelimit({
-    redis,
-    limiter: Ratelimit.slidingWindow(config.requests, config.window as `${number} ${'ms' | 's' | 'm' | 'h' | 'd'}`),
-    prefix: `ratelimit:${key}`,
-  });
-  rateLimiters.set(key, limiter);
-  return limiter;
+  const key = `ratelimit:${tier}:${category}:${identifier}`;
+  const now = Date.now();
+  const windowStart = now - config.windowMs;
+
+  // Use a pipeline for atomic operations
+  const pipeline = redis.pipeline();
+  // Remove expired entries outside the window
+  pipeline.zremrangebyscore(key, 0, windowStart);
+  // Count current entries in window
+  pipeline.zcard(key);
+  // Add the current request
+  pipeline.zadd(key, now, `${now}:${Math.random().toString(36).slice(2)}`);
+  // Set expiry on the key to auto-cleanup
+  pipeline.expire(key, Math.ceil(config.windowMs / 1000));
+
+  const results = await pipeline.exec();
+
+  // results[1] is the ZCARD result: [error, count]
+  const currentCount = (results?.[1]?.[1] as number) || 0;
+  const remaining = Math.max(0, config.requests - currentCount - 1);
+  const reset = now + config.windowMs;
+
+  return {
+    success: currentCount < config.requests,
+    limit: config.requests,
+    remaining,
+    reset,
+  };
 }
 
 /**
@@ -123,17 +148,10 @@ export async function rateLimitMiddleware(c: Context, next: Next): Promise<void>
 
   const tier = getTierFromContext(c);
   const category = getCategoryFromMethod(c.req.method);
-  const limiter = getRateLimiter(tier, category);
-
-  if (!limiter) {
-    await next();
-    return;
-  }
-
   const identifier = getIdentifier(c);
 
   try {
-    const result = await limiter.limit(identifier);
+    const result = await checkRateLimit(identifier, tier, category);
 
     c.header('X-RateLimit-Limit', String(result.limit));
     c.header('X-RateLimit-Remaining', String(result.remaining));
@@ -172,17 +190,10 @@ export async function authRateLimitMiddleware(c: Context, next: Next): Promise<v
   }
 
   const tier = getTierFromContext(c);
-  const limiter = getRateLimiter(tier, 'auth');
-
-  if (!limiter) {
-    await next();
-    return;
-  }
-
   const identifier = getIdentifier(c);
 
   try {
-    const result = await limiter.limit(identifier);
+    const result = await checkRateLimit(identifier, tier, 'auth');
 
     c.header('X-RateLimit-Limit', String(result.limit));
     c.header('X-RateLimit-Remaining', String(result.remaining));

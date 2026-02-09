@@ -12,8 +12,7 @@ beforeAll(async () => {
 
   // Disable Redis and Database for unit tests by default
   // Individual tests can override these if they need real connections
-  process.env.UPSTASH_REDIS_REST_URL = '';
-  process.env.UPSTASH_REDIS_REST_TOKEN = '';
+  process.env.REDIS_URL = '';
   process.env.DATABASE_URL = '';
 
   console.log('✅ Test environment initialized');

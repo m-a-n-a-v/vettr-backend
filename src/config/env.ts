@@ -13,9 +13,10 @@ const envSchema = z.object({
   // JWT Configuration
   JWT_SECRET: z.string().default('development-secret-change-in-production'),
 
-  // Redis/Upstash Configuration (optional for development)
-  UPSTASH_REDIS_REST_URL: z.string().optional(),
-  UPSTASH_REDIS_REST_TOKEN: z.string().optional(),
+  // Redis Configuration (standard URL, works with local Docker and Upstash TCP)
+  // Local: redis://localhost:6379
+  // Upstash: rediss://default:xxx@xxx.upstash.io:6379
+  REDIS_URL: z.string().optional(),
 
   // OAuth Configuration (optional)
   GOOGLE_CLIENT_ID: z.string().optional(),

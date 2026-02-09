@@ -2,6 +2,10 @@ import { redis } from '../config/redis.js';
 
 /**
  * Cache service providing get/set/del operations with TTL support.
+ * Uses ioredis (standard Redis TCP driver) - works with both local Docker
+ * Redis and Upstash TCP endpoint.
+ *
+ * Values are JSON-serialized for storage and deserialized on retrieval.
  * Gracefully degrades when Redis is unavailable (development mode).
  */
 
@@ -15,8 +19,9 @@ export async function get<T = unknown>(key: string): Promise<T | null> {
   }
 
   try {
-    const value = await redis.get<T>(key);
-    return value;
+    const value = await redis.get(key);
+    if (value === null) return null;
+    return JSON.parse(value) as T;
   } catch (error) {
     console.error(`Cache get error for key "${key}":`, error);
     return null;
@@ -38,10 +43,11 @@ export async function set<T = unknown>(
   }
 
   try {
+    const serialized = JSON.stringify(value);
     if (ttlSeconds !== undefined) {
-      await redis.setex(key, ttlSeconds, value);
+      await redis.setex(key, ttlSeconds, serialized);
     } else {
-      await redis.set(key, value);
+      await redis.set(key, serialized);
     }
     return true;
   } catch (error) {
