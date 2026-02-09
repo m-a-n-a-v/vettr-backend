@@ -1098,3 +1098,154 @@ Files changed:
 - Frontend directory: All frontend work in /Users/manav/Space/code/vettr-ops-dashboard/, commits made there
 - Users page is already registered in router.tsx from OPS-024, so no router changes needed
 ---
+## OPS-036: User detail page
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-ops-dashboard
+Details:
+- Created complete User detail page implementation in src/pages/UserDetail.tsx
+- Implemented user profile fetching using useQuery with GET /v1/admin/users/:id endpoint
+- Displayed user profile info card with email, displayName, avatarUrl (with fallback avatar icon), tier (as Badge), authProvider, createdAt, updatedAt
+- Implemented Change Tier section with three buttons (Free, Pro, Premium) using useMutation
+- Tier change calls POST /v1/admin/users/:id/change-tier endpoint and shows toast notification on success
+- Tier buttons are disabled when user already has that tier or during mutation (isPending state)
+- Added three related data sections using separate useQuery calls with filter_userId:
+  - Watchlist Items: shows stockId (truncated) and addedAt columns
+  - Alert Rules: shows stockTicker, ruleType, isActive (Badge), frequency, lastTriggeredAt columns
+  - Sync History: shows status (Badge), itemsSynced, startedAt, completedAt, errors columns
+- Each related data section uses DataTable component for consistent display
+- Implemented loading skeleton state with animate-pulse during initial user data fetch
+- Implemented error state with red banner and "User not found" message when user doesn't exist or 404 returned
+- Added "Back to Users" button in header and error state for navigation
+- All sections show loading skeletons while data loads, empty state messages when no data
+- Helper functions: formatDate() for date formatting, truncateUuid() for UUID truncation, getTierVariant() and getStatusVariant() for Badge color mapping
+- TypeScript interfaces defined for User, WatchlistItem, AlertRule, SyncHistory, ApiResponse, PaginatedResponse
+- Used React Router useParams() to extract user ID from URL, useNavigate() for navigation
+- Route already registered as /users/:id in router.tsx from OPS-024
+- npm run build passes with no TypeScript errors
+Files changed:
+- src/pages/UserDetail.tsx (modified - complete implementation)
+
+**Learnings for future iterations:**
+- useQuery enabled option: Use enabled: !!id to prevent query execution when id is undefined
+- Multiple useQuery calls: Can run multiple independent queries in parallel, each with unique queryKey
+- apiGet with params object: Pass query params as second argument to apiGet (e.g., { filter_userId: id })
+- PaginatedResponse extraction: API returns { success, data: { items, pagination }, meta }, extract items with response?.data.items || []
+- useMutation isPending: Use isPending property (not isLoading) to check mutation status in TanStack Query v5
+- Disabled button styling: Use conditional className with ternary operator for dynamic disabled styling based on current state
+- Avatar fallback pattern: Use user icon SVG in gray circle when avatarUrl is null
+- Related data sections: Fetch with separate queries, display in DataTable with subset of columns relevant for detail view
+- Empty state messages: Show user-friendly messages when related data arrays are empty
+- DataTable in detail views: Pass no-op callbacks (() => {}) for actions not needed in read-only sections
+- Frontend directory: User detail page is frontend work, committed in /Users/manav/Space/code/vettr-ops-dashboard/
+- The /users/:id route was already registered in router.tsx from OPS-024, so no router changes needed
+- Working with nested API response shapes: Use optional chaining (response?.data) to safely access nested properties
+---
+## OPS-037: Stocks table page with full CRUD
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-ops-dashboard
+Details:
+- Created complete Stocks page implementation in src/pages/Stocks.tsx replacing placeholder
+- Integrated useTable<Stock> hook with endpoint 'stocks' and queryKey 'admin-stocks' for data fetching and CRUD operations
+- Implemented SearchInput component for searching by ticker and name (debounced)
+- Implemented FilterBar with two filters: exchange (NYSE/NASDAQ/AMEX) and sector (Technology/Healthcare/Finance/Energy/Consumer)
+- Implemented ExportButton with useExport hook for CSV/JSON exports
+- Created DataTable with 8 columns: ticker, name, exchange, sector, marketCap (formatted with M/B suffix), price (formatted as currency), priceChange (formatted as percentage with green/red color), vetrScore (Badge with color variants), and actions column with Recalculate Score button
+- All columns except actions are sortable (ticker, name, exchange, sector, marketCap, price, priceChange, vetrScore)
+- Implemented Create Stock modal with form validation (all fields required, number parsing for numeric fields)
+- Implemented Edit Stock modal with same form fields, pre-populated with stock data
+- Form fields include: ticker, name, exchange, sector, marketCap (number), price (number), priceChange (number), vetrScore (number)
+- Implemented delete confirmation using ConfirmDialog with danger variant
+- Implemented row selection with BulkActionBar showing count and bulk delete action
+- Added Recalculate Score button per row that calls POST /v1/admin/stocks/:ticker/recalculate-score endpoint
+- Recalculate Score button shows loading state ("Recalculating...") during API call and is disabled while recalculating
+- On successful recalculation, shows toast notification and refetches table data
+- All CRUD operations use mutations from useTable hook with proper error/success handling
+- Success toast notifications shown after create/update/delete operations
+- Error handling delegated to useTable hook mutations which show error toasts automatically
+- Implemented helper functions: formatMarketCap() (formats with B/M suffixes), formatCurrency() (formats as $X.XX), formatPercentage() (formats with +/- sign and %), getScoreBadgeVariant() (maps score to Badge color: red <40, yellow 40-70, green >70)
+- Fixed TypeScript error: removed unused response variable declaration
+- Route already registered as /stocks in router.tsx from OPS-024
+- npm run build passes with no TypeScript errors
+Files changed:
+- src/pages/Stocks.tsx (modified - complete CRUD implementation)
+
+**Learnings for future iterations:**
+- Number input parsing pattern: Store as strings in formData, parse with parseFloat() and parseInt() before sending to API
+- Market cap formatting: Use 1e9 and 1e6 for billions and millions checks, toFixed(1) for one decimal place
+- Percentage formatting: Add + sign for positive values, - sign is automatic for negative values
+- Badge variant logic: Extract into getScoreBadgeVariant() helper for reusability across components
+- Recalculate Score pattern: Call specialized admin action endpoint POST /v1/admin/stocks/:ticker/recalculate-score, use per-row loading state (isRecalculating === ticker) to disable only the specific button being clicked
+- Actions column in DataTable: Use render function with custom button element, pass row data to onClick handler
+- apiPost return type: Can be ignored if response data not needed, just await the promise for success/error handling
+- Frontend working directory: All frontend commits in /Users/manav/Space/code/vettr-ops-dashboard/
+- The /stocks route was already registered in router.tsx from OPS-024, so no router changes needed
+- DataTable onSort callback: Pass empty arrow function (() => {}) when sorting not implemented yet
+- Price change color coding: Use conditional className with ternary operator for green (positive) or red (negative) text
+---
+## OPS-038: Executives table page with full CRUD
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-ops-dashboard
+Details:
+- Created complete Executives page implementation in src/pages/Executives.tsx replacing placeholder
+- Integrated useTable<Executive> hook with endpoint 'executives' and queryKey 'admin-executives' for data fetching and CRUD operations
+- Implemented SearchInput component for searching by name, title, and specialization (debounced)
+- Implemented FilterBar with stockId filter (text input for UUID filtering)
+- Implemented ExportButton with useExport hook for CSV/JSON exports
+- Created DataTable with 7 columns: name, title, yearsAtCompany (formatted to 1 decimal place), specialization (with N/A fallback), education (with N/A fallback), stockId (truncated to 8 chars), createdAt (formatted date)
+- All columns except specialization, education, and stockId are sortable
+- Implemented Create Executive modal with comprehensive form validation (name, title, stockId, yearsAtCompany required)
+- Implemented Edit Executive modal with same form fields, pre-populated with executive data
+- Form fields include: name, title, stockId, yearsAtCompany (number), education, specialization, socialLinkedin, socialTwitter, previousCompanies (comma-separated text input)
+- previousCompanies field splits comma-separated string into array on save, joins array back to comma-separated string on edit
+- Implemented delete confirmation using ConfirmDialog with danger variant
+- Implemented row selection with BulkActionBar showing count and bulk delete action
+- All CRUD operations use mutations from useTable hook with proper error/success handling
+- Success toast notifications shown after create/update/delete operations (handled by useTable hook)
+- Error handling delegated to useTable hook mutations which show error toasts automatically
+- Implemented helper functions: truncateUuid() (first 8 chars + '...'), formatDate() (formatted as 'MMM DD, YYYY')
+- Route already registered as /executives in router.tsx from OPS-024
+- npm run build passes with no TypeScript errors
+Files changed:
+- src/pages/Executives.tsx (modified - complete CRUD implementation)
+
+**Learnings for future iterations:**
+- previousCompanies JSONB array field pattern: Store as comma-separated string in form state, split by comma on save (formData.previousCompanies.split(',').map(c => c.trim()).filter(Boolean)), join with ', ' on edit (executive.previousCompanies.join(', '))
+- Null handling for optional fields: Use || null pattern to convert empty strings to null for database (formData.education || null)
+- Nullable field rendering: Use render function with value || 'N/A' pattern to display fallback text for null fields
+- yearsAtCompany formatting: Use value.toFixed(1) to display with 1 decimal place as specified in acceptance criteria
+- Executive interface includes nullable fields: education, specialization, socialLinkedin, socialTwitter, previousCompanies (string[] | null)
+- FilterBar with stockId: While empty options array is provided, filter still works with text input for UUID filtering via backend filter_stockId param
+- Frontend working directory: All frontend commits in /Users/manav/Space/code/vettr-ops-dashboard/
+- The /executives route was already registered in router.tsx from OPS-024, so no router changes needed
+- Consistent pattern with Users and Stocks pages: Same component structure, state management, and CRUD flow
+---
+
+## OPS-039: Filings table page with full CRUD
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-ops-dashboard
+Details:
+- Created complete Filings.tsx page with full CRUD functionality
+- Implemented useTable hook with endpoint 'filings' and queryKey 'admin-filings'
+- Added SearchInput for searching by title and summary
+- Implemented FilterBar with type filter (10-K, 10-Q, 8-K, Press Release, Proxy Statement, S-1), isMaterial filter (true/false), and stockId filter
+- Configured DataTable with columns: title (truncated to 60 chars), type, stockId (truncated UUID), date (formatted), isMaterial (Badge with green for Material, info for Non-material), sourceUrl (clickable link or '-'), createdAt (formatted)
+- Created Create/Edit modals with FormField inputs for: stockId, type (select dropdown), title, date (date input), summary (textarea), isMaterial (checkbox), sourceUrl
+- Implemented delete action with ConfirmDialog and danger variant
+- Added BulkActionBar for bulk delete with selectedFilingIds state
+- Route /filings already registered in router.tsx from OPS-024
+- npm run build passes successfully (build completed in 1.59s)
+Files changed:
+- src/pages/Filings.tsx (complete implementation)
+
+**Learnings for future iterations:**
+- Date inputs need to be converted from ISO format to YYYY-MM-DD format for HTML date inputs (use .split('T')[0])
+- Checkbox inputs should have unique IDs when used in multiple modals (e.g., 'isMaterial' and 'isMaterialEdit')
+- Filter options can include a placeholder "All Stocks" even for text-based filters like stockId
+- Textarea fields don't need FormField wrapper - can be implemented inline with proper styling
+- Badge variants: 'success' for positive states (Material), 'info' for neutral states (Non-material)
+- ExternalPencil link rendering pattern: check for value existence, then render <a> with target="_blank" rel="noopener noreferrer"
+---
