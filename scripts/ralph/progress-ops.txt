@@ -1407,3 +1407,29 @@ Files changed:
 - Description is truncated to 100 characters in the table for readability
 - The route was already pre-registered in router.tsx, so no router changes were needed
 ---
+
+## OPS-045: Red flag acknowledgments table page
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-ops-dashboard
+Details:
+- Created RedFlagAcks.tsx page component with full CRUD functionality for composite-PK table
+- Implemented custom useQuery hook for fetching data from GET /v1/admin/red-flag-acknowledgments with pagination and filtering
+- Added FilterBar with userId and redFlagId filter options
+- Implemented DataTable with three columns: userId (truncated UUID), redFlagId (truncated UUID), and acknowledgedAt (formatted date)
+- Created Add modal with FormField inputs for userId and redFlagId that POSTs to /v1/admin/red-flag-acknowledgments
+- Implemented DELETE action that sends composite key { userId, redFlagId } to DELETE /v1/admin/red-flag-acknowledgments after ConfirmDialog confirmation
+- Used useMutation hooks with proper query invalidation for create and delete operations
+- Route was already registered at /red-flag-acks in router.tsx
+- npm run build passes successfully in vettr-ops-dashboard directory
+Files changed:
+- src/pages/RedFlagAcks.tsx (modified - changed from placeholder to full implementation)
+
+**Learnings for future iterations:**
+- Composite-PK tables (like redFlagAcknowledgments, watchlistItems, filingReads) require custom useQuery instead of the generic useTable hook since they don't have a single 'id' field
+- DELETE mutations for composite-PK tables must send the composite key fields { userId, redFlagId } in the request body instead of a single ID in the URL path
+- No edit functionality is needed for junction/acknowledgment tables since the composite key fields cannot be changed (would require delete + create instead)
+- No bulk operations for composite-PK tables to keep the implementation simple
+- The WatchlistItems.tsx component serves as a good pattern reference for all composite-PK table pages
+- Helper functions truncateUuid and formatDate are duplicated in multiple pages - could be centralized in src/lib/formatters.ts in future stories
+---
