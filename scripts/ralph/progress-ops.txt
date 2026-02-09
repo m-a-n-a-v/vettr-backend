@@ -1669,3 +1669,249 @@ Files changed:
 - All formatting functions should gracefully handle null/undefined/invalid inputs by returning empty strings
 - Frontend utilities do NOT need .js extensions in imports (Vite handles this automatically, unlike backend ESM)
 ---
+
+## OPS-054: Client-side CSV generation utility
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-ops-dashboard
+Details:
+- Created src/lib/csv.ts with client-side CSV generation and download utilities
+- Implemented generateCsv(data, columns?) function that:
+  - Accepts array of objects and optional column filter
+  - Generates CSV string with header row from column names
+  - Handles all edge cases: null/undefined → empty string, Date → ISO string, arrays/objects → JSON
+  - Properly escapes CSV values: wraps in quotes if contains comma/quote/newline, doubles existing quotes
+  - Returns just header row for empty arrays when columns are specified
+- Implemented downloadCsv(csvContent, filename) function that:
+  - Creates Blob with text/csv MIME type
+  - Creates temporary anchor element with download attribute
+  - Programmatically triggers download
+  - Cleans up by removing element and revoking object URL
+- Added helper function escapeCsvValue() for proper CSV value escaping
+- npm run build passes with no errors
+Files changed:
+- src/lib/csv.ts (created)
+
+**Learnings for future iterations:**
+- CSV escaping rules: wrap in quotes if value contains comma, double quote, newline, or carriage return
+- Escape existing double quotes by doubling them (replace " with "")
+- Blob API with MIME type text/csv triggers browser download when used with anchor element
+- URL.createObjectURL() and URL.revokeObjectURL() pattern for creating temporary download URLs
+- TypeScript type coercion: Arrays and objects need JSON.stringify, Dates need .toISOString()
+- Empty arrays can still generate header row if columns are explicitly provided
+---
+
+## OPS-055: Table column configuration definitions
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-ops-dashboard
+Details:
+- Created src/config/columns.ts with centralized column configuration objects for all 14 database tables
+- Exported column configs: userColumns, stockColumns, executiveColumns, filingColumns, alertRuleColumns, alertColumns, watchlistItemColumns, vetrScoreColumns, redFlagColumns, redFlagAckColumns, syncHistoryColumns, userSettingsColumns, refreshTokenColumns, filingReadColumns
+- Each column config follows the ColumnConfig<T> interface with key, label, sortable, and optional render function
+- Render functions leverage formatting utilities from src/lib/formatters.ts: formatDate for timestamps, truncateUuid for UUIDs, formatCurrency for prices, formatMarketCap for market caps, formatPercentage for changes, formatNumber for counts
+- Render functions use Badge component with appropriate variant mapping for status fields (tier: free=info/pro=warning/premium=success, severity: low=info/moderate=warning/high=error, isActive: active=success/inactive=info, isRead: read=success/unread=warning, etc.)
+- Used React.createElement (aliased as h) instead of JSX syntax since this is a .ts file (not .tsx)
+- All column configs are properly typed with TypeScript generics
+- npm run build passes with no TypeScript errors
+Files changed:
+- src/config/columns.ts (created)
+
+**Learnings for future iterations:**
+- .ts files cannot contain JSX syntax - use React.createElement or rename to .tsx
+- React.createElement can be aliased as 'h' for cleaner syntax: import { createElement as h } from 'react'
+- Badge component from components/ui/Badge.tsx has 4 variants: success (green), warning (yellow), error (red), info (blue)
+- Column render functions receive (value, row) but row parameter should be omitted if unused to avoid TypeScript warnings
+- Proper score color mapping: <40 = error (red), 40-70 = warning (yellow), >70 = success (green)
+- Severity mapping: Low = info, Moderate = warning, High/Critical = error
+- Date/time fields should consistently use formatDate for full timestamps
+- UUIDs should be truncated with truncateUuid for better table readability
+- Market caps use formatMarketCap for B/M/K suffixes
+- Prices use formatCurrency for $X.XX formatting
+- Percentage changes use formatPercentage and getPercentageColorClass for colored display
+- Links should use anchor tags with target="_blank" and rel="noopener noreferrer"
+- Truncated text fields should show first N chars + "..." for long strings
+---
+
+## OPS-056: Toast notification integration
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-ops-dashboard
+Details:
+- Configured Toaster component in App.tsx with custom styling:
+  - Position: top-right
+  - Duration: 4000ms
+  - Success toast: green background (#10b981)
+  - Error toast: dark background (#1f2937)
+- Verified toast notifications already implemented in useTable hook:
+  - toast.success() for create, update, delete, and bulk delete mutations
+  - toast.error() in onError callbacks with API error messages
+  - Success messages follow pattern: "Created users successfully", "Deleted 5 users successfully"
+- Verified toast notifications in specialized actions:
+  - Dashboard.tsx: re-seed database action
+  - UserDetail.tsx: tier change action
+  - Stocks.tsx: score recalculation action
+  - BulkImport.tsx: import operations
+  - Users.tsx: bulk tier change action
+- npm run build passes in vettr-ops-dashboard directory
+
+Files changed:
+- src/App.tsx (modified - configured Toaster with custom styling)
+
+**Learnings for future iterations:**
+- react-hot-toast configuration: position, duration, and toastOptions for custom styling
+- All CRUD toast notifications were already implemented in previous stories
+- Success toasts use green background, error toasts use dark background for visibility
+- Toaster component requires custom styling via toastOptions.success.style and toastOptions.error.style
+- All specialized actions (tier change, score recalc, seed, bulk import) already had toast notifications from their respective stories
+---
+
+## OPS-057: Keyboard shortcuts for common actions
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-ops-dashboard
+Details:
+- Created src/hooks/useKeyboardShortcuts.ts with useKeyboardShortcuts hook
+- Implemented support for Ctrl/Cmd+K (focus search), Escape (close modal), Ctrl/Cmd+N (open create modal), and Ctrl/Cmd+E (trigger export dropdown)
+- Shortcuts accept callbacks via KeyboardShortcutHandlers interface: focusSearch, closeModal, openCreate, triggerExport
+- Shortcuts do not trigger when user is typing in INPUT, TEXTAREA, or SELECT elements (checks event.target.tagName)
+- Cross-platform modifier key support: detects Mac platform and uses metaKey for Cmd, otherwise uses ctrlKey for Ctrl
+- Integrated hook in Layout.tsx for global Escape shortcut to close mobile sidebar when it's open
+- Event listeners are properly cleaned up on component unmount via useEffect return
+- npm run build passes in the vettr-ops-dashboard directory
+Files changed:
+- src/hooks/useKeyboardShortcuts.ts (created)
+- src/components/Layout.tsx (modified - added useKeyboardShortcuts import and usage for Escape to close sidebar)
+
+**Learnings for future iterations:**
+- React keyboard event handling: Use window.addEventListener in useEffect for global shortcuts, not component-level onKeyDown
+- Platform detection: navigator.platform.toUpperCase().indexOf('MAC') >= 0 detects macOS
+- Event target checking: Cast event.target as HTMLElement to access tagName property
+- Callback pattern: Optional callbacks (focusSearch?, closeModal?, etc.) allow components to selectively implement shortcuts
+- Effect cleanup: Always return cleanup function from useEffect to remove event listeners
+- Table pages can integrate this hook for page-specific shortcuts (Ctrl+N to open create modal, Ctrl+E for export, Ctrl+K for search)
+- The hook is designed to be flexible - components pass only the handlers they need
+---
+
+## OPS-058: Responsive design for mobile and tablet
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-ops-dashboard
+Details:
+- Updated Dashboard.tsx StatCards grid: 1 col mobile, 2 cols tablet (sm), 3 cols desktop (lg), 4 cols xl
+- Updated chart layouts: two-column sections now use md:grid-cols-2 to stack on mobile
+- Updated DataTable pagination: flex-col on mobile with full-width buttons, flex-row on sm+
+- Updated FilterBar: stack filters vertically on mobile with full-width inputs, horizontal on sm+
+- Updated Modal: full width on mobile (max-w-full), constrained to max-w-lg on sm+
+- Updated all interactive elements to meet 44x44px minimum touch target size
+- Updated SearchInput: 44px height input, proper touch target for clear button
+- Updated ExportButton: 44px height for main button and dropdown menu items
+- Updated BulkActionBar: responsive flex layout, stacks on mobile
+- Layout.tsx already had collapsible sidebar with hamburger menu for mobile
+- DataTable already had overflow-x-auto wrapper for horizontal scrolling
+- All charts already wrapped in ResponsiveContainer from Recharts
+- npm run build passes successfully
+Files changed:
+- src/pages/Dashboard.tsx (modified - responsive grid breakpoints)
+- src/components/DataTable.tsx (modified - responsive pagination and touch targets)
+- src/components/FilterBar.tsx (modified - responsive stacking)
+- src/components/ui/Modal.tsx (modified - responsive width)
+- src/components/SearchInput.tsx (modified - touch target sizes)
+- src/components/ExportButton.tsx (modified - touch target sizes)
+- src/components/BulkActionBar.tsx (modified - responsive layout)
+
+**Learnings for future iterations:**
+- TailwindCSS responsive breakpoints: sm (640px), md (768px), lg (1024px), xl (1280px)
+- Mobile-first approach: default styles are for mobile, add responsive classes with breakpoint prefixes
+- Touch target sizes: min-h-[44px] and min-w-[44px] ensure WCAG compliance on mobile
+- Responsive flex patterns: flex-col on mobile, sm:flex-row on larger screens
+- Grid responsive patterns: grid-cols-1 md:grid-cols-2 lg:grid-cols-3 for progressive enhancement
+- Full-width modals on mobile: max-w-full with sm:max-w-lg allows modals to use full screen on small devices
+- Gap spacing: use smaller gaps on mobile (gap-3 or gap-4) and larger on desktop (sm:gap-6) for better mobile UX
+- Buttons on mobile: flex-1 sm:flex-none makes buttons full-width on mobile, auto-width on larger screens
+- The sidebar collapse functionality was already implemented in Layout.tsx from OPS-023
+- DataTable overflow-x-auto was already present, ensuring horizontal scroll on mobile
+---
+
+## OPS-059: Loading states and error boundaries
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-ops-dashboard/
+Details:
+- Created src/components/LoadingSpinner.tsx with centered spinning animation and size prop (sm, md, lg)
+- Created src/components/ErrorBoundary.tsx React error boundary class component that catches render errors and displays fallback UI with error message and Retry button that resets error state
+- Created src/components/PageSkeleton.tsx full-page loading skeleton with animated gray bars mimicking table page layout (search bar, filter bar, table rows)
+- Wrapped all route page components in ErrorBoundary in src/router.tsx (Dashboard, Users, UserDetail, Stocks, Executives, Filings, AlertRules, Alerts, WatchlistItems, VetrScores, RedFlags, RedFlagAcks, SyncHistory, UserSettings, RefreshTokens, FilingReads, BulkImport)
+- Layout component is NOT wrapped in ErrorBoundary so sidebar remains visible even if page content errors
+- Updated Dashboard.tsx to show PageSkeleton for initial loading, added error state with Retry button that calls refetch()
+- Updated all table pages (Users, Stocks, Executives, Filings, AlertRules, Alerts, VetrScores, RedFlags, SyncHistory, UserSettings, RefreshTokens) to add error and refetch from useTable hook, show PageSkeleton when isLoading=true, and show centered error message with Retry button on error
+- Updated composite-PK table pages (WatchlistItems, FilingReads, RedFlagAcks) which use useQuery instead of useTable to extract error and refetch from the hook
+- Updated UserDetail.tsx to replace custom loading skeleton with PageSkeleton and add error state with Retry button
+- BulkImport.tsx skipped as it doesn't fetch data on mount (no loading state needed)
+- npm run build passes with no errors in vettr-ops-dashboard directory
+Files changed:
+- src/components/LoadingSpinner.tsx (created)
+- src/components/ErrorBoundary.tsx (created)
+- src/components/PageSkeleton.tsx (created)
+- src/router.tsx (modified - wrapped all page routes in ErrorBoundary)
+- src/pages/Dashboard.tsx (modified - added PageSkeleton and error state with Retry)
+- src/pages/Users.tsx (modified - added PageSkeleton, error, refetch, and error state with Retry)
+- src/pages/Stocks.tsx (modified - added PageSkeleton, error, refetch, and error state with Retry)
+- src/pages/Executives.tsx (modified - added PageSkeleton, error, refetch, and error state with Retry)
+- src/pages/Filings.tsx (modified - added PageSkeleton, error, refetch, and error state with Retry)
+- src/pages/AlertRules.tsx (modified - added PageSkeleton, error, refetch, and error state with Retry)
+- src/pages/Alerts.tsx (modified - added PageSkeleton, error, refetch, and error state with Retry)
+- src/pages/VetrScores.tsx (modified - added PageSkeleton, error, refetch, and error state with Retry)
+- src/pages/RedFlags.tsx (modified - added PageSkeleton, error, refetch, and error state with Retry)
+- src/pages/SyncHistory.tsx (modified - added PageSkeleton, error, refetch, and error state with Retry)
+- src/pages/UserSettings.tsx (modified - added PageSkeleton, error, refetch, and error state with Retry)
+- src/pages/RefreshTokens.tsx (modified - added PageSkeleton, error, refetch, and error state with Retry)
+- src/pages/WatchlistItems.tsx (modified - added PageSkeleton, error, refetch, and error state with Retry)
+- src/pages/FilingReads.tsx (modified - added PageSkeleton, error, refetch, and error state with Retry)
+- src/pages/RedFlagAcks.tsx (modified - added PageSkeleton, error, refetch, and error state with Retry)
+- src/pages/UserDetail.tsx (modified - replaced custom loading skeleton with PageSkeleton, added error state with Retry)
+
+**Learnings for future iterations:**
+- React ErrorBoundary pattern: Use class component with getDerivedStateFromError and componentDidCatch lifecycle methods to catch render errors
+- ErrorBoundary only catches errors in child component tree during render, not in event handlers or async code
+- TanStack Query useQuery and custom useTable hook both return error and refetch for error handling
+- Consistent error UX: centered error icon SVG, error message from API response or fallback message, blue Retry button
+- PageSkeleton mimics the actual page layout (search, filters, table) for better perceived performance
+- LoadingSpinner with size variants (sm/md/lg) is reusable for inline loading states (though not heavily used in this story)
+- ErrorBoundary should wrap page content but NOT the Layout component so navigation remains accessible during errors
+- Each page should extract error and refetch from data-fetching hooks and show PageSkeleton when isLoading=true before the main return statement
+- Error state should show friendly message, error details from API if available, and a Retry button that calls refetch()
+---
+
+## OPS-060: URL synchronization for table state
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-ops-dashboard
+Details:
+- Created src/hooks/useUrlState.ts hook that synchronizes table state with URL query parameters
+- Implemented useSearchParams from React Router (v7) to read and update URL params
+- Hook returns parsed state (page, pageSize, search, sort, filters) from URL query params
+- Created update functions: updatePage, updatePageSize, updateSearch, updateSort, updateFilters
+- URL params are kept clean by omitting default values (page=1, pageSize=25) and empty strings
+- When search, sort, or filters change, page is automatically reset to 1
+- Used replace: true in setSearchParams to avoid cluttering browser history
+- Integrated useUrlState into useTable hook by replacing useState with URL state management
+- All table pages now automatically sync their state to URL without code changes
+- Browser back/forward navigation correctly restores previous table state
+- Shareable links preserve exact table view with all filters, sorting, and pagination
+- Fixed TypeScript errors by adding explicit types to forEach callbacks
+- npm run build passes successfully
+Files changed:
+- src/hooks/useUrlState.ts (created)
+- src/hooks/useTable.ts (modified - replaced useState with useUrlState)
+
+**Learnings for future iterations:**
+- React Router v7 exports useSearchParams directly from 'react-router' package
+- URLSearchParams.forEach callbacks need explicit types in TypeScript: (value: string, key: string) => void
+- setSearchParams accepts a callback function: (prev: URLSearchParams) => URLSearchParams
+- Using replace: true in setSearchParams prevents cluttering browser history during rapid state updates
+- URL state pattern: parse on mount from searchParams, update via setSearchParams, react to changes via useMemo
+- Filter params follow filter_* naming convention and must be parsed/serialized correctly
+- Reset to page 1 when search/sort/filters change to avoid showing empty pages after filtering
+- Omit default values from URL to keep URLs clean and shareable
+---

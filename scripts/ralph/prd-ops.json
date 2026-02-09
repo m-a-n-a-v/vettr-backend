@@ -928,7 +928,7 @@
         "npm run build passes in the vettr-ops-dashboard directory"
       ],
       "priority": 54,
-      "passes": false
+      "passes": true
     },
     {
       "id": "OPS-055",
@@ -944,7 +944,7 @@
         "npm run build passes in the vettr-ops-dashboard directory"
       ],
       "priority": 55,
-      "passes": false
+      "passes": true
     },
     {
       "id": "OPS-056",
@@ -961,7 +961,7 @@
         "npm run build passes in the vettr-ops-dashboard directory"
       ],
       "priority": 56,
-      "passes": false
+      "passes": true
     },
     {
       "id": "OPS-057",
@@ -977,7 +977,7 @@
         "npm run build passes in the vettr-ops-dashboard directory"
       ],
       "priority": 57,
-      "passes": false
+      "passes": true
     },
     {
       "id": "OPS-058",
@@ -994,7 +994,7 @@
         "npm run build passes in the vettr-ops-dashboard directory"
       ],
       "priority": 58,
-      "passes": false
+      "passes": true
     },
     {
       "id": "OPS-059",
@@ -1011,7 +1011,7 @@
         "npm run build passes in the vettr-ops-dashboard directory"
       ],
       "priority": 59,
-      "passes": false
+      "passes": true
     },
     {
       "id": "OPS-060",
@@ -1028,7 +1028,7 @@
         "npm run build passes in the vettr-ops-dashboard directory"
       ],
       "priority": 60,
-      "passes": false
+      "passes": true
     },
     {
       "id": "OPS-061",
