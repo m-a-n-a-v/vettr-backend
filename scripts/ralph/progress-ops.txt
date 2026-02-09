@@ -1465,3 +1465,89 @@ Files changed:
 - useTable hook automatically handles pagination, search, filters, and CRUD mutations
 - All frontend pages follow the same consistent pattern: SearchInput + FilterBar + ExportButton + DataTable + Modals
 ---
+
+## OPS-047: User settings table page
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-ops-dashboard
+Details:
+- Created UserSettings.tsx page component with full CRUD functionality
+- Implemented useTable hook integration with 'user-settings' endpoint and 'admin-user-settings' queryKey
+- Added FilterBar with userId filter and ExportButton for data export
+- Configured DataTable with columns: userId (truncated UUID), settings (JSON with View link), updatedAt (formatted date)
+- Implemented Create/Edit modals with userId text input and settings JSON textarea
+- Added JSON syntax validation that shows error message if invalid JSON is entered
+- Validation clears error on keystroke and validates on submit using try/catch with JSON.parse
+- Implemented View modal that displays pretty-printed JSON settings with pre tag and max-height scrolling
+- Delete functionality with ConfirmDialog confirmation
+- Route already registered at /user-settings in router.tsx
+- npm run build passes successfully
+
+Files changed:
+- src/pages/UserSettings.tsx (updated from placeholder)
+
+**Learnings for future iterations:**
+- JSON validation pattern: Use try/catch around JSON.parse in submit handlers, maintain jsonError state
+- View modal pattern: Use <pre> tag with pretty-printed JSON (JSON.stringify with null, 2 indent)
+- Settings column render: Truncate JSON string to 100 chars with View link that opens modal
+- FilterBar can have minimal options (just userId filter with 'All Users' default)
+- Helper functions (truncateUuid, formatDate, truncateText) are duplicated across pages - could be centralized in future refactor
+---
+
+## OPS-048: Refresh tokens table page
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-ops-dashboard
+Details:
+- Created RefreshTokens.tsx page implementing full CRUD functionality for refresh tokens
+- Used useTable hook with endpoint 'refresh-tokens' and queryKey 'admin-refresh-tokens'
+- Implemented FilterBar with userId filter and isRevoked filter (Active/Revoked options)
+- Created DataTable with columns: userId (truncated), tokenHash (truncated to 20 chars for security), expiresAt (red if past), isRevoked (Badge), createdAt
+- Added 'Revoke' quick action button per row that calls updateMutation with isRevoked=true and shows toast notification
+- Implemented edit modal with checkbox for toggling isRevoked status
+- Added delete functionality with ConfirmDialog confirmation
+- Implemented bulk delete support via BulkActionBar and bulkDeleteMutation
+- Added export functionality with CSV/JSON support via ExportButton
+- Expired tokens are highlighted in red with "(Expired)" label
+- Active tokens show green Badge, revoked tokens show red Badge
+- Route was already registered in router.tsx at /refresh-tokens
+- npm run build passes successfully
+
+Files changed:
+- src/pages/RefreshTokens.tsx (completely rewritten from placeholder)
+
+**Learnings for future iterations:**
+- Token security: Always truncate sensitive data like tokenHash in the UI for security
+- Date comparison: Use isPastDate helper to check if dates are in the past and style accordingly
+- Quick actions: Inline action buttons (like Revoke) provide better UX than requiring modal navigation
+- Toast notifications: Use toast.success/error for immediate feedback on quick actions
+- Conditional rendering: Show quick action buttons only when applicable (e.g., Revoke button only for active tokens)
+- Badge variants: error for Revoked (red), success for Active (green)
+- Edit modal pattern: For simple toggle fields like isRevoked, a checkbox with explanation text works well
+- The useTable hook provides all necessary CRUD mutations out of the box
+---
+
+## OPS-049: Filing reads table page
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-ops-dashboard
+Details:
+- Created FilingReads.tsx page with full CRUD functionality for the composite-PK filingReads table
+- Implemented data fetching with useQuery from @tanstack/react-query for GET /v1/admin/filing-reads
+- Added FilterBar with userId and filingId filter options
+- Rendered DataTable with columns: userId (truncated UUID), filingId (truncated UUID), readAt (formatted date)
+- Implemented create modal with FormField inputs for userId and filingId that POSTs to /v1/admin/filing-reads
+- Implemented delete action with ConfirmDialog that sends DELETE /v1/admin/filing-reads with { userId, filingId } body (composite key)
+- Added pagination controls with page and pageSize state management
+- Route was already registered in router.tsx at /filing-reads
+- npm run build passed successfully in the vettr-ops-dashboard directory
+Files changed:
+- src/pages/FilingReads.tsx (modified - replaced placeholder with full implementation)
+
+**Learnings for future iterations:**
+- Composite-PK tables (filingReads, watchlistItems, redFlagAcknowledgments) follow the same pattern: custom useQuery (not useTable), filters for both key columns, delete sends body with both keys
+- The pattern is consistent with WatchlistItems.tsx which was implemented in OPS-042
+- For composite-PK tables, there's no edit action (only create and delete), and no bulk operations or row selection
+- Helper functions (truncateUuid, formatDate) are defined locally in each page component for now (could be extracted to lib/formatters.ts in a future story)
+- The DELETE endpoint for composite-PK tables uses the request body to pass both keys, not URL parameters
+---
