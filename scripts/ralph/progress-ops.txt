@@ -1915,3 +1915,37 @@ Files changed:
 - Reset to page 1 when search/sort/filters change to avoid showing empty pages after filtering
 - Omit default values from URL to keep URLs clean and shareable
 ---
+
+## OPS-061: Backend integration tests for admin CRUD endpoints
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-backend
+Details:
+- Created tests/admin-crud.test.ts with comprehensive integration tests for admin CRUD endpoints
+- Implemented tests for GET /v1/admin/users with pagination, search, sort, and filter functionality
+- Tested paginated response shape with success, data.items, data.pagination, and meta fields
+- Verified search parameter filters results across email and displayName columns
+- Verified sort parameter (createdAt:desc) orders results correctly
+- Verified filter_tier parameter filters users by tier
+- Tested GET /v1/admin/users/:id returns 200 for existing records and 404 for non-existent IDs
+- Tested POST /v1/admin/users creates records and returns 201 status
+- Tested PUT /v1/admin/users/:id updates records and returns 200 status
+- Tested DELETE /v1/admin/users/:id deletes records and returns 200, or 404 for non-existent IDs
+- Tested authentication: all endpoints return 401 without X-Admin-Secret header
+- Tested invalid admin secret returns 401 with AUTH_REQUIRED error code
+- Used vitest mocking to mock the AdminCrudService for isolated testing
+- All tests follow the existing integration test patterns from tests/integration/stocks.test.ts
+- npm run build and npm run typecheck both pass with no errors
+Files changed:
+- tests/admin-crud.test.ts (created)
+
+**Learnings for future iterations:**
+- Integration test pattern: Import app from '../src/app.js' and use app.request() to make HTTP requests
+- Mock services using vi.mock() with partial mocking via vi.importActual() to preserve non-mocked exports
+- Admin endpoints require X-Admin-Secret header (set via process.env.ADMIN_SECRET in tests)
+- Response shape verification: Check success, data, pagination (for list endpoints), and meta fields
+- Error testing: Use NotFoundError from utils/errors.js and verify error.code in response
+- Status codes: 200 for successful GET/PUT/DELETE, 201 for POST, 404 for not found, 401 for auth errors
+- The AdminCrudService is instantiated by the route factory, so we mock the class constructor
+- Test coverage should include: happy path, filtering/search/sort, error cases (404), and authentication
+---

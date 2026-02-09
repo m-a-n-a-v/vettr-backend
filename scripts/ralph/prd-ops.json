@@ -1050,7 +1050,7 @@
         "npm run build passes with no TypeScript errors"
       ],
       "priority": 61,
-      "passes": false
+      "passes": true
     },
     {
       "id": "OPS-062",
