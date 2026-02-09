@@ -1949,3 +1949,32 @@ Files changed:
 - The AdminCrudService is instantiated by the route factory, so we mock the class constructor
 - Test coverage should include: happy path, filtering/search/sort, error cases (404), and authentication
 ---
+
+## OPS-062: Backend integration tests for analytics endpoints
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-backend
+Details:
+- Created tests/admin-analytics.test.ts with comprehensive integration tests for all analytics endpoints
+- Tested GET /v1/admin/analytics/user-growth - returns array of { date, count } objects for 90 days
+- Tested GET /v1/admin/analytics/score-distribution - returns array of { range, count } with score buckets
+- Tested GET /v1/admin/analytics/red-flag-trends - returns array of { date, severity, count } for 30 days
+- Tested GET /v1/admin/analytics/filing-activity - returns array of { date, count } for 30 days
+- Tested GET /v1/admin/analytics/alert-activity - returns array of { date, count } for 30 days
+- Tested GET /v1/admin/analytics/tier-breakdown - returns array of { tier, count } for user tiers
+- Tested GET /v1/admin/analytics/stock-health - returns { lowest_scores: Array, most_flags: Array }
+- All endpoints verify 200 status, correct response shape, and proper data structure
+- All endpoints verify 401 authentication requirement without X-Admin-Secret header
+- Used vitest with mocked database execute function for consistent test behavior
+- npm run build and npm run typecheck both pass
+Files changed:
+- tests/admin-analytics.test.ts (created)
+
+**Learnings for future iterations:**
+- Analytics endpoints use db.execute() with raw SQL queries for aggregations
+- Mock db.execute() returns { rows: Array } shape for SQL query results
+- Multiple db.execute() calls in one endpoint (like stock-health) need mockResolvedValueOnce chaining
+- Standard API response shape: { success: true, data: { data: Array }, meta: { timestamp, request_id } }
+- All analytics endpoints are protected by adminAuthMiddleware and require X-Admin-Secret header
+- Test structure mirrors admin-crud.test.ts with describe blocks per endpoint and auth tests
+---
