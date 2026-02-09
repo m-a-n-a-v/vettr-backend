@@ -1249,3 +1249,39 @@ Files changed:
 - Badge variants: 'success' for positive states (Material), 'info' for neutral states (Non-material)
 - ExternalPencil link rendering pattern: check for value existence, then render <a> with target="_blank" rel="noopener noreferrer"
 ---
+
+## OPS-040: Alert rules table page with full CRUD
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-ops-dashboard
+Details:
+- Created full-featured AlertRules.tsx page with comprehensive CRUD functionality
+- Implemented useTable hook integration for alert-rules endpoint
+- Added SearchInput for searching by stock ticker and rule type
+- Implemented FilterBar with filters for userId, ruleType, isActive, and frequency
+- Added ExportButton for CSV/JSON export functionality
+- Created DataTable with 8 columns: stockTicker, ruleType, conditionOperator, frequency, threshold, isActive (rendered as Badge), lastTriggeredAt (formatted or 'Never'), createdAt
+- Built Create/Edit modals with comprehensive form fields:
+  - userId (text input)
+  - stockTicker (text input)
+  - ruleType (text input)
+  - triggerConditions (JSON textarea with validation)
+  - conditionOperator (select: AND/OR)
+  - frequency (select: realtime/hourly/daily/weekly)
+  - threshold (number input, optional)
+  - isActive (checkbox)
+- Added JSON validation for triggerConditions field with error display
+- Implemented delete action with ConfirmDialog (danger variant)
+- Route already registered at /alert-rules in router.tsx
+- Build passes successfully
+Files changed:
+- src/pages/AlertRules.tsx (updated from placeholder to full implementation)
+
+**Learnings for future iterations:**
+- JSON validation in forms: Wrap JSON.parse in try-catch and set error state for invalid JSON
+- Optional numeric fields: Use empty string in form state, convert to number or null when submitting
+- Badge variants for status: 'success' for active/enabled states, 'info' for inactive/disabled
+- Textarea styling: Use font-mono and text-sm classes for JSON editing
+- Form validation: Validate before submit, show inline errors per field
+- The route was already registered from OPS-024, so no router changes needed
+---
