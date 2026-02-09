@@ -1433,3 +1433,35 @@ Files changed:
 - The WatchlistItems.tsx component serves as a good pattern reference for all composite-PK table pages
 - Helper functions truncateUuid and formatDate are duplicated in multiple pages - could be centralized in src/lib/formatters.ts in future stories
 ---
+
+## OPS-046: Sync history table page
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-ops-dashboard
+Details:
+- Created full CRUD sync history management page in src/pages/SyncHistory.tsx
+- Implemented useTable hook integration with endpoint 'sync-history' and queryKey 'admin-sync-history'
+- Added SearchInput component for searching status field
+- Added FilterBar with status filter (pending, success, failed) and userId filter
+- Rendered DataTable with columns: userId (truncated UUID), status (Badge with color variants), itemsSynced, startedAt, completedAt, errors
+- Status badge variants: success=green, pending=yellow, failed=red
+- Implemented Create modal with form fields: userId, status (select), itemsSynced (number), errors (textarea)
+- Implemented Edit modal with same form fields, pre-populated with existing data
+- Added delete action with ConfirmDialog for confirmation
+- Integrated ExportButton for CSV/JSON export functionality
+- Proper date formatting with formatDate() helper, showing "In Progress" for null completedAt
+- Error text displayed in red with truncation to 80 characters
+- Route already registered at /sync-history in router.tsx
+- npm run build passes successfully in vettr-ops-dashboard directory
+Files changed:
+- src/pages/SyncHistory.tsx (modified - replaced placeholder with full implementation)
+
+**Learnings for future iterations:**
+- Status badge color mapping pattern: use a helper function getStatusBadgeVariant() to map status strings to badge variants
+- Date formatting for nullable fields: check for null/undefined and return a fallback string like "In Progress" or "N/A"
+- Error display pattern: show errors in red text color using TailwindCSS text-red-600 class
+- Form field handling for nullable integers: convert string to parseInt() on submit, handle empty strings as null
+- The SyncHistory interface matches the backend schema with nullable fields for itemsSynced, completedAt, and errors
+- useTable hook automatically handles pagination, search, filters, and CRUD mutations
+- All frontend pages follow the same consistent pattern: SearchInput + FilterBar + ExportButton + DataTable + Modals
+---
