@@ -2010,3 +2010,65 @@ Files changed:
 - Test file structure: Create __tests__ directories next to components being tested
 - Avoid waitFor() with fake timers - it can cause timeouts; instead use synchronous assertions after advancing timers
 ---
+
+## OPS-064: README documentation for ops dashboard
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-ops-dashboard
+Details:
+- Created comprehensive README.md at /Users/manav/Space/code/vettr-ops-dashboard/README.md
+- Included project overview describing the VETTR Ops Dashboard as an internal admin interface
+- Documented complete tech stack: React 18, TypeScript, Vite, TailwindCSS v4, TanStack Query v5, Recharts v2, React Router v7, Axios, react-hot-toast
+- Added prerequisites section: Node.js 20+, vettr-backend running on localhost:3000 with ADMIN_SECRET configured
+- Included detailed setup instructions: clone, npm install, npm run dev (starts on localhost:5173)
+- Documented all available scripts: npm run dev, build, preview, test, lint, typecheck
+- Added environment variables section explaining VITE_API_URL usage
+- Documented backend connection details: Vite proxy configuration, X-Admin-Secret header authentication, CORS setup requirements
+- Included comprehensive sections on: project structure, features, keyboard shortcuts, troubleshooting, production deployment, Docker support, contributing guidelines
+- Added detailed feature list covering all dashboard capabilities: metrics, analytics charts, table management, bulk operations, specialized actions
+- Included troubleshooting section with common issues and solutions
+- npm run build passes successfully in the vettr-ops-dashboard directory
+Files changed:
+- README.md (created)
+
+**Learnings for future iterations:**
+- README documentation is critical for onboarding new developers and contributors
+- Comprehensive documentation should cover: overview, tech stack, prerequisites, setup, usage, troubleshooting, deployment
+- Include both development and production guidance in documentation
+- Document authentication flows and cross-origin considerations for frontend-backend integration
+- Include keyboard shortcuts and UX features that may not be immediately discoverable
+- Provide troubleshooting guidance for common setup issues (CORS, authentication, network errors)
+- Link to relevant configuration files (vite.config.ts, docker-compose.yml) in documentation
+- Frontend documentation should clearly explain proxy configuration and how API requests are routed
+---
+
+## OPS-065: Docker Compose for full-stack local development
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-ops-dashboard
+Details:
+- Created docker-compose.yml with all four services: postgres, redis, backend, frontend
+- Postgres service: postgres:16-alpine image, port 5432, environment variables for POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB, persistent volume postgres_data, healthcheck
+- Redis service: redis:7-alpine image, port 6379, healthcheck
+- Backend service: builds from ../vettr-backend using existing Dockerfile, port 3000, depends_on postgres and redis with healthcheck conditions, environment variables: DATABASE_URL, REDIS_URL, ADMIN_SECRET=dev-admin-secret, CORS_ORIGIN=http://localhost:5173
+- Frontend service: builds from current directory using new Dockerfile, port 5173, depends_on backend, VITE_API_URL environment variable
+- Created Dockerfile for frontend: multi-stage build with node:20-alpine, builder stage runs npm ci and npm run build, runner stage uses serve package to serve static files from dist on port 5173
+- Created .dockerignore file: ignores node_modules, dist, .git, .gitignore, log files, .DS_Store, .env files
+- npm run build passes in the vettr-ops-dashboard directory
+- Committed all changes to the ralph/vettr-ops branch in vettr-ops-dashboard repository
+
+Files changed:
+- docker-compose.yml (created)
+- Dockerfile (created)
+- .dockerignore (created)
+
+**Learnings for future iterations:**
+- Docker Compose best practices: Use healthchecks for database services so dependent services wait until they're ready
+- Multi-stage Docker builds reduce final image size by separating build dependencies from runtime dependencies
+- The serve package (serve@14.2.1) is a simple static file server suitable for serving built React apps
+- The docker-compose.yml references the backend by relative path (../vettr-backend) which works when both repos are siblings
+- Named volumes (postgres_data) persist database data between container restarts
+- Environment variables in docker-compose can be used to configure services for local development
+- The restart: unless-stopped policy ensures services restart automatically if they crash
+- Using condition: service_healthy in depends_on ensures proper startup order and readiness
+---

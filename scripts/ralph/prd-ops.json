@@ -1104,7 +1104,7 @@
         "npm run build passes in the vettr-ops-dashboard directory"
       ],
       "priority": 64,
-      "passes": false
+      "passes": true
     },
     {
       "id": "OPS-065",
@@ -1121,7 +1121,7 @@
         "npm run build passes in the vettr-ops-dashboard directory (the file creation itself should not break the build)"
       ],
       "priority": 65,
-      "passes": false
+      "passes": true
     }
   ]
 }
