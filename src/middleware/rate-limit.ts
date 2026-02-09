@@ -166,6 +166,13 @@ export async function rateLimitMiddleware(c: Context, next: Next): Promise<void>
     return;
   }
 
+  // Bypass rate limiting for admin routes (authenticated via X-Admin-Secret)
+  const adminSecret = c.req.header('x-admin-secret');
+  if (adminSecret && c.req.path.includes('/admin')) {
+    await next();
+    return;
+  }
+
   const tier = getTierFromContext(c);
   const category = getCategoryFromMethod(c.req.method);
   const identifier = getIdentifier(c);
