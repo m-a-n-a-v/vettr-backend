@@ -1,3 +1,4 @@
+import { Hono } from 'hono';
 import { OpenAPIHono } from '@hono/zod-openapi';
 import { swaggerUI } from '@hono/swagger-ui';
 import { cors } from 'hono/cors';
@@ -220,3 +221,4 @@ app.route('/sync', syncRoutes);
 app.route('/admin', adminRoutes);
 
 export { app };
+export default app;

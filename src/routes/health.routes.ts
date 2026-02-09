@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { db } from '../config/database.js';
-import { redis } from '../config/redis.js';
+import { redis, upstashRedis, redisMode } from '../config/redis.js';
 import { sql } from 'drizzle-orm';
 
 const healthRoutes = new Hono();
@@ -32,10 +32,17 @@ healthRoutes.get('/', async (c) => {
   let redisStatus = 'unavailable';
   let redisError: string | undefined;
 
-  if (redis) {
+  if (redisMode === 'ioredis' && redis) {
     try {
-      // Simple ping to verify connection
       await redis.ping();
+      redisStatus = 'connected';
+    } catch (error) {
+      redisStatus = 'error';
+      redisError = error instanceof Error ? error.message : 'Unknown Redis error';
+    }
+  } else if (redisMode === 'upstash' && upstashRedis) {
+    try {
+      await upstashRedis.ping();
       redisStatus = 'connected';
     } catch (error) {
       redisStatus = 'error';

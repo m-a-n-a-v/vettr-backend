@@ -5,7 +5,7 @@ import { hashPassword } from '../utils/password.js';
 import { signRefreshToken } from '../utils/jwt.js';
 import { ConflictError, InternalError, AuthInvalidCredentialsError } from '../utils/errors.js';
 import { env } from '../config/env.js';
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 

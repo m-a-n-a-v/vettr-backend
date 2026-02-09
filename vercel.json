@@ -1,0 +1,5 @@
+{
+  "framework": "hono",
+  "installCommand": "npm install --include=dev",
+  "buildCommand": "echo 'skip tsc - vercel handles ts compilation'"
+}
