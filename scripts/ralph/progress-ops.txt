@@ -1058,3 +1058,43 @@ Files changed:
 - Frontend working directory: All frontend commits in /Users/manav/Space/code/vettr-ops-dashboard/
 - Recharts imports: AreaChart and Area components imported from 'recharts' package for area/line charts
 ---
+## OPS-035: Users table page with full CRUD
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-ops-dashboard
+Details:
+- Created complete Users page implementation in src/pages/Users.tsx replacing placeholder
+- Integrated useTable<User> hook with endpoint 'users' and queryKey 'admin-users' for data fetching and CRUD operations
+- Implemented SearchInput component for searching by email and displayName (debounced)
+- Implemented FilterBar with two filters: tier (free/pro/premium) and authProvider (email/google/apple)
+- Implemented ExportButton with useExport hook for CSV/JSON exports
+- Created DataTable with 5 columns: email, displayName (with null handling), tier (Badge with color variants), authProvider (capitalized), createdAt (formatted date)
+- All columns except authProvider are sortable (email, displayName, tier, createdAt)
+- Implemented Create User modal with form validation (email format, required fields)
+- Implemented Edit User modal with same form fields, pre-populated with user data
+- Form fields include: email (with validation), displayName (required), tier (select dropdown), authProvider (select dropdown)
+- Implemented delete confirmation using ConfirmDialog with danger variant
+- Implemented row selection with BulkActionBar showing count and bulk delete action
+- All CRUD operations use mutations from useTable hook with proper error/success handling
+- Success toast notifications shown after create/update/delete operations
+- Error handling delegated to useTable hook mutations which show error toasts automatically
+- Fixed TypeScript errors: SearchInput manages its own internal value state, ConfirmDialog doesn't accept title prop
+- Removed unused variables (page, sort) to satisfy TypeScript strict mode
+- npm run build passes with no TypeScript errors
+Files changed:
+- src/pages/Users.tsx (modified - complete CRUD implementation)
+
+**Learnings for future iterations:**
+- SearchInput component pattern: Manages its own internal state for value, takes only onSearch callback (no value prop needed)
+- ConfirmDialog simplification: Uses hardcoded "Confirm Action" title in Modal, only takes message and variant props
+- useTable hook returns destructured values: Don't destructure unused values like page/sort if not needed (TypeScript strict mode)
+- Form validation pattern: Create validateForm() function that sets errors object, return boolean for valid/invalid
+- Modal state management: Separate boolean state for each modal (isCreateModalOpen, isEditModalOpen, isDeleteDialogOpen)
+- Form data initialization: Reset formData and formErrors when opening create modal, populate when opening edit modal
+- Mutation success handling: Use try/catch with mutateAsync to handle both success (close modal, show toast) and errors (handled by hook)
+- Badge variant mapping: tier='premium' → success, tier='pro' → info, tier='free' → warning for color coding
+- BulkActionBar conditional rendering: Show only when selectedUserIds.length > 0, hide otherwise
+- DataTable pagination: onPageChange receives offset, convert to page number with Math.floor(offset / pageSize) + 1
+- Frontend directory: All frontend work in /Users/manav/Space/code/vettr-ops-dashboard/, commits made there
+- Users page is already registered in router.tsx from OPS-024, so no router changes needed
+---
