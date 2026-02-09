@@ -1551,3 +1551,34 @@ Files changed:
 - Helper functions (truncateUuid, formatDate) are defined locally in each page component for now (could be extracted to lib/formatters.ts in a future story)
 - The DELETE endpoint for composite-PK tables uses the request body to pass both keys, not URL parameters
 ---
+
+## OPS-050: Bulk import page with CSV/JSON upload
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-ops-dashboard
+Details:
+- Implemented comprehensive bulk import page with full CSV and JSON support
+- Table selector dropdown with all 11 available admin tables
+- Drag-and-drop file upload area with visual feedback for drag state
+- CSV parser that properly handles quoted values, commas, newlines, and escaped quotes
+- JSON parser supporting both array and single object formats
+- Preview DataTable showing first 10 rows with auto-generated columns from data keys
+- Row count and column count display above preview
+- Import button with loading spinner and disabled state during import
+- POST request to /admin/{table}/bulk endpoint with parsed records
+- Toast notifications for success (showing imported count) and errors
+- Automatic state reset after successful import
+- Route already registered at /bulk-import in router.tsx
+- Build passes with no TypeScript errors
+
+Files changed:
+- src/pages/BulkImport.tsx (completely rewritten from placeholder)
+
+**Learnings for future iterations:**
+- CSV parsing requires careful handling of quoted fields and escaped quotes
+- The parseCSVLine function handles edge cases like quotes within quotes
+- File upload with both drag-and-drop and click-to-browse provides good UX
+- Preview functionality is essential for bulk operations to verify data before import
+- State reset after import prevents accidental re-imports
+- The DataTable component works well for previewing arbitrary data structures
+---
