@@ -1978,3 +1978,35 @@ Files changed:
 - All analytics endpoints are protected by adminAuthMiddleware and require X-Admin-Secret header
 - Test structure mirrors admin-crud.test.ts with describe blocks per endpoint and auth tests
 ---
+
+## OPS-063: Frontend component unit tests
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-ops-dashboard
+Details:
+- Installed vitest, @testing-library/react, @testing-library/jest-dom, and jsdom as dev dependencies
+- Configured vitest in vite.config.ts with jsdom environment and test setup file
+- Created test-setup.ts to import @testing-library/jest-dom for custom matchers
+- Created DataTable.test.tsx with 8 tests covering: column headers rendering, row data rendering, sort functionality, edit/delete button clicks, loading skeleton state, empty state, and custom render functions
+- Created SearchInput.test.tsx with 6 tests covering: placeholder rendering, debounced search calls, multiple rapid changes debouncing, clear button visibility, and clear functionality
+- Created Modal.test.tsx with 6 tests covering: rendering when open/closed, overlay click handling, close button functionality, title rendering, and children rendering
+- Created Badge.test.tsx with 7 tests covering: label rendering, variant classes (success, warning, error, info), element type, and base classes
+- All 27 tests pass when running npm run test
+- npm run build passes with no TypeScript errors
+Files changed:
+- package.json (added test script)
+- vite.config.ts (added test configuration)
+- src/test-setup.ts (created)
+- src/components/__tests__/DataTable.test.tsx (created)
+- src/components/__tests__/SearchInput.test.tsx (created)
+- src/components/ui/__tests__/Modal.test.tsx (created)
+- src/components/ui/__tests__/Badge.test.tsx (created)
+
+**Learnings for future iterations:**
+- Vitest configuration: Use test.globals, test.environment, and test.setupFiles in vite.config.ts
+- Testing timers: Use vi.useFakeTimers() and vi.advanceTimersByTime() for debounce testing, but clean up with vi.runOnlyPendingTimers() and vi.useRealTimers() to avoid test timeouts
+- Testing library patterns: Use screen.getByText(), screen.getByRole(), fireEvent for user interactions
+- Custom matchers from @testing-library/jest-dom: toBeInTheDocument(), toHaveClass(), etc.
+- Test file structure: Create __tests__ directories next to components being tested
+- Avoid waitFor() with fake timers - it can cause timeouts; instead use synchronous assertions after advancing timers
+---
