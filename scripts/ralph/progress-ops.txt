@@ -1612,3 +1612,30 @@ Files changed:
 - Error handling: Access error.response?.data?.error?.message for API error messages
 - The Quick Actions section provides a central location for destructive/admin-only operations
 ---
+
+## OPS-052: Bulk tier change for selected users
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-ops-dashboard
+Details:
+- Updated BulkActionBar component to support custom action buttons via customActions prop
+- Added bulk tier change functionality to Users page including:
+  - "Change Tier" button in BulkActionBar when users are selected
+  - Modal with tier selector (free/pro/premium) and confirmation message
+  - Bulk tier change handler that uses Promise.all for parallel execution
+  - Progress indicator showing "Updating X of Y users..." with visual progress bar
+  - Success/error handling with appropriate toast notifications
+  - Query invalidation to refresh table data after changes
+  - Selection clearing after successful operation
+- Imported useQueryClient and apiPost in Users.tsx for state management and API calls
+- All acceptance criteria met including error handling for failed updates
+- npm run build passes successfully
+- **Learnings for future iterations:**
+  - BulkActionBar component was extended to be more flexible with custom actions
+  - React Query's invalidateQueries is used to refresh data after bulk operations
+  - Promise.all enables parallel API calls for better performance
+  - Progress tracking with setBulkTierProgress provides good UX during long operations
+  - Error handling aggregates failures and reports them in toast messages
+  - The pattern of adding customActions to BulkActionBar can be reused for other bulk operations on different tables
+---
+
