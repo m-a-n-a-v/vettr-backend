@@ -774,3 +774,77 @@ Files changed:
 - Frontend TypeScript: No .js extension needed in imports (Vite handles module resolution)
 - React.ReactNode type: Correct type for render function return values and children props
 ---
+## OPS-027: Create search, filter, and export toolbar components
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-ops-dashboard
+Details:
+- Created src/components/SearchInput.tsx with text input, search icon, and debounced onChange (300ms delay)
+- Implemented clear (X) button that appears when input has value and resets the search
+- Created src/components/FilterBar.tsx accepting filters prop with dynamic select dropdowns
+- Implemented onFilterChange callback that fires when any dropdown changes with current filter state
+- Added "Clear Filters" button that resets all dropdowns and only appears when filters are active
+- Created src/components/ExportButton.tsx with dropdown menu showing CSV and JSON export options
+- Implemented loading state with spinner animation inside button during export operations
+- Created src/components/BulkActionBar.tsx showing selected count and Delete Selected button
+- BulkActionBar styled as sticky bar at top with distinct blue background, only visible when selectedCount > 0
+- All components use TailwindCSS utility classes for consistent styling and spacing
+- npm run build passes with no TypeScript errors
+Files changed:
+- src/components/SearchInput.tsx (created)
+- src/components/FilterBar.tsx (created)
+- src/components/ExportButton.tsx (created)
+- src/components/BulkActionBar.tsx (created)
+
+**Learnings for future iterations:**
+- Debounced search pattern: Use useEffect with setTimeout to delay API calls, clean up timer in return function
+- useEffect cleanup: Return a cleanup function that calls clearTimeout(timer) to cancel pending timers on unmount or value change
+- Controlled input pattern: Track input value in local state, fire callback after debounce delay
+- Filter state management: Track selected filters in Record<string, string>, delete keys when set to empty string
+- Dropdown menu pattern: Fixed overlay div covers screen to detect outside clicks, absolute positioned menu relative to button
+- Z-index layering: Fixed overlay at z-10, dropdown menu at z-20 to ensure proper stacking
+- Sticky positioning: Use sticky top-0 for BulkActionBar to keep it visible when scrolling table
+- Conditional rendering: Return null from component when not needed (selectedCount === 0) instead of hiding with CSS
+- SVG icon inline pattern: Use inline SVG paths for icons to avoid external dependencies (search, download, delete, check circle)
+- Loading state UI: Show spinner animation with "Exporting..." text while loading prop is true, disable button
+- TypeScript interface exports: No need to export interfaces used only within component file
+- Frontend imports: No .js extension needed (Vite handles module resolution automatically)
+- Filter dropdown styling: Use border border-gray-300 rounded-lg with focus:ring-2 for consistent form controls
+- Clear button visibility: Use conditional rendering {hasActiveFilters && <button>} pattern for optional UI elements
+---
+## OPS-028: Create generic useTable hook for CRUD operations
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-ops-dashboard
+Details:
+- Created src/hooks/useTable.ts with generic useTable<T> hook for data fetching and CRUD operations
+- Implemented useQuery from @tanstack/react-query for fetching paginated data from GET /v1/admin/{endpoint}
+- Query key includes [queryKey, page, pageSize, search, sort, filters] to auto-refetch when any param changes
+- Implemented buildParams() helper to construct query params: limit, offset, search, sort (column:direction), and filter_* params spread from filters object
+- Implemented createMutation using useMutation to POST /v1/admin/{endpoint} with onSuccess invalidating queries and showing toast
+- Implemented updateMutation using useMutation to PUT /v1/admin/{endpoint}/:id with { id, data } params
+- Implemented deleteMutation using useMutation to DELETE /v1/admin/{endpoint}/:id
+- Implemented bulkDeleteMutation using useMutation to DELETE /v1/admin/{endpoint}/bulk with { ids } body
+- All mutations include onSuccess callbacks that call queryClient.invalidateQueries({ queryKey: [queryKey] })
+- All mutations include onError callbacks that extract error messages from err.response?.data?.error?.message and show toast.error()
+- Success toasts show "{Action} {endpoint} successfully" messages (e.g., "Created users successfully")
+- Hook returns: data (items array), pagination (PaginationMeta), isLoading, error, search/setSearch, sort/setSort, filters/setFilters, page/setPage, pageSize/setPageSize, all mutations, and refetch function
+- TypeScript interfaces defined for TableConfig, PaginationMeta, ApiResponse<T>, and SingleApiResponse<T>
+- npm run build passes with no TypeScript errors
+Files changed:
+- src/hooks/useTable.ts (created)
+
+**Learnings for future iterations:**
+- TanStack Query v5 patterns: useQuery with queryKey array, useMutation with mutationFn/onSuccess/onError
+- Query invalidation: queryClient.invalidateQueries({ queryKey: [queryKey] }) refetches all queries matching the key
+- Toast notifications: toast.success() and toast.error() from react-hot-toast for user feedback
+- Axios error handling: err.response?.data?.error?.message extracts backend error messages
+- Pagination offset calculation: offset = (page - 1) * pageSize for zero-based API offset
+- Query params for filters: filter_* prefix pattern matches backend filter param expectations
+- Generic TypeScript hook: useTable<T extends Record<string, any>> allows type-safe table data
+- React state for table controls: useState for page, pageSize, search, sort, filters
+- Mutation parameters: Update mutation needs { id, data } structure, delete needs just id string
+- Bulk operations: bulkDeleteMutation accepts ids array and extracts count from response.data.deleted
+- Frontend directory: All frontend commits in /Users/manav/Space/code/vettr-ops-dashboard/
+- No .js extensions needed in frontend imports (Vite handles module resolution)
+---
