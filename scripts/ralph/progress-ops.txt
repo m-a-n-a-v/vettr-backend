@@ -1285,3 +1285,42 @@ Files changed:
 - Form validation: Validate before submit, show inline errors per field
 - The route was already registered from OPS-024, so no router changes needed
 ---
+
+## OPS-041: Alerts table page with full CRUD
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-ops-dashboard
+Details:
+- Created complete Alerts page implementation in src/pages/Alerts.tsx replacing placeholder
+- Integrated useTable<Alert> hook with endpoint 'alerts' and queryKey 'admin-alerts' for data fetching and CRUD operations
+- Implemented SearchInput component for searching by title and message (debounced)
+- Implemented FilterBar with multiple filters: alertType (price_change, filing, red_flag, executive_change), isRead (true/false), userId, stockId
+- Implemented ExportButton with useExport hook for CSV/JSON exports
+- Created DataTable with 7 columns: title, alertType (as Badge with info variant), stockId (truncated UUID), userId (truncated UUID), message (truncated to 80 chars), triggeredAt (formatted date with time), isRead (Badge: success for Read, warning for Unread)
+- All columns except stockId, userId, and message are sortable
+- Implemented Create Alert modal with comprehensive form validation (userId, stockId, alertType, title, message required)
+- Implemented Edit Alert modal with same form fields, pre-populated with alert data
+- Form fields include: userId (text UUID), stockId (text UUID), alertRuleId (optional UUID), alertType (select dropdown), title (text), message (textarea), isRead (checkbox)
+- alertRuleId field allows empty string which converts to null on submit for optional foreign key
+- Implemented delete confirmation using ConfirmDialog with danger variant (removed title prop as it's not supported)
+- Implemented row selection with BulkActionBar showing count and bulk delete action
+- All CRUD operations use mutations from useTable hook with proper error/success handling
+- Success toast notifications shown after create/update/delete operations (handled by useTable hook)
+- Error handling delegated to useTable hook mutations which show error toasts automatically
+- Implemented helper functions: truncateUuid() (first 8 chars + '...'), formatDate() (formatted as 'MMM DD, YYYY HH:MM AM/PM'), truncateText() (truncates to specified length)
+- Route already registered as /alerts in router.tsx from OPS-024
+- npm run build passes with no TypeScript errors after fixing data access pattern
+Files changed:
+- src/pages/Alerts.tsx (modified - complete CRUD implementation)
+
+**Learnings for future iterations:**
+- useTable hook returns data as T[] directly (renamed from items), not as ApiResponse<T>, so access with data || [] not data?.data.items
+- ConfirmDialog component doesn't have a title prop - it passes "Confirm Action" as hardcoded title to Modal
+- DataTable onDelete expects full row object Alert, not just the ID string
+- Badge variants: 'success' for positive states (Read), 'warning' for attention states (Unread), 'info' for neutral/category states (alertType)
+- Optional foreign keys: Store empty string in form state, convert to null on submit (alertRuleId || null)
+- Checkbox IDs must be unique across Create and Edit modals (isRead vs isReadEdit)
+- Consistent pattern with previous table pages: useTable, useExport, SearchInput, FilterBar, ExportButton, BulkActionBar, DataTable, Modal, FormField, ConfirmDialog
+- Frontend working directory: All frontend commits in /Users/manav/Space/code/vettr-ops-dashboard/
+- The /alerts route was already registered in router.tsx from OPS-024, so no router changes needed
+---
