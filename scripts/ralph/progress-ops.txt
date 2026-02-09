@@ -1324,3 +1324,31 @@ Files changed:
 - Frontend working directory: All frontend commits in /Users/manav/Space/code/vettr-ops-dashboard/
 - The /alerts route was already registered in router.tsx from OPS-024, so no router changes needed
 ---
+
+## OPS-042: Watchlist items table page
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-ops-dashboard
+Details:
+- Created complete WatchlistItems.tsx page for managing watchlist items (composite-PK table)
+- Used useQuery and useMutation directly from TanStack Query instead of the generic useTable hook since this table has a composite primary key (userId, stockId) instead of a single id field
+- Implemented FilterBar with userId and stockId filters
+- Implemented DataTable with columns: userId (truncated UUID), stockId (truncated UUID), addedAt (formatted date)
+- Created Add Watchlist Item modal with FormField inputs for userId and stockId
+- Implemented POST /admin/watchlist-items for creating new associations
+- Implemented DELETE /admin/watchlist-items with composite key {userId, stockId} body for deletion
+- Delete action shows ConfirmDialog with danger variant before deletion
+- Pagination controls implemented with page state and offset calculation
+- Route was already registered at /watchlist-items in router.tsx
+- npm run build passes with no errors
+Files changed:
+- src/pages/WatchlistItems.tsx (modified - replaced placeholder with full implementation)
+
+**Learnings for future iterations:**
+- Composite-PK tables (watchlistItems, filingReads, redFlagAcknowledgments) cannot use the generic useTable hook which expects an id field
+- Instead use useQuery directly with custom queryFn and useMutation for create/delete operations
+- apiDelete accepts a data parameter which becomes the request body for composite key deletion
+- For composite-PK tables: no edit action (nothing to edit), no bulk operations (would need array of composite keys)
+- Filter options can have placeholder entries with empty options array if the actual values need to be fetched from the API
+- DataTable accepts empty function callbacks (e.g., onEdit={() => {}}) for disabled features
+---
