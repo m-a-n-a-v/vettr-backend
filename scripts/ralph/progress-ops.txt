@@ -688,3 +688,89 @@ Files changed:
 - Placeholder pages pattern: Simple function components with heading and description text, all using export function syntax (named exports)
 - All frontend code compiles without .js extensions in imports (Vite handles module resolution automatically)
 ---
+## OPS-025: Create shared UI components library
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-ops-dashboard
+Details:
+- Created src/components/ui/StatCard.tsx with icon, title, value, and optional change props
+- StatCard displays metric cards with green/red percentage change indicators based on positive/negative values
+- Created src/components/ui/Badge.tsx with variant (success, warning, error, info) and label props
+- Badge component uses distinct color schemes for each variant (green, yellow, red, blue) using TailwindCSS
+- Created src/components/ui/FormField.tsx with label, name, type, value, onChange, error, and placeholder props
+- FormField renders labeled input with error display in red text below the input when error is present
+- Created src/components/ui/Modal.tsx with isOpen, onClose, title, and children props
+- Modal renders fixed overlay with centered white card, clickable overlay background to close, X close button in header
+- Created src/components/ui/ConfirmDialog.tsx extending Modal with message, onConfirm, confirmLabel, and variant props
+- ConfirmDialog renders message text with Cancel and Confirm buttons, danger variant styles Confirm button red
+- Created barrel export at src/components/ui/index.ts exporting all five UI components
+- All components styled with TailwindCSS utility classes for consistent theming
+- npm run build passes with no TypeScript errors
+Files changed:
+- src/components/ui/StatCard.tsx (created)
+- src/components/ui/Badge.tsx (created)
+- src/components/ui/FormField.tsx (created)
+- src/components/ui/Modal.tsx (created)
+- src/components/ui/ConfirmDialog.tsx (created)
+- src/components/ui/index.ts (created)
+
+**Learnings for future iterations:**
+- React component patterns: Named exports (export function ComponentName) are used for consistency
+- TailwindCSS color variants: Use object mapping for variant-based className selection (e.g., variantClasses[variant])
+- Modal overlay pattern: Fixed inset-0 div with bg-black bg-opacity-50 creates darkened overlay
+- Modal centering: flex min-h-full items-center justify-center p-4 centers modal on screen
+- Modal z-index: Use z-50 for modal content, overlay can be lower z-index but still above regular content
+- TypeScript props: Interface definitions for component props ensure type safety
+- Optional props: Use ? for optional props (change?, error?, placeholder?) with default values or undefined checks
+- Children prop type: React.ReactNode is the correct type for component children
+- Event handlers: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement> for input onChange events
+- Conditional rendering: {error && <element>} pattern shows elements only when condition is truthy
+- SVG icons inline: Simple X icon using SVG path for close button, avoids external icon library dependency
+- Frontend imports: No .js extension needed in imports (Vite handles module resolution)
+- FormField input border: Use border-red-300 class when error exists to highlight validation issues
+- ConfirmDialog composition: Wraps Modal component and adds confirmation-specific UI and behavior
+- Button styling patterns: Use focus:outline-none focus:ring-2 for accessible keyboard focus indicators
+---
+## OPS-026: Create generic DataTable component
+Status: COMPLETE
+Date: 2026-02-08
+Working Directory: /Users/manav/Space/code/vettr-ops-dashboard
+Details:
+- Created src/components/DataTable.tsx with full-featured data table component
+- Implemented column configuration with key, label, render function, and sortable flag
+- Implemented sortable table headers with visual sort indicators (up/down arrows)
+- Clicking sortable header toggles between asc/desc and calls onSort callback
+- Implemented row rendering that uses column.render for custom rendering or defaults to stringified value
+- Added checkbox column for row selection with "select all" checkbox in header that toggles all visible rows
+- Individual row checkboxes toggle selection state, tracked in Set<string> for efficient lookup
+- Added indeterminate checkbox state when some (but not all) rows are selected
+- Implemented actions column with Edit and Delete icon buttons that call onEdit/onDelete callbacks
+- Created pagination controls below table with page size selector (10/25/50 options)
+- Pagination shows "Showing X-Y of Z records" text and previous/next buttons
+- Previous/next buttons disabled appropriately when at boundaries (offset=0 or has_more=false)
+- Implemented loading skeleton with 6 rows of animated gray bars using animate-pulse
+- Implemented empty state with centered icon and "No records found" message when data array is empty
+- Table is horizontally scrollable on small screens using overflow-x-auto
+- All state managed internally: selectedRows, sortColumn, sortDirection
+- Selection changes trigger onSelectionChange callback with array of selected IDs
+- TypeScript interfaces defined for Column, Pagination, and DataTableProps with generics
+- npm run build passes with no TypeScript errors
+Files changed:
+- src/components/DataTable.tsx (created)
+
+**Learnings for future iterations:**
+- React Set for selection state: Set<string> provides O(1) lookup for checking if row is selected
+- Checkbox indeterminate state: Must use ref callback to set input.indeterminate = true (not a prop)
+- TypeScript generics for table data: DataTable<T extends Record<string, any>> allows type-safe row data
+- useEffect dependency arrays: Include callbacks in deps or wrap in useCallback to avoid stale closures
+- Reset selection on data change: useEffect with data in deps clears selection when table data changes
+- Loading skeleton pattern: Array.from({ length: 6 }) creates placeholder rows during loading state
+- Empty state colspan: Calculate total columns including checkbox and actions columns for full-width empty message
+- SVG icons inline: Use inline SVG for edit/delete icons to avoid external dependencies
+- Sort icon rotation: Use different SVG paths for up/down arrows instead of CSS transform
+- Disabled button styling: disabled:opacity-50 disabled:cursor-not-allowed for visual feedback
+- Table hover states: hover:bg-gray-50 on tr elements for better row visibility
+- Pagination calculation: currentStart = offset + 1, currentEnd = min(offset + limit, total)
+- Frontend TypeScript: No .js extension needed in imports (Vite handles module resolution)
+- React.ReactNode type: Correct type for render function return values and children props
+---
