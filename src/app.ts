@@ -35,6 +35,33 @@ type Variables = {
 
 const app = new OpenAPIHono<{ Variables: Variables }>().basePath('/v1');
 
+// CORS middleware - must be registered BEFORE any route handlers (including app.doc)
+// Configurable via environment variable
+// Supports comma-separated origins (e.g., 'http://localhost:5173,http://localhost:3000')
+// or wildcard '*' for all origins
+const corsOrigin = (() => {
+  if (env.CORS_ORIGIN === '*') {
+    return '*';
+  }
+
+  const allowedOrigins = env.CORS_ORIGIN.split(',').map(origin => origin.trim());
+
+  return (origin: string) => {
+    if (allowedOrigins.includes(origin)) {
+      return origin;
+    }
+    return allowedOrigins[0]; // Fallback to first origin
+  };
+})();
+
+app.use(
+  '*',
+  cors({
+    origin: corsOrigin,
+    credentials: true,
+  })
+);
+
 // Configure OpenAPI documentation
 app.doc('/openapi.json', {
   openapi: '3.0.0',
@@ -168,32 +195,6 @@ app.use('*', secureHeaders());
 
 // Request body size limit (1MB)
 app.use('*', bodyLimit({ maxSize: 1024 * 1024 }));
-
-// CORS middleware - configurable via environment variable
-// Supports comma-separated origins (e.g., 'http://localhost:5173,http://localhost:3000')
-// or wildcard '*' for all origins
-const corsOrigin = (() => {
-  if (env.CORS_ORIGIN === '*') {
-    return '*';
-  }
-
-  const allowedOrigins = env.CORS_ORIGIN.split(',').map(origin => origin.trim());
-
-  return (origin: string) => {
-    if (allowedOrigins.includes(origin)) {
-      return origin;
-    }
-    return allowedOrigins[0]; // Fallback to first origin
-  };
-})();
-
-app.use(
-  '*',
-  cors({
-    origin: corsOrigin,
-    credentials: true,
-  })
-);
 
 // Global error handler
 app.onError(errorHandler);
