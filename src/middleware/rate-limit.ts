@@ -21,23 +21,23 @@ interface RateLimitConfig {
 
 const RATE_LIMITS: Record<RateLimitTier, Record<RateLimitCategory, RateLimitConfig>> = {
   unauth: {
-    read: { requests: 5, windowMs: 60_000 },
+    read: { requests: 10, windowMs: 60_000 },
     write: { requests: 5, windowMs: 60_000 },
-    auth: { requests: 5, windowMs: 60_000 },
-  },
-  free: {
-    read: { requests: 60, windowMs: 60_000 },
-    write: { requests: 30, windowMs: 60_000 },
     auth: { requests: 10, windowMs: 60_000 },
   },
-  pro: {
-    read: { requests: 120, windowMs: 60_000 },
+  free: {
+    read: { requests: 200, windowMs: 60_000 },
     write: { requests: 60, windowMs: 60_000 },
     auth: { requests: 10, windowMs: 60_000 },
   },
-  premium: {
-    read: { requests: 300, windowMs: 60_000 },
+  pro: {
+    read: { requests: 400, windowMs: 60_000 },
     write: { requests: 120, windowMs: 60_000 },
+    auth: { requests: 10, windowMs: 60_000 },
+  },
+  premium: {
+    read: { requests: 600, windowMs: 60_000 },
+    write: { requests: 200, windowMs: 60_000 },
     auth: { requests: 10, windowMs: 60_000 },
   },
 };
