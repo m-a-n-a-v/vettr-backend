@@ -29,6 +29,7 @@ const historyQuerySchema = z.object({
 });
 
 // GET /stocks/:ticker/red-flags/history - paginated flag history for stock
+// Maps to frontend RedFlagHistory format: { ticker, history: RedFlagHistoryEntry[] }
 redFlagStockRoutes.get('/:ticker/red-flags/history', validateQuery(historyQuerySchema), async (c) => {
   const ticker = c.req.param('ticker');
   const query = c.req.query();
@@ -38,17 +39,23 @@ redFlagStockRoutes.get('/:ticker/red-flags/history', validateQuery(historyQueryS
 
   const result = await getRedFlagHistoryForStock(ticker, { limit, offset });
 
-  const flagDtos = result.flags.map((flag) => ({
+  // Map to frontend RedFlagHistory format: wraps entries in { ticker, history[] }
+  const historyEntries = result.flags.map((flag) => ({
     id: flag.id,
-    stock_ticker: flag.stockTicker,
-    flag_type: flag.flagType,
+    flag_name: flag.flagType
+      .split('_')
+      .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(' '),
     severity: flag.severity,
-    score: flag.score,
-    description: flag.description,
     detected_at: flag.detectedAt.toISOString(),
   }));
 
-  return c.json(paginated(flagDtos, result.pagination), 200);
+  const historyDto = {
+    ticker: ticker.toUpperCase(),
+    history: historyEntries,
+  };
+
+  return c.json(paginated([historyDto], result.pagination), 200);
 });
 
 // POST /stocks/:ticker/red-flags/acknowledge-all - acknowledge all flags for stock for current user
@@ -62,12 +69,49 @@ redFlagStockRoutes.post('/:ticker/red-flags/acknowledge-all', async (c) => {
 });
 
 // GET /stocks/:ticker/red-flags - detect and return flags with composite score
+// Maps backend DetectedFlagResult to frontend RedFlagsResponse format
 redFlagStockRoutes.get('/:ticker/red-flags', async (c) => {
   const ticker = c.req.param('ticker');
 
   const result = await detectRedFlags(ticker);
 
-  return c.json(success(result), 200);
+  // Build the breakdown from individual flag scores
+  const flagsByType: Record<string, number> = {};
+  for (const flag of result.flags) {
+    flagsByType[flag.flag_type] = flag.score;
+  }
+
+  // Map to frontend-expected RedFlagsResponse format
+  const responseDto = {
+    ticker: result.ticker,
+    overall_score: result.composite_score,
+    breakdown: {
+      consolidation_velocity: flagsByType['consolidation_velocity'] ?? 0,
+      financing_velocity: flagsByType['financing_velocity'] ?? 0,
+      executive_churn: flagsByType['executive_churn'] ?? 0,
+      disclosure_gaps: flagsByType['disclosure_gaps'] ?? 0,
+      debt_trend: flagsByType['debt_trend'] ?? 0,
+    },
+    detected_flags: result.flags
+      .filter(f => f.score > 20) // Only show flags with meaningful scores
+      .map((flag, index) => ({
+        id: `${result.ticker}-${flag.flag_type}-${index}`,
+        ticker: result.ticker,
+        name: flag.flag_type
+          .split('_')
+          .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1))
+          .join(' '),
+        explanation: flag.description,
+        severity: flag.score >= 80 ? 'Critical'
+          : flag.score >= 60 ? 'High'
+          : flag.score >= 40 ? 'Moderate'
+          : 'Low',
+        detected_at: result.detected_at,
+        is_acknowledged: false,
+      })),
+  };
+
+  return c.json(success(responseDto), 200);
 });
 
 // Global red flag routes (mounted at /red-flags)

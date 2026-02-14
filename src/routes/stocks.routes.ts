@@ -149,6 +149,7 @@ stockRoutes.get('/:ticker/filings', validateQuery(getStockFilingsQuerySchema), a
 });
 
 // GET /stocks/:ticker/executives - Get all executives for a stock
+// Returns paginated response matching frontend Executive type
 stockRoutes.get('/:ticker/executives', async (c) => {
   if (!db) {
     throw new InternalError('Database not available');
@@ -170,22 +171,45 @@ stockRoutes.get('/:ticker/executives', async (c) => {
 
   const execs = await getExecutivesForStock(stock.id);
 
-  const executiveDtos = execs.map((exec) => ({
-    id: exec.id,
-    stock_id: exec.stockId,
-    name: exec.name,
-    title: exec.title,
-    years_at_company: exec.yearsAtCompany,
-    previous_companies: exec.previousCompanies,
-    education: exec.education,
-    specialization: exec.specialization,
-    social_linkedin: exec.socialLinkedin,
-    social_twitter: exec.socialTwitter,
-    created_at: exec.createdAt.toISOString(),
-    updated_at: exec.updatedAt.toISOString(),
-  }));
+  // Map to frontend Executive type with computed fields
+  const executiveDtos = execs.map((exec) => {
+    const yearsAtCompany = exec.yearsAtCompany ?? 0;
+    // Estimate total experience: years at company + 2 years per previous company
+    const previousCompanies = (exec.previousCompanies as string[]) || [];
+    const totalExperience = yearsAtCompany + (previousCompanies.length * 3);
+    // Compute tenure risk based on years at company
+    const tenureRisk = yearsAtCompany >= 3 ? 'Stable' : yearsAtCompany >= 1 ? 'Watch' : 'Flight Risk';
 
-  return c.json(success(executiveDtos), 200);
+    return {
+      id: exec.id,
+      name: exec.name,
+      title: exec.title,
+      company: stock.name,
+      ticker: stock.ticker,
+      years_at_company: yearsAtCompany,
+      total_experience_years: totalExperience,
+      specialization: exec.specialization || 'General Management',
+      tenure_risk: tenureRisk,
+      education: exec.education ? [exec.education] : [],
+      career_timeline: previousCompanies.map((company, i) => ({
+        company,
+        title: 'Previous Role',
+        start_year: new Date().getFullYear() - Math.round(yearsAtCompany) - (previousCompanies.length - i) * 3,
+        end_year: new Date().getFullYear() - Math.round(yearsAtCompany) - (previousCompanies.length - i - 1) * 3,
+      })),
+      social_links: {
+        linkedin: exec.socialLinkedin || undefined,
+        twitter: exec.socialTwitter || undefined,
+      },
+    };
+  });
+
+  return c.json(paginated(executiveDtos, {
+    total: executiveDtos.length,
+    limit: executiveDtos.length,
+    offset: 0,
+    has_more: false,
+  }), 200);
 });
 
 // GET /stocks/:ticker - Get stock detail with executives summary, recent filings, and watchlist status
