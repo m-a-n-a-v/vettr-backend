@@ -1,6 +1,7 @@
 import type { Context, Next } from 'hono';
 import { redis, upstashRedis, redisMode } from '../config/redis.js';
 import { RateLimitError } from '../utils/errors.js';
+import { decodeToken } from '../utils/jwt.js';
 
 /**
  * Tier-based rate limit configurations.
@@ -130,7 +131,24 @@ function getCategoryFromMethod(method: string): RateLimitCategory {
   return 'write';
 }
 
+/**
+ * Extract JWT payload from Authorization header (without full verification).
+ * Used by rate limiter to determine tier/identity before auth middleware runs.
+ */
+function getJwtPayload(c: Context): { sub?: string; tier?: string } | null {
+  const authHeader = c.req.header('authorization');
+  if (!authHeader?.startsWith('Bearer ')) return null;
+  const token = authHeader.slice(7);
+  try {
+    const payload = decodeToken(token);
+    return payload ? { sub: payload.sub as string, tier: payload.tier as string } : null;
+  } catch {
+    return null;
+  }
+}
+
 function getTierFromContext(c: Context): RateLimitTier {
+  // First try context (if auth middleware already ran)
   try {
     const user = c.get('user');
     if (user && user.tier) {
@@ -143,10 +161,20 @@ function getTierFromContext(c: Context): RateLimitTier {
   } catch {
     // user not set in context
   }
+  // Fallback: decode JWT directly (rate limit middleware runs before auth middleware)
+  const jwt = getJwtPayload(c);
+  if (jwt?.tier) {
+    const tier = jwt.tier.toLowerCase();
+    if (tier === 'pro' || tier === 'premium' || tier === 'free') {
+      return tier;
+    }
+    return 'free';
+  }
   return 'unauth';
 }
 
 function getIdentifier(c: Context): string {
+  // First try context (if auth middleware already ran)
   try {
     const user = c.get('user');
     if (user && user.id) {
@@ -154,6 +182,11 @@ function getIdentifier(c: Context): string {
     }
   } catch {
     // user not set
+  }
+  // Fallback: decode JWT directly to get user ID
+  const jwt = getJwtPayload(c);
+  if (jwt?.sub) {
+    return `user:${jwt.sub}`;
   }
   const forwarded = c.req.header('x-forwarded-for');
   const ip = forwarded?.split(',')[0]?.trim() || 'unknown';
