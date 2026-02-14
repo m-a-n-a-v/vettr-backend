@@ -34,15 +34,16 @@ filingRoutes.get('/', validateQuery(getFilingsQuerySchema), async (c) => {
   const filingDtos = result.filings.map((item) => ({
     id: item.filing.id,
     stock_id: item.filing.stockId,
+    ticker: item.stock_ticker,
+    company_name: item.stock_name,
     type: item.filing.type,
     title: item.filing.title,
-    date: item.filing.date.toISOString(),
+    date_filed: item.filing.date.toISOString(),
     summary: item.filing.summary,
     is_material: item.filing.isMaterial,
+    is_read: false, // List endpoint doesn't track per-user read status
     source_url: item.filing.sourceUrl,
     created_at: item.filing.createdAt.toISOString(),
-    stock_ticker: item.stock_ticker,
-    stock_name: item.stock_name,
   }));
 
   return c.json(paginated(filingDtos, result.pagination), 200);
@@ -60,12 +61,12 @@ filingRoutes.get('/:id', async (c) => {
     stock_id: result.filing.stockId,
     type: result.filing.type,
     title: result.filing.title,
-    date: result.filing.date.toISOString(),
+    date_filed: result.filing.date.toISOString(),
     summary: result.filing.summary,
     is_material: result.filing.isMaterial,
+    is_read: result.is_read,
     source_url: result.filing.sourceUrl,
     created_at: result.filing.createdAt.toISOString(),
-    is_read: result.is_read,
   };
 
   return c.json(success(filingDto), 200);

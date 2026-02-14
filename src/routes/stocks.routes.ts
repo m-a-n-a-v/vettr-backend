@@ -53,14 +53,14 @@ stockRoutes.get('/', validateQuery(getStocksQuerySchema), async (c) => {
   const stockDtos = result.stocks.map((stock) => ({
     id: stock.id,
     ticker: stock.ticker,
-    name: stock.name,
+    company_name: stock.name,
     exchange: stock.exchange,
     sector: stock.sector,
     market_cap: stock.marketCap,
-    price: stock.price,
-    price_change: stock.priceChange,
+    current_price: stock.price,
+    price_change_percent: stock.priceChange,
     vetr_score: stock.vetrScore,
-    updated_at: stock.updatedAt.toISOString(),
+    last_updated: stock.updatedAt.toISOString(),
   }));
 
   return c.json(paginated(stockDtos, result.pagination), 200);
@@ -84,14 +84,14 @@ stockRoutes.get('/search', validateQuery(searchStocksQuerySchema), async (c) => 
   const stockDtos = results.map((stock) => ({
     id: stock.id,
     ticker: stock.ticker,
-    name: stock.name,
+    company_name: stock.name,
     exchange: stock.exchange,
     sector: stock.sector,
     market_cap: stock.marketCap,
-    price: stock.price,
-    price_change: stock.priceChange,
+    current_price: stock.price,
+    price_change_percent: stock.priceChange,
     vetr_score: stock.vetrScore,
-    updated_at: stock.updatedAt.toISOString(),
+    last_updated: stock.updatedAt.toISOString(),
   }));
 
   return c.json(success(stockDtos), 200);
@@ -133,11 +133,14 @@ stockRoutes.get('/:ticker/filings', validateQuery(getStockFilingsQuerySchema), a
   const filingDtos = result.filings.map((filing) => ({
     id: filing.id,
     stock_id: filing.stockId,
+    ticker: stock.ticker,
+    company_name: stock.name,
     type: filing.type,
     title: filing.title,
-    date: filing.date.toISOString(),
+    date_filed: filing.date.toISOString(),
     summary: filing.summary,
     is_material: filing.isMaterial,
+    is_read: false,
     source_url: filing.sourceUrl,
     created_at: filing.createdAt.toISOString(),
   }));
@@ -195,14 +198,14 @@ stockRoutes.get('/:ticker', async (c) => {
   const stockDto = {
     id: detail.stock.id,
     ticker: detail.stock.ticker,
-    name: detail.stock.name,
+    company_name: detail.stock.name,
     exchange: detail.stock.exchange,
     sector: detail.stock.sector,
     market_cap: detail.stock.marketCap,
-    price: detail.stock.price,
-    price_change: detail.stock.priceChange,
+    current_price: detail.stock.price,
+    price_change_percent: detail.stock.priceChange,
     vetr_score: detail.stock.vetrScore,
-    updated_at: detail.stock.updatedAt.toISOString(),
+    last_updated: detail.stock.updatedAt.toISOString(),
   };
 
   const executivesDtos = detail.executives_summary.top.map((exec) => ({
@@ -220,11 +223,14 @@ stockRoutes.get('/:ticker', async (c) => {
   const filingsDtos = detail.recent_filings.map((filing) => ({
     id: filing.id,
     stock_id: filing.stockId,
+    ticker: detail.stock.ticker,
+    company_name: detail.stock.name,
     type: filing.type,
     title: filing.title,
-    date: filing.date.toISOString(),
+    date_filed: filing.date.toISOString(),
     summary: filing.summary,
     is_material: filing.isMaterial,
+    is_read: false,
     source_url: filing.sourceUrl,
     created_at: filing.createdAt.toISOString(),
   }));

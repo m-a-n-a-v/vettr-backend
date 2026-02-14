@@ -6,7 +6,7 @@ import {
   addToWatchlist,
   removeFromWatchlist,
 } from '../services/watchlist.service.js';
-import { success } from '../utils/response.js';
+import { success, paginated } from '../utils/response.js';
 
 type Variables = {
   user: AuthUser;
@@ -17,31 +17,37 @@ const watchlistRoutes = new Hono<{ Variables: Variables }>();
 // Apply auth middleware to all watchlist routes
 watchlistRoutes.use('*', authMiddleware);
 
-// Helper function to convert watchlist item to DTO
+// Helper function to convert watchlist item to DTO matching frontend Stock interface
 function toWatchlistItemDto(item: any) {
   return {
     id: item.id,
     ticker: item.ticker,
-    name: item.name,
+    company_name: item.name,
     exchange: item.exchange,
     sector: item.sector,
     market_cap: item.marketCap,
-    price: item.price,
-    price_change: item.priceChange,
+    current_price: item.price,
+    price_change_percent: item.priceChange,
     vetr_score: item.vetrScore,
-    updated_at: item.updatedAt.toISOString(),
+    last_updated: item.updatedAt.toISOString(),
     added_at: item.added_at.toISOString(),
   };
 }
 
-// GET /watchlist - Return user's watchlist with full stock data
+// GET /watchlist - Return user's watchlist with full stock data (paginated format)
 watchlistRoutes.get('/', async (c) => {
   const user = c.get('user');
   const watchlist = await getWatchlist(user.id);
 
   const watchlistDto = watchlist.map(toWatchlistItemDto);
 
-  return c.json(success(watchlistDto), 200);
+  // Return in paginated format to match frontend SWR hook expectations
+  return c.json(paginated(watchlistDto, {
+    total: watchlistDto.length,
+    limit: watchlistDto.length,
+    offset: 0,
+    has_more: false,
+  }), 200);
 });
 
 // POST /watchlist/:ticker - Add stock to watchlist (validates tier limit)
