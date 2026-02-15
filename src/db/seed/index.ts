@@ -1,8 +1,9 @@
 import { db } from '../../config/database.js';
-import { filings, executives } from '../schema/index.js';
+import { filings, executives, financialData } from '../schema/index.js';
 import { seedStocks } from './stocks.js';
 import { seedFilings } from './filings.js';
 import { seedExecutives } from './executives.js';
+import { seedFinancialData } from './financial-data.js';
 
 /**
  * Run all seed functions in order.
@@ -37,12 +38,16 @@ export async function runAllSeeds(): Promise<void> {
 
   const executiveCount = await seedExecutives();
 
+  // 4. Seed financial data (uses upsert on stock_id, safe to re-run)
+  const financialDataCount = await seedFinancialData();
+
   const duration = ((Date.now() - startTime) / 1000).toFixed(2);
 
   console.log('\n📊 Seed Summary:');
-  console.log(`   Stocks:     ${stockCount}`);
-  console.log(`   Filings:    ${filingCount}`);
-  console.log(`   Executives: ${executiveCount}`);
-  console.log(`   Duration:   ${duration}s`);
+  console.log(`   Stocks:         ${stockCount}`);
+  console.log(`   Filings:        ${filingCount}`);
+  console.log(`   Executives:     ${executiveCount}`);
+  console.log(`   Financial Data: ${financialDataCount}`);
+  console.log(`   Duration:       ${duration}s`);
   console.log('\n✅ Database seed complete!');
 }

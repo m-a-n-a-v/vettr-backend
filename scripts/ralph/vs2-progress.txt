@@ -1,0 +1,42 @@
+# VETTR Backend - Score V2 Ralph Progress Log
+Started: Sun Feb 15 16:02:08 EST 2026
+---
+## VS2-001: Create financial_data schema table
+Status: ✅ COMPLETE
+Date: 2026-02-15
+Details:
+- Created src/db/schema/financial-data.ts with 15 financial fields (cash, monthly_burn, total_debt, total_assets, exploration_exp, r_and_d_exp, total_opex, g_and_a_expense, revenue, shares_current, shares_1yr_ago, insider_shares, total_shares, avg_vol_30d, days_since_last_pr)
+- Used uuid PK, stock_id FK with cascade delete and unique constraint
+- All numeric fields are nullable to support partial data scenarios
+- Added index on stock_id for efficient lookups
+- Exported financialData from schema/index.ts barrel
+- Build passes
+- **Learnings for future iterations:**
+  - bigint fields need { mode: 'number' } option to avoid BigInt type issues in TypeScript
+  - Schema files follow consistent pattern: import from drizzle-orm/pg-core, import related tables, define table with indexes in callback
+  - Always add .js extension to local imports (ESM requirement)
+---
+## VS2-002: Create financial data seed file
+Status: ✅ COMPLETE
+Date: 2026-02-15
+Details:
+- Created src/db/seed/financial-data.ts with seedFinancialData function
+- Seeded all 25 stocks with realistic financial data based on sector and market cap
+- Mining sector stocks (NXE, ARIS, LUN, FM, TKO, ERO, CS, MAG, FVI, AEM, ELD, BTO, NGD, IMG, MND, LUG, KRR, RIO, SBB, GPL, FR, AG) have exploration_exp populated
+- Tech/financial services stocks (SII) have r_and_d_exp populated  
+- Royalty/streaming companies (WPM, OR) have both exploration_exp and r_and_d_exp as null
+- 3 stocks (FM, ELD, IMG) have null cash AND null monthly_burn for testing null P1 Financial Survival pillar handling
+- All stocks have complete data for: revenue, total_opex, g_and_a_expense, total_debt, total_assets, shares_current, shares_1yr_ago, insider_shares, total_shares, avg_vol_30d, days_since_last_pr
+- Profitable companies have negative monthly_burn values (LUN, ERO, CS, FVI, WPM, AEM, OR, SII, BTO, LUG, KRR, FR, AG)
+- Pre-production/development stage companies have zero revenue (NXE, MAG, RIO, SBB)
+- Registered seedFinancialData in src/db/seed/index.ts (called after executives seed)
+- Uses upsert on stock_id for safe re-seeding
+- Build passes
+- **Learnings for future iterations:**
+  - Financial data must be sector-realistic: mining companies need exploration_exp, tech companies need r_and_d_exp
+  - Negative monthly_burn indicates profitability (cash generation)
+  - Null cash/burn scenarios are important for testing null pillar weight redistribution
+  - Used onConflictDoUpdate with stock_id unique constraint for safe re-seeding
+  - Share dilution scenarios included (some stocks have significantly more shares_current vs shares_1yr_ago)
+  - Insider ownership varies from 5% to 20% across stocks for realistic Shareholder Structure scoring
+---
