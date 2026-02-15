@@ -696,6 +696,107 @@ export function shareholderStructureScore(
   };
 }
 
+/**
+ * Market Sentiment Pillar (P4) - Base Weight: 15%
+ *
+ * Calculates the Market Sentiment score based on two sub-metrics:
+ * - Liquidity Health (60%): Daily volume value (avg_vol_30d * price) normalized to $100k = 100
+ * - News Velocity (40%): Recency of last press release or filing, linear decay from 100 (14d) to 0 (60d)
+ *
+ * Edge cases:
+ * - If days < 14 → News Velocity = 100
+ * - If days > 60 → News Velocity = 0
+ * - If all inputs are null → return null (pillar skipped for weight redistribution)
+ *
+ * @param stock - Stock data with price
+ * @param financialData - Financial data with avg_vol_30d, days_since_last_pr
+ * @param filingList - Array of filing records for fallback news velocity calculation
+ * @returns { score, liquidity, newsVelocity } or null if all inputs are null
+ */
+export function marketSentimentScore(
+  stock: { price: number },
+  financialData: {
+    avg_vol_30d: number | null;
+    days_since_last_pr: number | null;
+  },
+  filingList: FilingRow[]
+): { score: number; liquidity: number; newsVelocity: number } | null {
+  const { avg_vol_30d, days_since_last_pr } = financialData;
+
+  // Check if all inputs are null → return null (pillar skipped)
+  if (avg_vol_30d === null && days_since_last_pr === null && filingList.length === 0) {
+    return null;
+  }
+
+  // --- Liquidity Health Sub-Metric (60%) ---
+  let liquidityScore: number | null = null;
+
+  if (avg_vol_30d !== null && stock.price !== null) {
+    // Daily volume value = avg_vol_30d * price
+    const dailyVolValue = avg_vol_30d * stock.price;
+    // Normalize to $100k = 100 score
+    liquidityScore = Math.min(100, Math.round((dailyVolValue / 100000) * 100));
+  }
+
+  // --- News Velocity Sub-Metric (40%) ---
+  let newsVelocityScore: number | null = null;
+  let daysSinceNews: number | null = null;
+
+  // Use days_since_last_pr if available
+  if (days_since_last_pr !== null) {
+    daysSinceNews = days_since_last_pr;
+  } else if (filingList.length > 0) {
+    // Fallback: compute from most recent filing
+    const sortedByDate = [...filingList].sort((a, b) => b.date.getTime() - a.date.getTime());
+    const mostRecent = sortedByDate[0];
+    const now = new Date();
+    daysSinceNews = Math.round((now.getTime() - mostRecent.date.getTime()) / (1000 * 60 * 60 * 24));
+  } else {
+    // Default to 90 days if both are null
+    daysSinceNews = 90;
+  }
+
+  // Calculate News Velocity score based on days since last news
+  if (daysSinceNews !== null) {
+    if (daysSinceNews < 14) {
+      // Recent news → full score
+      newsVelocityScore = 100;
+    } else if (daysSinceNews > 60) {
+      // Stale news → zero score
+      newsVelocityScore = 0;
+    } else {
+      // Linear decay from 100 (14d) to 0 (60d)
+      // score = 100 - ((days - 14) * 100) / 46
+      newsVelocityScore = Math.max(0, Math.round(100 - ((daysSinceNews - 14) * 100) / 46));
+    }
+  }
+
+  // --- Combine Sub-Metrics ---
+  // If both are null, return null
+  if (liquidityScore === null && newsVelocityScore === null) {
+    return null;
+  }
+
+  // If one is null, use only the available metric
+  let finalScore: number;
+  if (liquidityScore !== null && newsVelocityScore !== null) {
+    // Both available → weighted combination
+    finalScore = Math.round(liquidityScore * 0.6 + newsVelocityScore * 0.4);
+  } else if (liquidityScore !== null) {
+    // Only liquidity available
+    finalScore = liquidityScore;
+  } else {
+    // Only news velocity available
+    finalScore = newsVelocityScore!;
+  }
+
+  return {
+    score: finalScore,
+    liquidity: liquidityScore ?? 0,
+    newsVelocity: newsVelocityScore ?? 0,
+  };
+}
+
 // --- VETR Score Result Types ---
 
 export interface VetrScoreResult {
