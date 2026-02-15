@@ -417,6 +417,106 @@ export function financialSurvivalScore(financialData: {
   };
 }
 
+/**
+ * Operational Efficiency Pillar (P2) - Base Weight: 25%
+ *
+ * Calculates the Operational Efficiency score using sector-specific formulas:
+ * - Mining sector: exploration_exp / total_opex
+ * - Tech sector: r_and_d_exp / total_opex
+ * - General: (revenue - g_and_a_expense) / revenue
+ *
+ * Edge cases:
+ * - If total_opex === 0 → score 50 (neutral)
+ * - If ratio > 1 → score 100 (capped)
+ * - If all inputs are null → return null (pillar skipped for weight redistribution)
+ *
+ * Normalization: score = min(100, ratio / 0.70 * 100)
+ * Target ratio of 0.70 = 100 score
+ *
+ * @param financialData - Financial data with exploration_exp, r_and_d_exp, total_opex, g_and_a_expense, revenue
+ * @param sector - Stock sector string (e.g., "Mining", "Technology", "Gold")
+ * @returns { score, efficiencyRatio } or null if all inputs are null
+ */
+export function operationalEfficiencyScore(
+  financialData: {
+    exploration_exp: number | null;
+    r_and_d_exp: number | null;
+    total_opex: number | null;
+    g_and_a_expense: number | null;
+    revenue: number | null;
+  },
+  sector: string
+): { score: number; efficiencyRatio: number } | null {
+  const { exploration_exp, r_and_d_exp, total_opex, g_and_a_expense, revenue } = financialData;
+
+  // Check if all inputs are null → return null (pillar skipped)
+  if (
+    exploration_exp === null &&
+    r_and_d_exp === null &&
+    total_opex === null &&
+    g_and_a_expense === null &&
+    revenue === null
+  ) {
+    return null;
+  }
+
+  let ratio: number | null = null;
+
+  // Determine sector-specific formula
+  const sectorLower = sector.toLowerCase();
+
+  if (
+    sectorLower.includes('mining') ||
+    sectorLower.includes('gold') ||
+    sectorLower.includes('resource')
+  ) {
+    // Mining sector: exploration_exp / total_opex
+    if (exploration_exp !== null && total_opex !== null) {
+      if (total_opex === 0) {
+        // Edge case: no operating expenses → neutral score
+        return { score: 50, efficiencyRatio: 0 };
+      }
+      ratio = exploration_exp / total_opex;
+    }
+  } else if (sectorLower.includes('tech') || sectorLower.includes('software')) {
+    // Tech sector: r_and_d_exp / total_opex
+    if (r_and_d_exp !== null && total_opex !== null) {
+      if (total_opex === 0) {
+        // Edge case: no operating expenses → neutral score
+        return { score: 50, efficiencyRatio: 0 };
+      }
+      ratio = r_and_d_exp / total_opex;
+    }
+  } else {
+    // General/all other sectors: (revenue - g_and_a_expense) / revenue
+    if (revenue !== null && g_and_a_expense !== null) {
+      if (revenue === 0) {
+        // Edge case: no revenue → score 0
+        return { score: 0, efficiencyRatio: 0 };
+      }
+      ratio = (revenue - g_and_a_expense) / revenue;
+    }
+  }
+
+  // If ratio is still null, all required inputs for this sector are missing
+  if (ratio === null) {
+    return null;
+  }
+
+  // Edge case: ratio > 1 → capped at 100
+  if (ratio > 1) {
+    return { score: 100, efficiencyRatio: ratio };
+  }
+
+  // Normalize: target ratio of 0.70 = 100 score
+  const score = Math.min(100, Math.round((ratio / 0.7) * 100));
+
+  return {
+    score,
+    efficiencyRatio: ratio,
+  };
+}
+
 // --- VETR Score Result Types ---
 
 export interface VetrScoreResult {
