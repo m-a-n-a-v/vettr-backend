@@ -181,7 +181,7 @@ const vetrScoreHistoryRoutes = createAdminCrudRoutes({
   primaryKey: 'id',
   searchableColumns: ['stockTicker'],
   filterableColumns: ['stockTicker'],
-  sortableColumns: ['stockTicker', 'overallScore', 'pedigreeScore', 'filingVelocityScore', 'redFlagScore', 'growthScore', 'governanceScore', 'calculatedAt'],
+  sortableColumns: ['stockTicker', 'overallScore', 'financialSurvivalScore', 'operationalEfficiencyScore', 'shareholderStructureScore', 'marketSentimentScore', 'calculatedAt'],
 });
 
 adminRoutes.route('/vetr-score-history', vetrScoreHistoryRoutes);
