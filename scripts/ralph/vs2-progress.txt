@@ -105,3 +105,38 @@ Details:
   - The 0.70 normalization target represents a 70% efficiency ratio as "excellent" (100 score)
   - Separated edge case checks before main ratio calculation for code clarity
 ---
+## VS2-006: Implement P3 Shareholder Structure calculator
+Status: ✅ COMPLETE
+Date: 2026-02-15
+Details:
+- Implemented shareholderStructureScore() function in src/services/vetr-score.service.ts
+- Returns { score, pedigree, dilution, insider } or null if all inputs are null
+- Pedigree sub-metric (50% weight):
+  - E (Experience): Average years (yearsAtCompany + previousCompanies * 3) * 5, max 100
+  - C (Career Diversity): Count unique previous companies across all executives * 10, max 100
+  - A (Academic): Education field mapping using keyword matching (PhD=100, MBA=90, Master=85, etc.)
+  - M (Market Alignment): Default 50 (no market alignment data available)
+  - PG = E×0.40 + C×0.25 + A×0.20 + M×0.15
+  - If no executives → default score 50
+- Dilution Penalty sub-metric (30% weight):
+  - dilution_pct = (shares_current - shares_1yr_ago) / shares_1yr_ago
+  - If shares_1yr_ago null → score 100 (benefit of the doubt)
+  - If dilution < 0 (buyback) → score 100
+  - score = max(0, 100 - dilution_pct * 200) where 50% dilution = 0 score
+- Insider Alignment sub-metric (20% weight):
+  - ownership_pct = insider_shares / total_shares
+  - score = min(100, ownership_pct / 0.20 * 100) where 20% ownership = 100 score
+  - If data null → default score 50
+- Final score combines all sub-metrics: P3 = pedigree * 0.50 + dilution * 0.30 + insider * 0.20
+- Handles null pillar scenario: returns null if all inputs are null (no executives and no share data)
+- Build passes successfully
+- **Learnings for future iterations:**
+  - Pedigree calculation uses the same executive data structure as the old pedigreeScore function but with a new formula
+  - Career diversity now counts unique previous companies across ALL executives (not per executive)
+  - Education mapping uses keyword matching for common designations (P.Eng, P.Geo, CPA, CFA, MBA, PhD, etc.)
+  - Share dilution is a critical metric for early-stage companies with frequent financings
+  - Buyback scenarios (negative dilution) get full score to reward shareholder-friendly capital allocation
+  - Insider ownership target of 20% = 100 score aligns with good corporate governance practices
+  - The default scores (50 for missing data) provide a neutral baseline when data is unavailable
+  - Sub-metric weights (50% pedigree, 30% dilution, 20% insider) reflect relative importance of each factor
+---

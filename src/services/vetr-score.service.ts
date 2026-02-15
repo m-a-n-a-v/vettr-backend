@@ -517,6 +517,185 @@ export function operationalEfficiencyScore(
   };
 }
 
+/**
+ * Shareholder Structure Pillar (P3) - Base Weight: 25%
+ *
+ * Calculates the Shareholder Structure score based on three sub-metrics:
+ * - Pedigree (50%): Executive team quality using PG formula
+ * - Dilution Penalty (30%): Share dilution over the past year
+ * - Insider Alignment (20%): Insider ownership percentage
+ *
+ * Pedigree Formula: PG = E×0.40 + C×0.25 + A×0.20 + M×0.15
+ * - E (Experience): Average years of experience * 5, max 100
+ * - C (Career Diversity): Unique previous companies count, max 100
+ * - A (Academic): Education field mapping (0-100)
+ * - M (Market Alignment): Default 50 if no data
+ *
+ * Dilution: dilution_pct = (shares_current - shares_1yr_ago) / shares_1yr_ago
+ * - If shares_1yr_ago null → score 100
+ * - If dilution < 0 (buyback) → score 100
+ * - score = max(0, 100 - dilution_pct * 200)
+ *
+ * Insider: ownership_pct = insider_shares / total_shares
+ * - score = min(100, ownership_pct / 0.20 * 100)
+ * - Target 20% ownership = 100 score
+ * - If data null → score 50
+ *
+ * @param execList - Array of executive records for a stock
+ * @param financialData - Financial data with shares_current, shares_1yr_ago, insider_shares, total_shares
+ * @returns { score, pedigree, dilution, insider } or null if all inputs are null
+ */
+export function shareholderStructureScore(
+  execList: ExecutiveRow[],
+  financialData: {
+    shares_current: number | null;
+    shares_1yr_ago: number | null;
+    insider_shares: number | null;
+    total_shares: number | null;
+  }
+): { score: number; pedigree: number; dilution: number; insider: number } | null {
+  const { shares_current, shares_1yr_ago, insider_shares, total_shares } = financialData;
+
+  // Check if all inputs are null → return null (pillar skipped)
+  if (
+    execList.length === 0 &&
+    shares_current === null &&
+    shares_1yr_ago === null &&
+    insider_shares === null &&
+    total_shares === null
+  ) {
+    return null;
+  }
+
+  // --- Pedigree Sub-Metric (50%) ---
+  // PG = E×0.40 + C×0.25 + A×0.20 + M×0.15
+  let pedigreeScore: number;
+
+  if (execList.length === 0) {
+    // No executives → default score 50
+    pedigreeScore = 50;
+  } else {
+    // E (Experience): Average years of experience * 5, max 100
+    // Use yearsAtCompany + estimated previous experience from previousCompanies
+    const avgExperience =
+      execList.reduce((sum, exec) => {
+        const previousYears = (exec.previousCompanies ?? []).length * 3; // ~3 years per previous company
+        return sum + exec.yearsAtCompany + previousYears;
+      }, 0) / execList.length;
+    const experienceScore = Math.min(100, avgExperience * 5);
+
+    // C (Career Diversity): Count unique previous companies across all executives
+    const allPreviousCompanies = new Set<string>();
+    execList.forEach((exec) => {
+      (exec.previousCompanies ?? []).forEach((company) => {
+        if (company && company.trim().length > 0) {
+          allPreviousCompanies.add(company.toLowerCase().trim());
+        }
+      });
+    });
+    const careerDiversityScore = Math.min(100, allPreviousCompanies.size * 10); // 10 unique companies = 100
+
+    // A (Academic): Education field mapping
+    // Map common education keywords to scores
+    const educationMapping: Record<string, number> = {
+      phd: 100,
+      doctorate: 100,
+      mba: 90,
+      'master': 85,
+      'p.eng': 85,
+      'p.geo': 85,
+      cpa: 80,
+      cfa: 80,
+      fca: 80,
+      'bachelor': 70,
+      'b.sc': 70,
+      'b.a': 70,
+      'b.eng': 70,
+      'b.comm': 70,
+      diploma: 50,
+      certificate: 40,
+    };
+
+    let academicScores: number[] = [];
+    execList.forEach((exec) => {
+      if (exec.education) {
+        const eduLower = exec.education.toLowerCase();
+        let matchedScore = 0;
+        for (const [keyword, score] of Object.entries(educationMapping)) {
+          if (eduLower.includes(keyword)) {
+            matchedScore = Math.max(matchedScore, score);
+          }
+        }
+        if (matchedScore > 0) {
+          academicScores.push(matchedScore);
+        }
+      }
+    });
+
+    const academicScore =
+      academicScores.length > 0
+        ? academicScores.reduce((sum, s) => sum + s, 0) / academicScores.length
+        : 50; // Default 50 if no education data
+
+    // M (Market Alignment): Default 50 (no market alignment data available)
+    const marketAlignmentScore = 50;
+
+    // Calculate Pedigree PG formula
+    pedigreeScore = Math.round(
+      experienceScore * 0.4 +
+        careerDiversityScore * 0.25 +
+        academicScore * 0.2 +
+        marketAlignmentScore * 0.15
+    );
+  }
+
+  // --- Dilution Penalty Sub-Metric (30%) ---
+  let dilutionScore: number;
+
+  if (shares_1yr_ago === null || shares_current === null) {
+    // No dilution data → default score 100 (benefit of the doubt)
+    dilutionScore = 100;
+  } else if (shares_1yr_ago === 0) {
+    // Edge case: avoid division by zero → score 100
+    dilutionScore = 100;
+  } else {
+    const dilutionPct = (shares_current - shares_1yr_ago) / shares_1yr_ago;
+
+    if (dilutionPct < 0) {
+      // Buyback (negative dilution) → full score
+      dilutionScore = 100;
+    } else {
+      // Dilution penalty: score = max(0, 100 - dilution_pct * 200)
+      // 50% dilution = 0 score, 0% dilution = 100 score
+      dilutionScore = Math.max(0, Math.round(100 - dilutionPct * 200));
+    }
+  }
+
+  // --- Insider Alignment Sub-Metric (20%) ---
+  let insiderScore: number;
+
+  if (insider_shares === null || total_shares === null || total_shares === 0) {
+    // No insider ownership data → default score 50
+    insiderScore = 50;
+  } else {
+    const ownershipPct = insider_shares / total_shares;
+    // Target 20% ownership = 100 score
+    insiderScore = Math.min(100, Math.round((ownershipPct / 0.2) * 100));
+  }
+
+  // --- Combine Sub-Metrics ---
+  const finalScore = Math.round(
+    pedigreeScore * 0.5 + dilutionScore * 0.3 + insiderScore * 0.2
+  );
+
+  return {
+    score: finalScore,
+    pedigree: pedigreeScore,
+    dilution: dilutionScore,
+    insider: insiderScore,
+  };
+}
+
 // --- VETR Score Result Types ---
 
 export interface VetrScoreResult {
