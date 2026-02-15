@@ -527,16 +527,15 @@ async function saveScoreToHistory(ticker: string, result: VetrScoreResult): Prom
   }
 
   try {
+    // TODO: VS2-009 will update this to use new 4-pillar structure
     await db.insert(vetrScoreHistory).values({
       stockTicker: ticker,
       overallScore: result.overall_score,
-      pedigreeScore: result.components.pedigree,
-      filingVelocityScore: result.components.filing_velocity,
-      redFlagScore: result.components.red_flag,
-      growthScore: result.components.growth,
-      governanceScore: result.components.governance,
-      bonusPoints: result.bonus_points,
-      penaltyPoints: result.penalty_points,
+      // Temporary mapping from old to new schema (will be replaced in VS2-009)
+      financialSurvivalScore: 0,
+      operationalEfficiencyScore: 0,
+      shareholderStructureScore: 0,
+      marketSentimentScore: 0,
     });
   } catch (error) {
     console.error(`Failed to save VETR score history for ${ticker}:`, error);
@@ -545,17 +544,15 @@ async function saveScoreToHistory(ticker: string, result: VetrScoreResult): Prom
 
 // --- Score History Retrieval ---
 
+// TODO: VS2-011 will add sub-scores and weights to this interface
 export interface ScoreHistoryEntry {
   id: string;
   stock_ticker: string;
   overall_score: number;
-  pedigree_score: number;
-  filing_velocity_score: number;
-  red_flag_score: number;
-  growth_score: number;
-  governance_score: number;
-  bonus_points: number;
-  penalty_points: number;
+  financial_survival_score: number;
+  operational_efficiency_score: number;
+  shareholder_structure_score: number;
+  market_sentiment_score: number;
   calculated_at: string;
 }
 
@@ -812,17 +809,15 @@ export async function getScoreHistory(ticker: string, months: number = 6): Promi
     )
     .orderBy(desc(vetrScoreHistory.calculatedAt));
 
+  // TODO: VS2-011 will update this to return new 4-pillar structure
   return rows.map((row) => ({
     id: row.id,
     stock_ticker: row.stockTicker,
     overall_score: row.overallScore,
-    pedigree_score: row.pedigreeScore,
-    filing_velocity_score: row.filingVelocityScore,
-    red_flag_score: row.redFlagScore,
-    growth_score: row.growthScore,
-    governance_score: row.governanceScore,
-    bonus_points: row.bonusPoints,
-    penalty_points: row.penaltyPoints,
+    financial_survival_score: row.financialSurvivalScore,
+    operational_efficiency_score: row.operationalEfficiencyScore,
+    shareholder_structure_score: row.shareholderStructureScore,
+    market_sentiment_score: row.marketSentimentScore,
     calculated_at: row.calculatedAt.toISOString(),
   }));
 }
