@@ -1,0 +1,257 @@
+{
+  "project": "VETTR Backend - Score V2",
+  "phase": "VETTR Score V2",
+  "branchName": "ralph/vettr-score-v2",
+  "description": "Replace the 5-pillar VETTR score with a new 4-pillar system: Financial Survival (35%), Operational Efficiency (25%), Shareholder Structure (25%), Market Sentiment (15%). Includes new financial_data table, complete score engine rewrite, null-pillar weight redistribution, and 5-tier color grading (green→red).",
+  "totalStories": 17,
+  "userStories": [
+    {
+      "id": "VS2-001",
+      "title": "Create financial_data schema table",
+      "description": "Create a new Drizzle schema table 'financial_data' with 15 financial fields for the new 4-pillar VETTR score calculation. This table has a one-to-one relationship with stocks via stock_id FK.",
+      "acceptanceCriteria": [
+        "Create src/db/schema/financial-data.ts with pgTable 'financial_data'",
+        "Columns: id (uuid PK), stock_id (uuid FK to stocks.id, unique, cascade delete), cash (doublePrecision nullable), monthly_burn (doublePrecision nullable), total_debt (doublePrecision nullable), total_assets (doublePrecision nullable), exploration_exp (doublePrecision nullable), r_and_d_exp (doublePrecision nullable), total_opex (doublePrecision nullable), g_and_a_expense (doublePrecision nullable), revenue (doublePrecision nullable), shares_current (bigint nullable), shares_1yr_ago (bigint nullable), insider_shares (bigint nullable), total_shares (bigint nullable), avg_vol_30d (doublePrecision nullable), days_since_last_pr (integer nullable), updated_at (timestamp default now), created_at (timestamp default now)",
+        "Index on stock_id",
+        "Export financialData from schema/index.ts barrel",
+        "npm run build passes"
+      ],
+      "priority": 1,
+      "passes": false
+    },
+    {
+      "id": "VS2-002",
+      "title": "Create financial data seed file",
+      "description": "Create seed data for all 25 stocks with deterministic, sector-appropriate financial data. Mining stocks should have exploration_exp, tech stocks should have r_and_d_exp. 2-3 stocks should have null cash/burn data to test null pillar handling.",
+      "acceptanceCriteria": [
+        "Create src/db/seed/financial-data.ts exporting a seedFinancialData function",
+        "Each of the 25 stocks gets a financial_data row with realistic values derived from sector and market_cap",
+        "Mining sector stocks have exploration_exp populated, others null",
+        "Tech sector stocks have r_and_d_exp populated, others null",
+        "All stocks have revenue, total_opex, g_and_a_expense, total_debt, total_assets, shares_current, shares_1yr_ago, insider_shares, total_shares, avg_vol_30d",
+        "2-3 stocks have null cash AND null monthly_burn to test null P1 handling",
+        "Register the seed in src/db/seed/index.ts (call after filings seed)",
+        "npm run build passes"
+      ],
+      "priority": 2,
+      "passes": false
+    },
+    {
+      "id": "VS2-003",
+      "title": "Alter vetr_score_history schema for 4 pillars",
+      "description": "Replace the 5 old pillar columns in vetr_score_history with 4 new pillar columns, 8 sub-score columns, and 4 weight columns. Remove bonus_points and penalty_points.",
+      "acceptanceCriteria": [
+        "In src/db/schema/vetr-scores.ts, REMOVE columns: pedigreeScore, filingVelocityScore, redFlagScore, growthScore, governanceScore, bonusPoints, penaltyPoints",
+        "ADD integer columns (not null, default 0): financialSurvivalScore, operationalEfficiencyScore, shareholderStructureScore, marketSentimentScore",
+        "ADD integer columns (nullable): cashRunwayScore, solvencyScore, efficiencyScore, pedigreeSubScore, dilutionPenaltyScore, insiderAlignmentScore, liquidityScore, newsVelocityScore",
+        "ADD doublePrecision columns (nullable): p1Weight, p2Weight, p3Weight, p4Weight",
+        "Keep existing: id, stockTicker, overallScore, calculatedAt, and indexes",
+        "npm run build passes"
+      ],
+      "priority": 3,
+      "passes": false
+    },
+    {
+      "id": "VS2-004",
+      "title": "Implement P1 Financial Survival calculator",
+      "description": "Create the Financial Survival pillar calculator (base weight 35%). Sub-metrics: Cash Runway (60%) and Solvency (40%). Must handle all edge cases from the spec.",
+      "acceptanceCriteria": [
+        "In src/services/vetr-score.service.ts, export function financialSurvivalScore(financialData: { cash, monthly_burn, total_debt, total_assets }) returning { score: number, cashRunway: number, solvency: number } | null",
+        "Cash Runway: if monthly_burn <= 0 (profitable) → score 100; if cash === 0 → score 0; if both null → return null for this sub-metric",
+        "Cash Runway normalization: months = cash / monthly_burn; score = min(100, months / 18 * 100)",
+        "Solvency: if total_assets === 0 → score 0; if total_debt === 0 → score 100; ratio = total_debt / total_assets; score = max(0, 100 - ratio * 200)",
+        "P1 final = cashRunway * 0.60 + solvency * 0.40 (if both sub-metrics available)",
+        "If ALL sub-metric inputs are null, return null (pillar skipped for weight redistribution)",
+        "npm run build passes"
+      ],
+      "priority": 4,
+      "passes": false
+    },
+    {
+      "id": "VS2-005",
+      "title": "Implement P2 Operational Efficiency calculator",
+      "description": "Create the Operational Efficiency pillar calculator (base weight 25%). Uses sector-specific formulas: Mining=exploration/opex, Tech=R&D/opex, General=(revenue-G&A)/revenue.",
+      "acceptanceCriteria": [
+        "In src/services/vetr-score.service.ts, export function operationalEfficiencyScore(financialData: { exploration_exp, r_and_d_exp, total_opex, g_and_a_expense, revenue }, sector: string) returning { score: number, efficiencyRatio: number } | null",
+        "Mining sector (contains 'Mining' or 'Gold' or 'Resource'): ratio = exploration_exp / total_opex",
+        "Tech sector (contains 'Tech' or 'Software'): ratio = r_and_d_exp / total_opex",
+        "General/all other: ratio = (revenue - g_and_a_expense) / revenue",
+        "Edge cases: if total_opex === 0 → score 50; if ratio > 1 → score 100",
+        "Normalization: score = min(100, ratio / 0.70 * 100)",
+        "If all inputs null → return null",
+        "npm run build passes"
+      ],
+      "priority": 5,
+      "passes": false
+    },
+    {
+      "id": "VS2-006",
+      "title": "Implement P3 Shareholder Structure calculator",
+      "description": "Create the Shareholder Structure pillar calculator (base weight 25%). Sub-metrics: Pedigree PG formula (50%), Dilution Penalty (30%), Insider Alignment (20%).",
+      "acceptanceCriteria": [
+        "In src/services/vetr-score.service.ts, export function shareholderStructureScore(execList, financialData: { shares_current, shares_1yr_ago, insider_shares, total_shares }) returning { score: number, pedigree: number, dilution: number, insider: number } | null",
+        "Pedigree: PG = (E * 0.40) + (C * 0.25) + (A * 0.20) + (M * 0.15) where E=experience score (avg years * 5, max 100), C=career diversity (unique previous companies, max 100), A=academic (education field mapped 0-100), M=market alignment (default 50 if no data). If no executives → default 50",
+        "Dilution: dilution_pct = (shares_current - shares_1yr_ago) / shares_1yr_ago; if shares_1yr_ago null → score 100; if dilution < 0 (buyback) → score 100; score = max(0, 100 - dilution_pct * 200)",
+        "Insider: ownership_pct = insider_shares / total_shares; score = min(100, ownership_pct / 0.20 * 100). If data null → score 50",
+        "P3 = pedigree * 0.50 + dilution * 0.30 + insider * 0.20",
+        "npm run build passes"
+      ],
+      "priority": 6,
+      "passes": false
+    },
+    {
+      "id": "VS2-007",
+      "title": "Implement P4 Market Sentiment calculator",
+      "description": "Create the Market Sentiment pillar calculator (base weight 15%). Sub-metrics: Liquidity Health (60%) and News Velocity (40%).",
+      "acceptanceCriteria": [
+        "In src/services/vetr-score.service.ts, export function marketSentimentScore(stock: { price }, financialData: { avg_vol_30d, days_since_last_pr }, filingList) returning { score: number, liquidity: number, newsVelocity: number } | null",
+        "Liquidity: dailyVolValue = avg_vol_30d * price; score = min(100, dailyVolValue / 100000 * 100). Target $100k = 100",
+        "News Velocity: use days_since_last_pr if available, otherwise compute from filingList (days since most recent filing), default 90 if both null. If days < 14 → score 100; if days > 60 → score 0; else score = max(0, 100 - ((days - 14) * 100) / 46)",
+        "P4 = liquidity * 0.60 + newsVelocity * 0.40",
+        "If all inputs null → return null",
+        "npm run build passes"
+      ],
+      "priority": 7,
+      "passes": false
+    },
+    {
+      "id": "VS2-008",
+      "title": "Implement null pillar weight redistribution",
+      "description": "Create a utility function that redistributes weights when a pillar returns null. Remaining pillars get proportionally larger weights so they still sum to 1.0.",
+      "acceptanceCriteria": [
+        "In src/services/vetr-score.service.ts, export function redistributeWeights(pillarResults: Array<{ pillar: string, score: number | null, baseWeight: number }>) returning { adjustedWeights: Record<string, number>, nullPillars: string[] }",
+        "If all pillars present: weights unchanged (0.35, 0.25, 0.25, 0.15)",
+        "If one pillar null: its weight distributed proportionally to remaining. Example: if P2 (0.25) null, totalAvailable = 0.75, newP1 = 0.35/0.75, newP3 = 0.25/0.75, newP4 = 0.15/0.75",
+        "If all pillars null: overall score = 0, all weights = 0",
+        "nullPillars array lists the string names of skipped pillars",
+        "npm run build passes"
+      ],
+      "priority": 8,
+      "passes": false
+    },
+    {
+      "id": "VS2-009",
+      "title": "Rewrite calculateVetrScore with 4-pillar formula",
+      "description": "Replace the existing calculateVetrScore() function to use the 4 new pillar calculators and null redistribution. Remove all old component functions (pedigreeScore, filingVelocityScore, redFlagComponent, growthMetricsScore, governanceScore, detectBonuses, detectPenalties).",
+      "acceptanceCriteria": [
+        "calculateVetrScore(ticker) now fetches financial_data row (from new table) in parallel with executives and filings",
+        "Calls financialSurvivalScore, operationalEfficiencyScore, shareholderStructureScore, marketSentimentScore",
+        "Applies redistributeWeights to handle null pillars",
+        "Computes weighted overall score: sum of (pillarScore * adjustedWeight) for non-null pillars",
+        "Result clamped to 0-100 integer",
+        "No more bonus_points or penalty_points",
+        "Cached in Redis with vetr_score:{TICKER} key and 24h TTL",
+        "Saves all scores (pillar + sub + weights) to vetr_score_history",
+        "Updates stocks.vetr_score with new overall score",
+        "OLD functions removed: pedigreeScore, filingVelocityScore, redFlagComponent, growthMetricsScore, governanceScore, detectBonuses, detectPenalties",
+        "npm run build passes"
+      ],
+      "priority": 9,
+      "passes": false
+    },
+    {
+      "id": "VS2-010",
+      "title": "Update VetrScoreResult type and API response format",
+      "description": "Update the VetrScoreResult interface and the GET /stocks/:ticker/vetr-score route handler to return the new 4-pillar structure with sub-scores and null_pillars.",
+      "acceptanceCriteria": [
+        "VetrScoreResult interface updated: { ticker, overall_score, components: { financial_survival: { score, weight, sub_scores: { cash_runway, solvency } }, operational_efficiency: { score, weight, sub_scores: { efficiency_ratio } }, shareholder_structure: { score, weight, sub_scores: { pedigree, dilution_penalty, insider_alignment } }, market_sentiment: { score, weight, sub_scores: { liquidity, news_velocity } } }, null_pillars: string[], calculated_at }",
+        "No more top-level weights, bonus_points, or penalty_points fields",
+        "GET /stocks/:ticker/vetr-score returns the new JSON shape",
+        "npm run build passes"
+      ],
+      "priority": 10,
+      "passes": false
+    },
+    {
+      "id": "VS2-011",
+      "title": "Update score history retrieval for new schema",
+      "description": "Update getScoreHistory and the GET /stocks/:ticker/vetr-score/history endpoint to query and return the new 4-pillar columns.",
+      "acceptanceCriteria": [
+        "getScoreHistory() queries new columns: financialSurvivalScore, operationalEfficiencyScore, shareholderStructureScore, marketSentimentScore, plus sub-score columns",
+        "Each history entry returns: id, stock_ticker, overall_score, financial_survival_score, operational_efficiency_score, shareholder_structure_score, market_sentiment_score, calculated_at",
+        "GET /stocks/:ticker/vetr-score/history returns updated format",
+        "npm run build passes"
+      ],
+      "priority": 11,
+      "passes": false
+    },
+    {
+      "id": "VS2-012",
+      "title": "Update score trend for new schema",
+      "description": "Ensure getScoreTrend works correctly with the new schema. The trend analysis uses overall_score which is unchanged, so this should be minimal changes.",
+      "acceptanceCriteria": [
+        "getScoreTrend() still uses overall_score for 30d/90d change calculation",
+        "No references to old column names (pedigreeScore, filingVelocityScore, etc.)",
+        "GET /stocks/:ticker/vetr-score/trend returns correct data",
+        "npm run build passes"
+      ],
+      "priority": 12,
+      "passes": false
+    },
+    {
+      "id": "VS2-013",
+      "title": "Update score comparison for new schema",
+      "description": "Ensure getScoreComparison works correctly with the new schema. Peer comparison uses overall_score for ranking.",
+      "acceptanceCriteria": [
+        "getScoreComparison() still uses overall_score for sector ranking",
+        "No references to old column names",
+        "GET /stocks/:ticker/vetr-score/compare returns correct data",
+        "npm run build passes"
+      ],
+      "priority": 13,
+      "passes": false
+    },
+    {
+      "id": "VS2-014",
+      "title": "Update admin endpoint and stock DTOs",
+      "description": "Update the admin recalculate-score endpoint to return the new format. Ensure stock list/detail DTOs still return vetr_score as an integer.",
+      "acceptanceCriteria": [
+        "POST /admin/stocks/:ticker/recalculate-score calls updated calculateVetrScore and returns new 4-pillar format",
+        "GET /stocks and GET /stocks/:ticker still return vetr_score as integer (unchanged contract)",
+        "No references to old column names in stocks.routes.ts or admin.routes.ts",
+        "npm run build passes"
+      ],
+      "priority": 14,
+      "passes": false
+    },
+    {
+      "id": "VS2-015",
+      "title": "Update stock seed to remove hardcoded scores",
+      "description": "Set vetrScore to 0 for all 25 stocks in the seed file since scores will be computed dynamically after seeding.",
+      "acceptanceCriteria": [
+        "In src/db/seed/stocks.ts, all 25 stock entries have vetrScore: 0",
+        "npm run build passes"
+      ],
+      "priority": 15,
+      "passes": false
+    },
+    {
+      "id": "VS2-016",
+      "title": "Create seed runner with score recalculation",
+      "description": "Update the seed runner to: (1) seed financial_data after filings, (2) recalculate VETTR scores for all 25 stocks after all data is seeded.",
+      "acceptanceCriteria": [
+        "src/db/seed/index.ts seed order: stocks → executives → filings → financial_data → recalculate scores",
+        "After seeding financial_data, loop through all 25 stock tickers and call calculateVetrScore() for each",
+        "Log the computed score for each stock",
+        "npm run build passes"
+      ],
+      "priority": 16,
+      "passes": false
+    },
+    {
+      "id": "VS2-017",
+      "title": "Push schema to Neon and reseed database",
+      "description": "Run drizzle-kit push to update the Neon database schema, then reseed all data including financial_data and recalculated scores.",
+      "acceptanceCriteria": [
+        "npx drizzle-kit push completes without errors",
+        "Seed script runs successfully and populates financial_data for all 25 stocks",
+        "All 25 stocks have recalculated vetr_score values > 0",
+        "GET /v1/stocks returns stocks with new score values",
+        "GET /v1/stocks/NXE/vetr-score returns new 4-pillar format with sub_scores",
+        "npm run build passes"
+      ],
+      "priority": 17,
+      "passes": false
+    }
+  ]
+}

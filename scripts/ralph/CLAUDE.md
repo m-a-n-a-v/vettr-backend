@@ -59,6 +59,7 @@ src/
 │   │   ├── stocks.ts             # stocks table
 │   │   ├── filings.ts            # filings + filing_reads tables
 │   │   ├── executives.ts         # executives table
+│   │   ├── financial-data.ts       # financial_data table (15 financial fields)
 │   │   ├── alert-rules.ts        # alert_rules table
 │   │   ├── alerts.ts             # alerts table
 │   │   ├── watchlists.ts         # watchlist_items table
@@ -70,7 +71,8 @@ src/
 │       ├── index.ts              # Seed runner
 │       ├── stocks.ts             # 25 pilot Canadian stocks
 │       ├── filings.ts            # Sample filings (3 per stock)
-│       └── executives.ts         # Sample executives (3-5 per stock)
+│       ├── executives.ts         # Sample executives (3-5 per stock)
+│       └── financial-data.ts       # Sector-realistic financial data (25 stocks)
 ├── middleware/
 │   ├── auth.ts                   # JWT verification, attach user to context
 │   ├── rate-limit.ts             # Tier-based rate limiting (Upstash)
@@ -94,7 +96,7 @@ src/
 │   ├── stock.service.ts          # Stock CRUD + search + pagination
 │   ├── filing.service.ts         # Filing CRUD + per-user read status
 │   ├── executive.service.ts      # Executive CRUD + search
-│   ├── vetr-score.service.ts     # VETR Score calculation (5 components)
+│   ├── vetr-score.service.ts     # VETR Score V2 calculation (4 pillars)
 │   ├── red-flag.service.ts       # Red Flag detection (5 algorithms)
 │   ├── alert-rule.service.ts     # Alert rule CRUD + limits
 │   ├── watchlist.service.ts      # Watchlist CRUD + tier limits
@@ -223,17 +225,37 @@ export const users = pgTable('users', {
 
 ---
 
-## Reference: VETR Score Calculation
+## Reference: VETR Score V2 Calculation (4-Pillar System)
 
-Port from Android's VetrScoreCalculator.kt. Components:
-1. **Pedigree (25%)**: exec experience (50pts), tenure stability (30pts), specialization (20pts)
-2. **Filing Velocity (20%)**: regularity (40pts), timeliness (30pts), quality (30pts)
-3. **Red Flag (25%)**: 100 - redFlagCompositeScore
-4. **Growth Metrics (15%)**: revenue growth (40pts), capital raised (30pts), momentum (30pts)
-5. **Governance (15%)**: board independence (40pts), audit committee (30pts), disclosure (30pts)
-- Bonuses: +5 audited financials, +5 board expertise
-- Penalties: -10 overdue filings, -10 regulatory issues
-- Final score clamped to 0-100
+The new score uses 4 pillars with null-pillar weight redistribution:
+
+1. **Financial Survival (35%)**: Cash Runway (60%) + Solvency (40%)
+   - Cash Runway: months = cash / monthly_burn, normalized to 18 months = 100
+   - Solvency: max(0, 100 - (total_debt / total_assets) * 200)
+2. **Operational Efficiency (25%)**: Sector-specific ratio / 0.70 * 100
+   - Mining: exploration_exp / total_opex
+   - Tech: r_and_d_exp / total_opex
+   - General: (revenue - g_and_a_expense) / revenue
+3. **Shareholder Structure (25%)**: Pedigree (50%) + Dilution (30%) + Insider (20%)
+   - Pedigree: PG = E×0.40 + C×0.25 + A×0.20 + M×0.15
+   - Dilution: max(0, 100 - dilution_pct * 200)
+   - Insider: min(100, ownership_pct / 0.20 * 100)
+4. **Market Sentiment (15%)**: Liquidity (60%) + News Velocity (40%)
+   - Liquidity: min(100, (avg_vol_30d * price) / 100000 * 100)
+   - News Velocity: linear decay from 100 (14d) to 0 (60d)
+
+Null pillars: if a pillar's inputs are ALL null, skip it and redistribute weight proportionally.
+
+5-Tier Color Grading:
+| Range | Color | Hex |
+|-------|-------|-----|
+| 90-100 | Dark Green | #166534 |
+| 75-89 | Green | #00E676 |
+| 50-74 | Yellow | #FBBF24 |
+| 30-49 | Orange | #FB923C |
+| 0-29 | Red | #F87171 |
+
+New DB table: `financial_data` (15 financial fields, one-to-one with stocks via stock_id FK)
 
 ## Reference: Red Flag Detection
 
