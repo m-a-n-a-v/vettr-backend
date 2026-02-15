@@ -40,3 +40,43 @@ Details:
   - Share dilution scenarios included (some stocks have significantly more shares_current vs shares_1yr_ago)
   - Insider ownership varies from 5% to 20% across stocks for realistic Shareholder Structure scoring
 ---
+## VS2-003: Alter vetr_score_history schema for 4 pillars
+Status: ✅ COMPLETE
+Date: 2026-02-15
+Details:
+- Replaced 5 old pillar columns (pedigreeScore, filingVelocityScore, redFlagScore, growthScore, governanceScore) with 4 new pillar columns
+- Removed bonusPoints and penaltyPoints columns
+- Added 4 pillar score columns (integer, not null, default 0): financialSurvivalScore, operationalEfficiencyScore, shareholderStructureScore, marketSentimentScore
+- Added 8 sub-score columns (integer, nullable): cashRunwayScore, solvencyScore, efficiencyScore, pedigreeSubScore, dilutionPenaltyScore, insiderAlignmentScore, liquidityScore, newsVelocityScore
+- Added 4 weight columns (doublePrecision, nullable): p1Weight, p2Weight, p3Weight, p4Weight
+- Updated ScoreHistoryEntry interface to match new schema structure
+- Added TODO comments and temporary placeholder values in saveScoreToHistory and getScoreHistory functions (will be replaced in VS2-009 and VS2-011)
+- Kept existing columns: id, stockTicker, overallScore, calculatedAt
+- Kept existing indexes on stockTicker and calculatedAt
+- Build passes successfully
+- **Learnings for future iterations:**
+  - When altering a schema table, all TypeScript interfaces and service functions that reference the old schema must be updated to prevent build errors
+  - Added doublePrecision import to pg-core imports for weight columns
+  - Temporary placeholder values allow the codebase to remain in a working state while the full 4-pillar calculation logic is implemented in later stories
+  - TODO comments clearly mark areas that will be updated in future stories (VS2-009, VS2-011)
+  - Schema migrations like this should be carefully coordinated with service layer updates to avoid breaking changes
+---
+## VS2-004: Implement P1 Financial Survival calculator
+Status: ✅ COMPLETE
+Date: 2026-02-15
+Details:
+- Implemented financialSurvivalScore() function in src/services/vetr-score.service.ts
+- Returns { score, cashRunway, solvency } or null if all inputs are null
+- Cash Runway sub-metric (60% weight): handles profitable companies (monthly_burn <= 0 → score 100), zero cash (cash === 0 → score 0), and normal calculation (months = cash / monthly_burn, normalized to 18 months = 100)
+- Solvency sub-metric (40% weight): handles zero assets (→ score 0), zero debt (→ score 100), and normal calculation (ratio = total_debt / total_assets, score = max(0, 100 - ratio * 200))
+- Final score combines both sub-metrics with weights (60% cash runway, 40% solvency)
+- Handles partial data scenarios: if only one sub-metric is available, uses that metric alone
+- Returns null if ALL inputs are null, enabling null pillar weight redistribution in later stories
+- Build passes successfully
+- **Learnings for future iterations:**
+  - The Financial Survival pillar is crucial for early-stage companies with limited cash runway
+  - Profitable companies (negative monthly_burn) get full 100 score for cash runway to reward cash generation
+  - Null pillar handling allows flexible scoring when financial data is incomplete
+  - Used Math.min() and Math.max() to clamp scores to 0-100 range
+  - Separated sub-metric calculation logic for clarity and maintainability
+---
