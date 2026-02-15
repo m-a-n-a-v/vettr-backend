@@ -1,9 +1,11 @@
 import { db } from '../../config/database.js';
-import { filings, executives, financialData } from '../schema/index.js';
-import { seedStocks } from './stocks.js';
+import { filings, executives, financialData, stocks } from '../schema/index.js';
+import { seedStocks, stockSeedData } from './stocks.js';
 import { seedFilings } from './filings.js';
 import { seedExecutives } from './executives.js';
 import { seedFinancialData } from './financial-data.js';
+import { calculateVetrScore } from '../../services/vetr-score.service.js';
+import { eq } from 'drizzle-orm';
 
 /**
  * Run all seed functions in order.
@@ -41,6 +43,26 @@ export async function runAllSeeds(): Promise<void> {
   // 4. Seed financial data (uses upsert on stock_id, safe to re-run)
   const financialDataCount = await seedFinancialData();
 
+  // 5. Recalculate VETR scores for all stocks
+  console.log('\n🧮 Recalculating VETR scores for all stocks...');
+  let scoresCalculated = 0;
+  for (const stock of stockSeedData) {
+    try {
+      const result = await calculateVetrScore(stock.ticker);
+
+      // Update the stock's vetrScore field
+      await db
+        .update(stocks)
+        .set({ vetrScore: result.overall_score })
+        .where(eq(stocks.ticker, stock.ticker));
+
+      console.log(`   ✓ ${stock.ticker}: ${result.overall_score}`);
+      scoresCalculated++;
+    } catch (error) {
+      console.error(`   ✗ ${stock.ticker}: Failed to calculate score - ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
   const duration = ((Date.now() - startTime) / 1000).toFixed(2);
 
   console.log('\n📊 Seed Summary:');
@@ -48,6 +70,7 @@ export async function runAllSeeds(): Promise<void> {
   console.log(`   Filings:        ${filingCount}`);
   console.log(`   Executives:     ${executiveCount}`);
   console.log(`   Financial Data: ${financialDataCount}`);
+  console.log(`   Scores Calculated: ${scoresCalculated}`);
   console.log(`   Duration:       ${duration}s`);
   console.log('\n✅ Database seed complete!');
 }

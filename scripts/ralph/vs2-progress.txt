@@ -314,3 +314,19 @@ Details:
   - This separation of concerns is correct: detailed score breakdown for admin/analytics, simple integer score for stock listings
   - All stock route handlers follow the same DTO mapping pattern: snake_case for all JSON fields
 ---
+## VS2-015: Update stock seed to remove hardcoded scores
+Status: ✅ COMPLETE
+Date: 2026-02-15
+Details:
+- Updated src/db/seed/stocks.ts to set vetrScore: 0 for all 25 stocks in stockSeedData array
+- Changed all hardcoded scores (ranging from 35 to 91) to 0
+- Scores will now be computed dynamically after seeding using the new 4-pillar VETTR Score V2 calculation
+- The seedStocks() function upsert logic remains unchanged - it will still set vetrScore to 0 on conflict
+- Build passes successfully
+- **Learnings for future iterations:**
+  - Removing hardcoded scores ensures that the database reflects the true computed values from the new score engine
+  - Setting scores to 0 rather than null is intentional - null would indicate "never calculated", while 0 indicates "not yet calculated"
+  - The seed-then-recalculate pattern (implemented in VS2-016) ensures all stocks get properly scored after seed data is loaded
+  - This change affects all 25 stocks: NXE, ARIS, LUN, FM, TKO, ERO, CS, MAG, FVI, WPM, AEM, OR, ELD, SII, BTO, NGD, IMG, MND, LUG, KRR, RIO, SBB, GPL, FR, AG
+  - The onConflictDoUpdate in seedStocks() will overwrite any existing scores with 0, which is correct for reseeding scenarios
+---
