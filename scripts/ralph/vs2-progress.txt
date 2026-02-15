@@ -140,3 +140,25 @@ Details:
   - The default scores (50 for missing data) provide a neutral baseline when data is unavailable
   - Sub-metric weights (50% pedigree, 30% dilution, 20% insider) reflect relative importance of each factor
 ---
+## VS2-007: Implement P4 Market Sentiment calculator
+Status: ✅ COMPLETE
+Date: 2026-02-15
+Details:
+- Implemented marketSentimentScore() function in src/services/vetr-score.service.ts
+- Returns { score, liquidity, newsVelocity } or null if all inputs are null
+- Liquidity Health sub-metric (60% weight): dailyVolValue = avg_vol_30d * price; score = min(100, dailyVolValue / 100000 * 100) where target $100k = 100 score
+- News Velocity sub-metric (40% weight): uses days_since_last_pr if available, otherwise computes from filingList (days since most recent filing), defaults to 90 days if both null
+- News Velocity scoring: days < 14 → score 100; days > 60 → score 0; linear decay in between: score = max(0, 100 - ((days - 14) * 100) / 46)
+- Final score combines both sub-metrics with weights (60% liquidity, 40% news velocity)
+- Handles partial data scenarios: if only one sub-metric is available, uses that metric alone
+- Returns null if ALL inputs are null, enabling null pillar weight redistribution in later stories
+- Build passes successfully
+- **Learnings for future iterations:**
+  - Market Sentiment pillar captures both liquidity (trading activity) and market engagement (news/filings)
+  - Liquidity score uses dollar volume (shares × price) rather than just share volume to reflect actual capital flow
+  - News Velocity uses a 14-60 day window: 14 days = fresh/engaged, 60+ days = stale/inactive
+  - Linear decay formula for News Velocity: (100 - ((days - 14) * 100) / 46) creates smooth transition from 100 to 0
+  - Fallback from days_since_last_pr to filingList provides robustness when PR-specific data isn't available
+  - Default 90 days for news velocity when both inputs are null ensures a low (0) score for companies with no data
+  - The P4 pillar has the lowest weight (15%) reflecting that market sentiment is less fundamental than financial/operational metrics
+---

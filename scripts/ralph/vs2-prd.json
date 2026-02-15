@@ -112,7 +112,7 @@
         "npm run build passes"
       ],
       "priority": 7,
-      "passes": false
+      "passes": true
     },
     {
       "id": "VS2-008",
