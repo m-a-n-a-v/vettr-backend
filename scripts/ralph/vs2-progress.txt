@@ -162,3 +162,27 @@ Details:
   - Default 90 days for news velocity when both inputs are null ensures a low (0) score for companies with no data
   - The P4 pillar has the lowest weight (15%) reflecting that market sentiment is less fundamental than financial/operational metrics
 ---
+## VS2-008: Implement null pillar weight redistribution
+Status: ✅ COMPLETE
+Date: 2026-02-15
+Details:
+- Implemented redistributeWeights() function in src/services/vetr-score.service.ts
+- Returns { adjustedWeights: Record<string, number>, nullPillars: string[] }
+- Handles three scenarios:
+  1. All pillars present: weights unchanged (0.35, 0.25, 0.25, 0.15)
+  2. One or more pillars null: their weight distributed proportionally to remaining pillars (baseWeight / totalAvailable)
+  3. All pillars null: overall score = 0, all weights = 0
+- Example: if P2 (0.25) is null, totalAvailable = 0.75:
+  - newP1 = 0.35 / 0.75 = 0.4667
+  - newP3 = 0.25 / 0.75 = 0.3333
+  - newP4 = 0.15 / 0.75 = 0.2000
+- nullPillars array lists the string names of skipped pillars
+- Build passes successfully
+- **Learnings for future iterations:**
+  - Weight redistribution ensures that the overall score calculation remains valid when some pillars have incomplete data
+  - The function takes a generic array of pillar results with pillar name, score (or null), and base weight
+  - Proportional redistribution maintains the relative importance of remaining pillars
+  - Setting all weights to 0 when all pillars are null prevents division by zero in the overall score calculation
+  - This function will be used in VS2-009 to rewrite calculateVetrScore with the 4-pillar formula
+  - Clear documentation in the function comment helps explain the redistribution logic with concrete examples
+---
