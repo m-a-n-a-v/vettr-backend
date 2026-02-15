@@ -319,6 +319,104 @@ export async function getFilingsForTicker(ticker: string): Promise<FilingRow[]> 
     .orderBy(desc(filings.date));
 }
 
+// --- NEW 4-PILLAR VETR SCORE V2 CALCULATORS ---
+
+/**
+ * Financial Survival Pillar (P1) - Base Weight: 35%
+ *
+ * Calculates the Financial Survival score based on two sub-metrics:
+ * - Cash Runway (60%): Months of cash runway normalized to 18 months = 100
+ * - Solvency (40%): Debt-to-assets ratio inverted (lower debt = higher score)
+ *
+ * Edge cases:
+ * - If monthly_burn <= 0 (profitable) → Cash Runway = 100
+ * - If cash === 0 → Cash Runway = 0
+ * - If total_assets === 0 → Solvency = 0
+ * - If total_debt === 0 → Solvency = 100
+ * - If ALL inputs are null → return null (pillar skipped for weight redistribution)
+ *
+ * @param financialData - Financial data with cash, monthly_burn, total_debt, total_assets
+ * @returns { score, cashRunway, solvency } or null if all inputs are null
+ */
+export function financialSurvivalScore(financialData: {
+  cash: number | null;
+  monthly_burn: number | null;
+  total_debt: number | null;
+  total_assets: number | null;
+}): { score: number; cashRunway: number; solvency: number } | null {
+  const { cash, monthly_burn, total_debt, total_assets } = financialData;
+
+  // Check if all inputs are null → return null (pillar skipped)
+  if (
+    cash === null &&
+    monthly_burn === null &&
+    total_debt === null &&
+    total_assets === null
+  ) {
+    return null;
+  }
+
+  // --- Cash Runway Sub-Metric (60%) ---
+  let cashRunwayScore: number | null = null;
+
+  if (cash !== null && monthly_burn !== null) {
+    if (monthly_burn <= 0) {
+      // Profitable (cash generation) → full score
+      cashRunwayScore = 100;
+    } else if (cash === 0) {
+      // No cash → zero score
+      cashRunwayScore = 0;
+    } else {
+      // Calculate months of runway
+      const months = cash / monthly_burn;
+      // Normalize to 18 months = 100
+      cashRunwayScore = Math.min(100, Math.round((months / 18) * 100));
+    }
+  }
+
+  // --- Solvency Sub-Metric (40%) ---
+  let solvencyScore: number | null = null;
+
+  if (total_debt !== null && total_assets !== null) {
+    if (total_assets === 0) {
+      // No assets → zero score
+      solvencyScore = 0;
+    } else if (total_debt === 0) {
+      // No debt → full score
+      solvencyScore = 100;
+    } else {
+      // Calculate debt-to-assets ratio and invert
+      const ratio = total_debt / total_assets;
+      solvencyScore = Math.max(0, Math.round(100 - ratio * 200));
+    }
+  }
+
+  // --- Combine Sub-Metrics ---
+  // If both are null, return null
+  if (cashRunwayScore === null && solvencyScore === null) {
+    return null;
+  }
+
+  // If one is null, use only the available metric
+  let finalScore: number;
+  if (cashRunwayScore !== null && solvencyScore !== null) {
+    // Both available → weighted combination
+    finalScore = Math.round(cashRunwayScore * 0.6 + solvencyScore * 0.4);
+  } else if (cashRunwayScore !== null) {
+    // Only cash runway available
+    finalScore = cashRunwayScore;
+  } else {
+    // Only solvency available
+    finalScore = solvencyScore!;
+  }
+
+  return {
+    score: finalScore,
+    cashRunway: cashRunwayScore ?? 0,
+    solvency: solvencyScore ?? 0,
+  };
+}
+
 // --- VETR Score Result Types ---
 
 export interface VetrScoreResult {
