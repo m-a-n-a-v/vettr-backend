@@ -239,3 +239,21 @@ Details:
   - Each pillar's weight is stored alongside its score, allowing clients to understand the score composition
   - null_pillars array allows clients to know which pillars were skipped due to missing data
 ---
+## VS2-011: Update score history retrieval for new schema
+Status: ✅ COMPLETE
+Date: 2026-02-15
+Details:
+- Reviewed getScoreHistory() function in src/services/vetr-score.service.ts
+- Function already queries and returns new 4-pillar columns: financialSurvivalScore, operationalEfficiencyScore, shareholderStructureScore, marketSentimentScore
+- Removed TODO comment from VS2-003 that was no longer needed
+- Each history entry returns: id, stock_ticker, overall_score, financial_survival_score, operational_efficiency_score, shareholder_structure_score, market_sentiment_score, calculated_at
+- GET /stocks/:ticker/vetr-score/history route handler already returns updated format via getScoreHistory()
+- Build passes successfully
+- **Learnings for future iterations:**
+  - This story was mostly complete from VS2-003 when the schema was updated
+  - The getScoreHistory() function correctly maps the new DB columns to snake_case JSON fields
+  - The route handler requires no changes - it simply calls the service function and wraps the result
+  - The schema already includes sub-score columns (cashRunwayScore, solvencyScore, etc.) but they're not included in history entries per the AC
+  - History entries focus on the 4 main pillar scores, not the detailed sub-scores, for a cleaner API response
+  - Removed the TODO comment to indicate the function is complete and up-to-date with V2 schema
+---
