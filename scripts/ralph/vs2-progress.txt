@@ -80,3 +80,28 @@ Details:
   - Used Math.min() and Math.max() to clamp scores to 0-100 range
   - Separated sub-metric calculation logic for clarity and maintainability
 ---
+## VS2-005: Implement P2 Operational Efficiency calculator
+Status: ✅ COMPLETE
+Date: 2026-02-15
+Details:
+- Implemented operationalEfficiencyScore() function in src/services/vetr-score.service.ts
+- Returns { score, efficiencyRatio } or null if all inputs are null
+- Sector-specific formulas:
+  - Mining sector (contains 'Mining', 'Gold', 'Resource'): ratio = exploration_exp / total_opex
+  - Tech sector (contains 'Tech', 'Software'): ratio = r_and_d_exp / total_opex
+  - General/all other sectors: ratio = (revenue - g_and_a_expense) / revenue
+- Edge case handling:
+  - If total_opex === 0 → score 50 (neutral score for no operating expenses)
+  - If revenue === 0 for general sector → score 0 (no revenue, no efficiency)
+  - If ratio > 1 → score 100 (capped at maximum)
+- Normalization: score = min(100, ratio / 0.70 * 100) where target ratio 0.70 = 100 score
+- Returns null if all required inputs for the sector are null, enabling null pillar weight redistribution
+- Build passes successfully
+- **Learnings for future iterations:**
+  - Sector-specific logic requires case-insensitive string matching on sector names
+  - Different sectors optimize for different metrics (mining=exploration, tech=R&D, general=gross margin)
+  - Edge cases like zero opex or zero revenue need specific handling to avoid division by zero
+  - Null pillar handling allows flexible scoring when sector-specific data is incomplete
+  - The 0.70 normalization target represents a 70% efficiency ratio as "excellent" (100 score)
+  - Separated edge case checks before main ratio calculation for code clarity
+---
