@@ -257,3 +257,20 @@ Details:
   - History entries focus on the 4 main pillar scores, not the detailed sub-scores, for a cleaner API response
   - Removed the TODO comment to indicate the function is complete and up-to-date with V2 schema
 ---
+## VS2-012: Update score trend for new schema
+Status: ✅ COMPLETE
+Date: 2026-02-15
+Details:
+- Reviewed getScoreTrend() function in src/services/vetr-score.service.ts
+- Function already correctly uses overall_score for 30d/90d change calculation (lines 1048, 1054)
+- No problematic references to old column names found in the function itself
+- Found and fixed admin.routes.ts line 184: updated sortableColumns array from old pillar names (pedigreeScore, filingVelocityScore, redFlagScore, growthScore, governanceScore) to new pillar names (financialSurvivalScore, operationalEfficiencyScore, shareholderStructureScore, marketSentimentScore)
+- GET /stocks/:ticker/vetr-score/trend route handler at src/routes/vetr-score.routes.ts:36-42 is already correct
+- Build passes successfully
+- **Learnings for future iterations:**
+  - The getScoreTrend function was already compatible with the new schema since it only uses overallScore and calculatedAt columns
+  - Admin CRUD routes with sortableColumns arrays need to be updated when schema column names change
+  - Comments and local variable names (like pedigreeScore in shareholderStructureScore function) are fine - only DB column references need updating
+  - VS2-012 was a minimal change story as expected - the trend calculation logic is schema-agnostic and only uses the overall_score field
+  - Always grep for old column names across the entire codebase to catch all references, not just in service functions
+---
