@@ -186,3 +186,56 @@ Details:
   - This function will be used in VS2-009 to rewrite calculateVetrScore with the 4-pillar formula
   - Clear documentation in the function comment helps explain the redistribution logic with concrete examples
 ---
+## VS2-009: Rewrite calculateVetrScore with 4-pillar formula
+Status: ✅ COMPLETE
+Date: 2026-02-15
+Details:
+- Completely rewrote calculateVetrScore() function to use the 4-pillar VETR Score V2 system
+- Added getFinancialDataForTicker() helper function to fetch financial_data rows
+- calculateVetrScore() now fetches financial_data, executives, and filings in parallel
+- Calls all 4 pillar calculators: financialSurvivalScore, operationalEfficiencyScore, shareholderStructureScore, marketSentimentScore
+- Applies redistributeWeights() to handle null pillar weight redistribution
+- Computes weighted overall score: sum of (pillarScore * adjustedWeight) for non-null pillars
+- Result clamped to 0-100 integer
+- Removed bonus_points and penalty_points from calculation
+- Cached in Redis with vetr_score:{TICKER} key and 24h TTL (unchanged)
+- Updated saveScoreToHistory() to save all new pillar scores, sub-scores, and weights to vetr_score_history table
+- Updates stocks.vetr_score with new overall score after calculation
+- Updated VetrScoreResult interface to match new 4-pillar structure with nested components, sub_scores, and null_pillars array
+- Removed OLD 5-pillar component functions: pedigreeScore, filingVelocityScore, redFlagComponent, growthMetricsScore, governanceScore
+- Removed OLD bonus/penalty functions: detectBonuses, detectPenalties
+- Updated marketSentimentScore() signature to accept nullable price (stock.price can be null)
+- Fixed admin.routes.ts to use null_pillars instead of bonus_points/penalty_points
+- Build passes successfully
+- **Learnings for future iterations:**
+  - When rewriting a core calculation function, ensure all dependent code (routes, types) is also updated
+  - The VetrScoreResult interface changed significantly - nested structure with components.{pillar}.score/weight/sub_scores
+  - Null handling is critical - marketSentimentScore needed to accept nullable price, and db updates needed null checks
+  - The new 4-pillar system is much cleaner and more maintainable than the old 5-pillar + bonuses/penalties approach
+  - All pillar calculators (P1-P4) and redistributeWeights() are now integrated into the main calculation pipeline
+  - The efficiencyScore stored in DB is the ratio converted to 0-100 score (ratio * 100)
+  - Admin recalculate endpoint now returns the new format with null_pillars instead of bonus/penalty points
+---
+## VS2-010: Update VetrScoreResult type and API response format
+Status: ✅ COMPLETE
+Date: 2026-02-15
+Details:
+- VetrScoreResult interface was already updated in VS2-009 with new 4-pillar structure
+- Interface now includes: ticker, overall_score, components (with all 4 pillars), null_pillars array, calculated_at
+- Each pillar component has: score, weight, sub_scores object
+- Financial Survival sub-scores: cash_runway, solvency
+- Operational Efficiency sub-scores: efficiency_ratio
+- Shareholder Structure sub-scores: pedigree, dilution_penalty, insider_alignment
+- Market Sentiment sub-scores: liquidity, news_velocity
+- Removed top-level fields: weights, bonus_points, penalty_points
+- GET /stocks/:ticker/vetr-score route handler already returns new format via calculateVetrScore()
+- Build passes successfully
+- **Learnings for future iterations:**
+  - VS2-010 acceptance criteria were already satisfied by VS2-009 implementation
+  - When implementing a large refactor (VS2-009), related type/API updates (VS2-010) are naturally completed together
+  - The calculateVetrScore() function returns VetrScoreResult which is directly serialized to JSON by Hono
+  - No additional route handler changes needed - the service layer update automatically updated the API response
+  - The new nested components structure provides a clean, hierarchical view of score breakdown for clients
+  - Each pillar's weight is stored alongside its score, allowing clients to understand the score composition
+  - null_pillars array allows clients to know which pillars were skipped due to missing data
+---
