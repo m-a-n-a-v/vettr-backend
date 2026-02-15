@@ -293,3 +293,24 @@ Details:
   - This story served as a validation checkpoint to ensure the comparison logic wasn't affected by the schema migration
   - Similar to VS2-012 (score trend), comparison functions that only use overall_score require no changes for V2 schema
 ---
+## VS2-014: Update admin endpoint and stock DTOs
+Status: ✅ COMPLETE
+Date: 2026-02-15
+Details:
+- Reviewed POST /admin/stocks/:ticker/recalculate-score endpoint (admin.routes.ts:359-393)
+- Endpoint already returns new 4-pillar format: overall_score, components (4 pillars with scores/weights/sub_scores), null_pillars array, calculated_at
+- Verified GET /stocks (stocks.routes.ts:36-67) returns vetr_score as integer (stock.vetrScore mapped to vetr_score field)
+- Verified GET /stocks/:ticker (stocks.routes.ts:216-271) returns vetr_score as integer (detail.stock.vetrScore mapped to vetr_score field)
+- Verified GET /stocks/search (stocks.routes.ts:76-98) returns vetr_score as integer
+- Verified GET /stocks/:ticker/filings, GET /stocks/:ticker/executives also use correct stock DTO mapping
+- No references to old column names (pedigreeScore, filingVelocityScore, etc.) found in stocks.routes.ts or admin.routes.ts
+- sortableColumns array in admin.routes.ts line 184 already updated to new pillar names (from VS2-012)
+- Build passes successfully
+- **Learnings for future iterations:**
+  - VS2-014 was already satisfied by previous implementations (VS2-009 updated admin endpoint, VS2-012 updated sortableColumns)
+  - This story served as a validation checkpoint to ensure all public API contracts are correct after schema migration
+  - Stock DTOs consistently map vetrScore (DB camelCase) to vetr_score (API snake_case) as an integer
+  - Admin recalculate endpoint returns the full score breakdown (4 pillars + sub-scores), while stock list/detail endpoints only return the integer overall score
+  - This separation of concerns is correct: detailed score breakdown for admin/analytics, simple integer score for stock listings
+  - All stock route handlers follow the same DTO mapping pattern: snake_case for all JSON fields
+---

@@ -14,7 +14,7 @@ export const stockSeedData = [
     marketCap: 4820000000,
     price: 9.85,
     priceChange: 0.32,
-    vetrScore: 78,
+    vetrScore: 0,
   },
   {
     ticker: 'ARIS',
@@ -24,7 +24,7 @@ export const stockSeedData = [
     marketCap: 2150000000,
     price: 7.42,
     priceChange: -0.15,
-    vetrScore: 72,
+    vetrScore: 0,
   },
   {
     ticker: 'LUN',
@@ -34,7 +34,7 @@ export const stockSeedData = [
     marketCap: 9870000000,
     price: 12.68,
     priceChange: 0.47,
-    vetrScore: 81,
+    vetrScore: 0,
   },
   {
     ticker: 'FM',
@@ -44,7 +44,7 @@ export const stockSeedData = [
     marketCap: 11200000000,
     price: 16.23,
     priceChange: -0.89,
-    vetrScore: 65,
+    vetrScore: 0,
   },
   {
     ticker: 'TKO',
@@ -54,7 +54,7 @@ export const stockSeedData = [
     marketCap: 890000000,
     price: 3.12,
     priceChange: 0.08,
-    vetrScore: 58,
+    vetrScore: 0,
   },
   {
     ticker: 'ERO',
@@ -64,7 +64,7 @@ export const stockSeedData = [
     marketCap: 2340000000,
     price: 25.40,
     priceChange: 1.12,
-    vetrScore: 74,
+    vetrScore: 0,
   },
   {
     ticker: 'CS',
@@ -74,7 +74,7 @@ export const stockSeedData = [
     marketCap: 5670000000,
     price: 8.15,
     priceChange: 0.23,
-    vetrScore: 69,
+    vetrScore: 0,
   },
   {
     ticker: 'MAG',
@@ -84,7 +84,7 @@ export const stockSeedData = [
     marketCap: 1980000000,
     price: 19.75,
     priceChange: -0.42,
-    vetrScore: 71,
+    vetrScore: 0,
   },
   {
     ticker: 'FVI',
@@ -94,7 +94,7 @@ export const stockSeedData = [
     marketCap: 1560000000,
     price: 5.18,
     priceChange: 0.09,
-    vetrScore: 66,
+    vetrScore: 0,
   },
   {
     ticker: 'WPM',
@@ -104,7 +104,7 @@ export const stockSeedData = [
     marketCap: 29400000000,
     price: 64.85,
     priceChange: 1.75,
-    vetrScore: 88,
+    vetrScore: 0,
   },
   {
     ticker: 'AEM',
@@ -114,7 +114,7 @@ export const stockSeedData = [
     marketCap: 42300000000,
     price: 85.20,
     priceChange: 2.35,
-    vetrScore: 91,
+    vetrScore: 0,
   },
   {
     ticker: 'OR',
@@ -124,7 +124,7 @@ export const stockSeedData = [
     marketCap: 3450000000,
     price: 18.92,
     priceChange: 0.54,
-    vetrScore: 76,
+    vetrScore: 0,
   },
   {
     ticker: 'ELD',
@@ -134,7 +134,7 @@ export const stockSeedData = [
     marketCap: 3780000000,
     price: 18.45,
     priceChange: -0.67,
-    vetrScore: 63,
+    vetrScore: 0,
   },
   {
     ticker: 'SII',
@@ -144,7 +144,7 @@ export const stockSeedData = [
     marketCap: 1620000000,
     price: 62.30,
     priceChange: 0.88,
-    vetrScore: 79,
+    vetrScore: 0,
   },
   {
     ticker: 'BTO',
@@ -154,7 +154,7 @@ export const stockSeedData = [
     marketCap: 5120000000,
     price: 3.92,
     priceChange: 0.11,
-    vetrScore: 73,
+    vetrScore: 0,
   },
   {
     ticker: 'NGD',
@@ -164,7 +164,7 @@ export const stockSeedData = [
     marketCap: 1890000000,
     price: 2.78,
     priceChange: -0.05,
-    vetrScore: 55,
+    vetrScore: 0,
   },
   {
     ticker: 'IMG',
@@ -174,7 +174,7 @@ export const stockSeedData = [
     marketCap: 3250000000,
     price: 6.45,
     priceChange: 0.28,
-    vetrScore: 62,
+    vetrScore: 0,
   },
   {
     ticker: 'MND',
@@ -184,7 +184,7 @@ export const stockSeedData = [
     marketCap: 420000000,
     price: 4.35,
     priceChange: 0.15,
-    vetrScore: 59,
+    vetrScore: 0,
   },
   {
     ticker: 'LUG',
@@ -194,7 +194,7 @@ export const stockSeedData = [
     marketCap: 4150000000,
     price: 17.20,
     priceChange: 0.92,
-    vetrScore: 82,
+    vetrScore: 0,
   },
   {
     ticker: 'KRR',
@@ -204,7 +204,7 @@ export const stockSeedData = [
     marketCap: 1340000000,
     price: 5.68,
     priceChange: 0.21,
-    vetrScore: 67,
+    vetrScore: 0,
   },
   {
     ticker: 'RIO',
@@ -214,7 +214,7 @@ export const stockSeedData = [
     marketCap: 185000000,
     price: 0.52,
     priceChange: -0.03,
-    vetrScore: 44,
+    vetrScore: 0,
   },
   {
     ticker: 'SBB',
@@ -224,7 +224,7 @@ export const stockSeedData = [
     marketCap: 1780000000,
     price: 1.42,
     priceChange: 0.04,
-    vetrScore: 61,
+    vetrScore: 0,
   },
   {
     ticker: 'GPL',
@@ -234,7 +234,7 @@ export const stockSeedData = [
     marketCap: 95000000,
     price: 0.28,
     priceChange: -0.02,
-    vetrScore: 35,
+    vetrScore: 0,
   },
   {
     ticker: 'FR',
@@ -244,7 +244,7 @@ export const stockSeedData = [
     marketCap: 3680000000,
     price: 12.55,
     priceChange: 0.38,
-    vetrScore: 70,
+    vetrScore: 0,
   },
   {
     ticker: 'AG',
@@ -254,7 +254,7 @@ export const stockSeedData = [
     marketCap: 3680000000,
     price: 12.55,
     priceChange: 0.38,
-    vetrScore: 70,
+    vetrScore: 0,
   },
 ];
 
