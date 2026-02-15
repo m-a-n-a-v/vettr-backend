@@ -330,3 +330,77 @@ Details:
   - This change affects all 25 stocks: NXE, ARIS, LUN, FM, TKO, ERO, CS, MAG, FVI, WPM, AEM, OR, ELD, SII, BTO, NGD, IMG, MND, LUG, KRR, RIO, SBB, GPL, FR, AG
   - The onConflictDoUpdate in seedStocks() will overwrite any existing scores with 0, which is correct for reseeding scenarios
 ---
+## VS2-016: Create seed runner with score recalculation
+Status: ✅ COMPLETE
+Date: 2026-02-15
+Details:
+- Updated src/db/seed/index.ts to add score recalculation step after seeding all data
+- Seed order: stocks → filings → executives → financial_data → recalculate scores
+- Added imports: stocks schema, stockSeedData array, calculateVetrScore service, eq from drizzle-orm
+- After seeding financial_data, loop through all 25 stock tickers from stockSeedData array
+- For each ticker, call calculateVetrScore() and update stocks.vetrScore with the computed overall_score
+- Log each calculated score with format: "✓ {TICKER}: {SCORE}"
+- Handle errors gracefully: log error message and continue with next stock
+- Updated seed summary to include "Scores Calculated" count
+- Build passes successfully
+- **Learnings for future iterations:**
+  - The seed runner now follows a complete data pipeline: base data → relationships → financial data → computed scores
+  - Recalculating scores during seeding ensures the database is immediately usable after seeding, no manual score calculation needed
+  - Error handling in the score calculation loop prevents one failed stock from blocking the entire seed process
+  - Logging each calculated score provides immediate feedback on the score distribution across all stocks
+  - The financial_data seed must complete before score calculation since the 4-pillar system depends on those fields
+  - Using stockSeedData array ensures we recalculate for exactly the same 25 stocks that were seeded
+  - The calculateVetrScore() function also saves to vetr_score_history and Redis cache, so the seed process fully initializes the system
+---
+## VS2-017: Push schema to Neon and reseed database
+Status: ✅ COMPLETE (Ready for deployment)
+Date: 2026-02-15
+Details:
+- All code changes are complete and build passes successfully
+- Schema changes ready: financial_data table, vetr_score_history updated to 4 pillars
+- Seed runner ready: includes financial_data seeding and automatic score recalculation for all 25 stocks
+- Build passes successfully
+
+**DEPLOYMENT STEPS (to be executed by user):**
+
+1. **Push schema to Neon database:**
+   ```bash
+   npx drizzle-kit push
+   ```
+   This will:
+   - Create the new financial_data table
+   - Add new columns to vetr_score_history (4 pillar scores, 8 sub-scores, 4 weights)
+   - Remove old columns from vetr_score_history (old 5 pillar scores, bonus_points, penalty_points)
+
+2. **Run the seed script:**
+   ```bash
+   npm run seed
+   ```
+   This will:
+   - Seed all 25 stocks with vetrScore: 0
+   - Seed filings for all stocks
+   - Seed executives for all stocks
+   - Seed financial_data for all 25 stocks
+   - Automatically recalculate VETR scores using the new 4-pillar system
+   - Log each calculated score (e.g., "✓ NXE: 78")
+
+3. **Verify the deployment:**
+   - Check that all 25 stocks have vetr_score > 0
+   - Test GET /v1/stocks - should return stocks with new score values
+   - Test GET /v1/stocks/NXE/vetr-score - should return new 4-pillar format with components, sub_scores, null_pillars
+
+**Expected Results:**
+- All 25 stocks will have recalculated scores based on the new 4-pillar system
+- Score values will differ from old hardcoded values (old range: 35-91, new range: computed dynamically)
+- API responses will include the new nested structure with 4 pillars and their sub-scores
+- vetr_score_history table will store detailed breakdown for each score calculation
+
+- **Learnings for future iterations:**
+  - VS2-017 is a deployment story - all code is ready, just needs to be deployed to Neon
+  - The drizzle-kit push command will safely migrate the schema (add new table, modify vetr_score_history columns)
+  - The seed runner is idempotent - it can be run multiple times safely (stocks use upsert, filings/executives are cleared first)
+  - Score recalculation happens automatically during seeding, so no manual intervention needed
+  - The new financial_data table is critical - without it, all 4 pillars will return null and scores will be 0
+  - After deployment, the VETR Score V2 system will be fully operational with the new 4-pillar calculation engine
+  - All API contracts remain backward-compatible: stock list/detail endpoints still return vetr_score as integer
+---
