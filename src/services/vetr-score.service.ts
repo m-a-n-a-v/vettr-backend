@@ -1,6 +1,6 @@
 import { eq, desc, and, gte } from 'drizzle-orm';
 import { db } from '../config/database.js';
-import { executives, filings, stocks, vetrScoreHistory } from '../db/schema/index.js';
+import { executives, filings, stocks, vetrScoreHistory, financialData } from '../db/schema/index.js';
 import { InternalError, NotFoundError } from '../utils/errors.js';
 import * as cache from './cache.service.js';
 
@@ -8,246 +8,15 @@ import * as cache from './cache.service.js';
 type ExecutiveRow = typeof executives.$inferSelect;
 type FilingRow = typeof filings.$inferSelect;
 type StockRow = typeof stocks.$inferSelect;
+type FinancialDataRow = typeof financialData.$inferSelect;
 
-/**
- * Pedigree Score Component (weight: 25%)
- *
- * Calculates the executive team pedigree score based on three sub-components:
- * - Experience (50pts max): Based on average years of experience across the team. 20+ years average = 50pts, linearly scaled.
- * - Tenure Stability (30pts max): Based on average tenure at current company. 10+ years average = 30pts, linearly scaled.
- * - Specialization (20pts max): Based on number of unique specializations. 5+ unique specializations = 20pts, 4pts per specialization.
- *
- * @param execList - Array of executive records for a stock
- * @returns Score 0-100
- */
-export function pedigreeScore(execList: ExecutiveRow[]): number {
-  if (execList.length === 0) {
-    return 0;
-  }
-
-  // Experience score (50pts max at 20yr avg)
-  // Use yearsAtCompany + estimated previous experience from previousCompanies
-  const avgExperience =
-    execList.reduce((sum, exec) => {
-      const previousYears = (exec.previousCompanies ?? []).length * 3; // ~3 years per previous company
-      return sum + exec.yearsAtCompany + previousYears;
-    }, 0) / execList.length;
-  const experienceScore = Math.min(Math.round((avgExperience / 20) * 50), 50);
-
-  // Tenure stability score (30pts max at 10yr avg)
-  const avgTenure =
-    execList.reduce((sum, exec) => sum + exec.yearsAtCompany, 0) / execList.length;
-  const tenureStabilityScore = Math.min(Math.round((avgTenure / 10) * 30), 30);
-
-  // Specialization score (20pts max at 5+ unique specializations)
-  const uniqueSpecializations = new Set(
-    execList
-      .map((e) => e.specialization)
-      .filter((s): s is string => s !== null && s !== undefined && s.length > 0)
-  );
-  const specializationScore = Math.min(uniqueSpecializations.size * 4, 20);
-
-  return experienceScore + tenureStabilityScore + specializationScore;
-}
-
-/**
- * Filing Velocity Score Component (weight: 20%)
- *
- * Calculates the filing velocity score based on three sub-components:
- * - Regularity (40pts max): Based on filing frequency. 12+ filings in last year = 40pts (monthly), scaled linearly.
- * - Timeliness (30pts max): Based on filing recency. Most recent filing 0-7 days ago = 30pts, 30+ days = 0pts, linearly interpolated.
- * - Quality (30pts max): Based on filing content quality indicators — material filings and type diversity.
- *
- * @param filingList - Array of filing records for a stock
- * @returns Score 0-100
- */
-export function filingVelocityScore(filingList: FilingRow[]): number {
-  if (filingList.length === 0) {
-    return 0;
-  }
-
-  const now = new Date();
-  const oneYearAgo = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
-
-  // Filter filings from last 12 months
-  const recentFilings = filingList.filter((f) => f.date >= oneYearAgo);
-
-  // Regularity score (40pts max at 12+ filings per year)
-  const filingCount = recentFilings.length;
-  const regularityScore = Math.min(Math.round((filingCount / 12) * 40), 40);
-
-  // Timeliness score (30pts max)
-  // Based on most recent filing age: 0-7 days = full, 30+ days = 0
-  const sortedByDate = [...filingList].sort((a, b) => b.date.getTime() - a.date.getTime());
-  const mostRecent = sortedByDate[0];
-  let timelinessScore = 0;
-  if (mostRecent) {
-    const daysSinceLastFiling = (now.getTime() - mostRecent.date.getTime()) / (1000 * 60 * 60 * 24);
-    if (daysSinceLastFiling <= 7) {
-      timelinessScore = 30;
-    } else if (daysSinceLastFiling >= 30) {
-      timelinessScore = 0;
-    } else {
-      // Linear interpolation between 7 and 30 days
-      timelinessScore = Math.round(30 * (1 - (daysSinceLastFiling - 7) / 23));
-    }
-  }
-
-  // Quality score (30pts max)
-  // Material filings (15pts): proportion of material filings
-  const materialCount = recentFilings.filter((f) => f.isMaterial).length;
-  const materialScore =
-    recentFilings.length > 0
-      ? Math.min(Math.round((materialCount / recentFilings.length) * 15), 15)
-      : 0;
-
-  // Type diversity (15pts): number of unique filing types (4+ = full score)
-  const uniqueTypes = new Set(recentFilings.map((f) => f.type));
-  const diversityScore = Math.min(uniqueTypes.size * 3.75, 15);
-  const qualityScore = Math.round(materialScore + diversityScore);
-
-  return regularityScore + timelinessScore + qualityScore;
-}
-
-/**
- * Red Flag Component (weight: 25%)
- *
- * Inverts the red flag composite score so that lower red flags = higher VETR score.
- * A stock with no red flags (composite = 0) gets 100 points.
- * A stock with maximum red flags (composite = 100) gets 0 points.
- *
- * @param redFlagCompositeScore - The composite red flag score (0-100)
- * @returns Score 0-100
- */
-export function redFlagComponent(redFlagCompositeScore: number): number {
-  const clamped = Math.max(0, Math.min(100, redFlagCompositeScore));
-  return Math.round(100 - clamped);
-}
-
-/**
- * Growth Metrics Score Component (weight: 15%)
- *
- * Calculates the growth metrics score based on three sub-components:
- * - Revenue Growth (40pts max): Based on price change as a proxy for revenue growth momentum.
- *   50%+ price change = full score, linearly scaled. Negative change = 0.
- * - Capital Raised (30pts max): Based on market cap as a proxy for capital-raising ability.
- *   $100M+ market cap = full score, linearly scaled.
- * - Momentum (30pts max): Based on positive price trajectory and market cap size.
- *   Combines price change direction (15pts) and relative market cap strength (15pts).
- *
- * Note: Uses available stock data fields (price_change, market_cap) as proxies since
- * the database doesn't store explicit revenue growth or capital raised figures.
- *
- * @param stock - Stock record with market data
- * @returns Score 0-100
- */
-export function growthMetricsScore(stock: StockRow): number {
-  // Revenue Growth (40pts max at 50%+ price change)
-  // Use price_change percentage as a proxy for revenue growth momentum
-  const priceChangePct = stock.priceChange ?? 0;
-  let revenueGrowthScore = 0;
-  if (priceChangePct > 0) {
-    revenueGrowthScore = Math.min(Math.round((priceChangePct / 50) * 40), 40);
-  }
-
-  // Capital Raised (30pts max at $100M+ market cap)
-  // Use market_cap as a proxy for total capital raised
-  const marketCap = stock.marketCap ?? 0;
-  const capitalRaisedScore = Math.min(
-    Math.round((marketCap / 100_000_000) * 30),
-    30
-  );
-
-  // Momentum (30pts max)
-  // Positive price change direction (15pts) + relative market cap strength (15pts)
-  let momentumScore = 0;
-
-  // Price direction component (15pts): positive change = up to 15pts
-  if (priceChangePct > 0) {
-    momentumScore += Math.min(Math.round((priceChangePct / 25) * 15), 15);
-  }
-
-  // Market cap strength component (15pts): $500M+ = full score
-  momentumScore += Math.min(Math.round((marketCap / 500_000_000) * 15), 15);
-
-  return revenueGrowthScore + capitalRaisedScore + momentumScore;
-}
-
-/**
- * Governance Score Component (weight: 15%)
- *
- * Calculates the governance score based on three sub-components:
- * - Board Independence (40pts max): Based on executive team size and diversity of titles.
- *   Having multiple distinct leadership roles suggests independent oversight.
- *   5+ distinct titles = full score, 8pts per unique title.
- * - Audit Committee (30pts max): Based on presence of financial oversight roles
- *   (CFO, VP Finance, Controller, etc.) and proportion of audited financial filings.
- *   Financial roles (15pts) + audited financials proportion (15pts).
- * - Disclosure Quality (30pts max): Based on filing regularity and type coverage.
- *   12+ filings in last year (15pts) + 4+ unique filing types (15pts).
- *
- * @param execList - Array of executive records for a stock
- * @param filingList - Array of filing records for a stock
- * @returns Score 0-100
- */
-export function governanceScore(execList: ExecutiveRow[], filingList: FilingRow[]): number {
-  if (execList.length === 0 && filingList.length === 0) {
-    return 0;
-  }
-
-  // Board Independence (40pts max)
-  // More distinct leadership titles suggest broader governance structure
-  const uniqueTitles = new Set(
-    execList
-      .map((e) => e.title?.toLowerCase().trim())
-      .filter((t): t is string => t !== null && t !== undefined && t.length > 0)
-  );
-  const boardIndependenceScore = Math.min(uniqueTitles.size * 8, 40);
-
-  // Audit Committee (30pts max)
-  // Financial oversight roles (15pts) + audited financials proportion (15pts)
-  const financialRoles = [
-    'cfo',
-    'chief financial officer',
-    'vp finance',
-    'controller',
-    'treasurer',
-    'audit',
-    'vp corporate finance',
-  ];
-  const hasFinancialRoles = execList.some((e) =>
-    financialRoles.some((role) => e.title?.toLowerCase().includes(role))
-  );
-  const financialRoleScore = hasFinancialRoles ? 15 : 0;
-
-  // Audited financials: count "Financial Statements" filings as a proxy for audited financials
-  const financialStatements = filingList.filter((f) =>
-    f.type?.toLowerCase().includes('financial')
-  );
-  const auditedProportion =
-    filingList.length > 0 ? financialStatements.length / filingList.length : 0;
-  const auditedScore = Math.min(Math.round(auditedProportion * 15), 15);
-  const auditCommitteeScore = financialRoleScore + auditedScore;
-
-  // Disclosure Quality (30pts max)
-  // Filing regularity (15pts) + filing type coverage (15pts)
-  const now = new Date();
-  const oneYearAgo = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
-  const recentFilings = filingList.filter((f) => f.date >= oneYearAgo);
-
-  // Regularity: 12+ filings in last year = full 15pts
-  const regularityScore = Math.min(Math.round((recentFilings.length / 12) * 15), 15);
-
-  // Type coverage: 4+ unique filing types = full 15pts
-  const uniqueFilingTypes = new Set(recentFilings.map((f) => f.type));
-  const typeCoverageScore = Math.min(
-    Math.round((uniqueFilingTypes.size / 4) * 15),
-    15
-  );
-  const disclosureQualityScore = regularityScore + typeCoverageScore;
-
-  return boardIndependenceScore + auditCommitteeScore + disclosureQualityScore;
-}
+// --- OLD 5-PILLAR FUNCTIONS REMOVED ---
+// The following functions have been removed as part of the VETR Score V2 migration:
+// - pedigreeScore() → replaced by shareholderStructureScore() with new PG formula
+// - filingVelocityScore() → filing data now used in marketSentimentScore()
+// - redFlagComponent() → removed (no longer part of core score)
+// - growthMetricsScore() → removed (growth now captured in operational efficiency)
+// - governanceScore() → removed (governance now captured in shareholder structure)
 
 /**
  * Get a stock record by ticker from the database.
@@ -317,6 +86,34 @@ export async function getFilingsForTicker(ticker: string): Promise<FilingRow[]> 
     .from(filings)
     .where(eq(filings.stockId, stock[0].id))
     .orderBy(desc(filings.date));
+}
+
+/**
+ * Get financial data for a stock ticker from the database.
+ * Helper used by the VETR Score V2 calculation pipeline.
+ */
+export async function getFinancialDataForTicker(ticker: string): Promise<FinancialDataRow | null> {
+  if (!db) {
+    throw new InternalError('Database not available');
+  }
+
+  const stock = await db
+    .select({ id: stocks.id })
+    .from(stocks)
+    .where(eq(stocks.ticker, ticker.toUpperCase()))
+    .limit(1);
+
+  if (stock.length === 0) {
+    return null;
+  }
+
+  const result = await db
+    .select()
+    .from(financialData)
+    .where(eq(financialData.stockId, stock[0].id))
+    .limit(1);
+
+  return result.length > 0 ? result[0] : null;
 }
 
 // --- NEW 4-PILLAR VETR SCORE V2 CALCULATORS ---
@@ -708,13 +505,13 @@ export function shareholderStructureScore(
  * - If days > 60 → News Velocity = 0
  * - If all inputs are null → return null (pillar skipped for weight redistribution)
  *
- * @param stock - Stock data with price
+ * @param stock - Stock data with price (nullable)
  * @param financialData - Financial data with avg_vol_30d, days_since_last_pr
  * @param filingList - Array of filing records for fallback news velocity calculation
  * @returns { score, liquidity, newsVelocity } or null if all inputs are null
  */
 export function marketSentimentScore(
-  stock: { price: number },
+  stock: { price: number | null },
   financialData: {
     avg_vol_30d: number | null;
     days_since_last_pr: number | null;
@@ -724,7 +521,7 @@ export function marketSentimentScore(
   const { avg_vol_30d, days_since_last_pr } = financialData;
 
   // Check if all inputs are null → return null (pillar skipped)
-  if (avg_vol_30d === null && days_since_last_pr === null && filingList.length === 0) {
+  if (avg_vol_30d === null && stock.price === null && days_since_last_pr === null && filingList.length === 0) {
     return null;
   }
 
@@ -874,119 +671,80 @@ export interface VetrScoreResult {
   ticker: string;
   overall_score: number;
   components: {
-    pedigree: number;
-    filing_velocity: number;
-    red_flag: number;
-    growth: number;
-    governance: number;
+    financial_survival: {
+      score: number;
+      weight: number;
+      sub_scores: {
+        cash_runway: number;
+        solvency: number;
+      };
+    };
+    operational_efficiency: {
+      score: number;
+      weight: number;
+      sub_scores: {
+        efficiency_ratio: number;
+      };
+    };
+    shareholder_structure: {
+      score: number;
+      weight: number;
+      sub_scores: {
+        pedigree: number;
+        dilution_penalty: number;
+        insider_alignment: number;
+      };
+    };
+    market_sentiment: {
+      score: number;
+      weight: number;
+      sub_scores: {
+        liquidity: number;
+        news_velocity: number;
+      };
+    };
   };
-  weights: {
-    pedigree: number;
-    filing_velocity: number;
-    red_flag: number;
-    growth: number;
-    governance: number;
-  };
-  bonus_points: number;
-  penalty_points: number;
+  null_pillars: string[];
   calculated_at: string;
 }
 
-// --- Bonus & Penalty Detection ---
-
-/**
- * Detect bonuses for a stock based on filings and executives.
- * +5 for audited financials (has Financial Statements filings)
- * +5 for board expertise (executives with relevant education/certifications)
- */
-function detectBonuses(execList: ExecutiveRow[], filingList: FilingRow[]): number {
-  let bonus = 0;
-
-  // +5 if the stock has audited financial statement filings
-  const hasAuditedFinancials = filingList.some(
-    (f) => f.type?.toLowerCase().includes('financial')
-  );
-  if (hasAuditedFinancials) {
-    bonus += 5;
-  }
-
-  // +5 if executives have strong board expertise (professional designations)
-  const expertiseKeywords = ['p.eng', 'p.geo', 'cpa', 'cfa', 'mba', 'phd', 'fca'];
-  const hasBoardExpertise = execList.some((e) =>
-    expertiseKeywords.some((kw) => e.education?.toLowerCase().includes(kw))
-  );
-  if (hasBoardExpertise) {
-    bonus += 5;
-  }
-
-  return bonus;
-}
-
-/**
- * Detect penalties for a stock based on filings.
- * -10 for overdue filings (no filings in last 90 days)
- * -10 for regulatory issues (placeholder — could check for specific filing types or flags)
- */
-function detectPenalties(filingList: FilingRow[]): number {
-  let penalty = 0;
-
-  // -10 for overdue filings (no filings in last 90 days)
-  const now = new Date();
-  const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
-  const recentFilings = filingList.filter((f) => f.date >= ninetyDaysAgo);
-  if (recentFilings.length === 0 && filingList.length > 0) {
-    penalty += 10;
-  }
-
-  // -10 for regulatory issues (check for material press releases that might indicate issues)
-  const hasRegulatoryIssues = filingList.some(
-    (f) =>
-      f.isMaterial &&
-      f.type?.toLowerCase().includes('press release') &&
-      (f.title?.toLowerCase().includes('regulatory') ||
-        f.title?.toLowerCase().includes('compliance') ||
-        f.title?.toLowerCase().includes('sanction') ||
-        f.title?.toLowerCase().includes('violation'))
-  );
-  if (hasRegulatoryIssues) {
-    penalty += 10;
-  }
-
-  return penalty;
-}
+// --- OLD BONUS & PENALTY FUNCTIONS REMOVED ---
+// The following functions have been removed as part of the VETR Score V2 migration:
+// - detectBonuses() → bonuses are no longer applied to the score
+// - detectPenalties() → penalties are no longer applied to the score
 
 // --- Full VETR Score Calculation ---
 
 const CACHE_KEY_PREFIX = 'vetr_score:';
 const CACHE_TTL_SECONDS = 24 * 60 * 60; // 24 hours
 
-const WEIGHTS = {
-  pedigree: 0.25,
-  filing_velocity: 0.20,
-  red_flag: 0.25,
-  growth: 0.15,
-  governance: 0.15,
+// Base weights for the 4-pillar system
+const BASE_WEIGHTS = {
+  financial_survival: 0.35,
+  operational_efficiency: 0.25,
+  shareholder_structure: 0.25,
+  market_sentiment: 0.15,
 } as const;
 
 /**
- * Calculate the full VETR Score for a stock ticker.
+ * Calculate the full VETR Score V2 for a stock ticker using the 4-pillar system.
  *
- * Combines 5 component scores with weights:
- * - Pedigree (25%): Executive team quality
- * - Filing Velocity (20%): Filing frequency and timeliness
- * - Red Flag (25%): Inverted red flag composite (lower flags = higher score)
- * - Growth (15%): Revenue growth and capital metrics
- * - Governance (15%): Board independence and disclosure quality
+ * Combines 4 pillar scores with weights:
+ * - Financial Survival (35%): Cash Runway + Solvency
+ * - Operational Efficiency (25%): Sector-specific operational ratio
+ * - Shareholder Structure (25%): Pedigree + Dilution + Insider Alignment
+ * - Market Sentiment (15%): Liquidity + News Velocity
  *
- * Applies bonuses (+5 audited financials, +5 board expertise) and
- * penalties (-10 overdue filings, -10 regulatory issues).
+ * Handles null pillar weight redistribution: if a pillar's inputs are ALL null,
+ * it's skipped and its weight is redistributed proportionally to remaining pillars.
  *
  * Clamps final score to 0-100.
  * Caches result in Redis with 24h TTL.
  * Saves result to vetr_score_history table.
+ * Updates stocks.vetr_score with new overall score.
  *
  * @param ticker - Stock ticker symbol
- * @returns VetrScoreResult with overall score, components, bonuses, and penalties
+ * @returns VetrScoreResult with overall score, components, weights, and null_pillars
  */
 export async function calculateVetrScore(ticker: string): Promise<VetrScoreResult> {
   const upperTicker = ticker.toUpperCase();
@@ -1004,35 +762,99 @@ export async function calculateVetrScore(ticker: string): Promise<VetrScoreResul
     throw new NotFoundError(`Stock with ticker ${upperTicker} not found`);
   }
 
-  // Fetch executives and filings in parallel
-  const [execList, filingList] = await Promise.all([
+  // Fetch financial_data, executives, and filings in parallel
+  const [financialDataRow, execList, filingList] = await Promise.all([
+    getFinancialDataForTicker(upperTicker),
     getExecutivesForTicker(upperTicker),
     getFilingsForTicker(upperTicker),
   ]);
 
-  // Calculate each component score (0-100)
-  const pedigree = pedigreeScore(execList);
-  const filingVelocity = filingVelocityScore(filingList);
-  // Red flag composite score is 0 for now (will be provided by red-flag.service.ts in US-055+)
-  const redFlagComposite = 0;
-  const redFlag = redFlagComponent(redFlagComposite);
-  const growth = growthMetricsScore(stock);
-  const governance = governanceScore(execList, filingList);
+  // If no financial_data row exists, create a placeholder with all nulls
+  const financialInputs = financialDataRow ?? {
+    cash: null,
+    monthlyBurn: null,
+    totalDebt: null,
+    totalAssets: null,
+    explorationExp: null,
+    rAndDExp: null,
+    totalOpex: null,
+    gAndAExpense: null,
+    revenue: null,
+    sharesCurrent: null,
+    shares1YrAgo: null,
+    insiderShares: null,
+    totalShares: null,
+    avgVol30d: null,
+    daysSinceLastPr: null,
+  } as FinancialDataRow;
 
-  // Weighted combination
-  const weightedScore =
-    pedigree * WEIGHTS.pedigree +
-    filingVelocity * WEIGHTS.filing_velocity +
-    redFlag * WEIGHTS.red_flag +
-    growth * WEIGHTS.growth +
-    governance * WEIGHTS.governance;
+  // --- Calculate 4 Pillar Scores ---
 
-  // Bonuses and penalties
-  const bonusPoints = detectBonuses(execList, filingList);
-  const penaltyPoints = detectPenalties(filingList);
+  // P1: Financial Survival (35%)
+  const p1Result = financialSurvivalScore({
+    cash: financialInputs.cash,
+    monthly_burn: financialInputs.monthlyBurn,
+    total_debt: financialInputs.totalDebt,
+    total_assets: financialInputs.totalAssets,
+  });
 
-  // Final score with bonuses, penalties, and clamping
-  const overallScore = Math.max(0, Math.min(100, Math.round(weightedScore + bonusPoints - penaltyPoints)));
+  // P2: Operational Efficiency (25%)
+  const p2Result = operationalEfficiencyScore(
+    {
+      exploration_exp: financialInputs.explorationExp,
+      r_and_d_exp: financialInputs.rAndDExp,
+      total_opex: financialInputs.totalOpex,
+      g_and_a_expense: financialInputs.gAndAExpense,
+      revenue: financialInputs.revenue,
+    },
+    stock.sector
+  );
+
+  // P3: Shareholder Structure (25%)
+  const p3Result = shareholderStructureScore(execList, {
+    shares_current: financialInputs.sharesCurrent,
+    shares_1yr_ago: financialInputs.shares1YrAgo,
+    insider_shares: financialInputs.insiderShares,
+    total_shares: financialInputs.totalShares,
+  });
+
+  // P4: Market Sentiment (15%)
+  const p4Result = marketSentimentScore(
+    { price: stock.price },
+    {
+      avg_vol_30d: financialInputs.avgVol30d,
+      days_since_last_pr: financialInputs.daysSinceLastPr,
+    },
+    filingList
+  );
+
+  // --- Apply Null Pillar Weight Redistribution ---
+  const pillarResults = [
+    { pillar: 'financial_survival', score: p1Result?.score ?? null, baseWeight: BASE_WEIGHTS.financial_survival },
+    { pillar: 'operational_efficiency', score: p2Result?.score ?? null, baseWeight: BASE_WEIGHTS.operational_efficiency },
+    { pillar: 'shareholder_structure', score: p3Result?.score ?? null, baseWeight: BASE_WEIGHTS.shareholder_structure },
+    { pillar: 'market_sentiment', score: p4Result?.score ?? null, baseWeight: BASE_WEIGHTS.market_sentiment },
+  ];
+
+  const { adjustedWeights, nullPillars } = redistributeWeights(pillarResults);
+
+  // --- Calculate Overall Score ---
+  let overallScore = 0;
+  if (p1Result !== null) {
+    overallScore += p1Result.score * adjustedWeights.financial_survival;
+  }
+  if (p2Result !== null) {
+    overallScore += p2Result.score * adjustedWeights.operational_efficiency;
+  }
+  if (p3Result !== null) {
+    overallScore += p3Result.score * adjustedWeights.shareholder_structure;
+  }
+  if (p4Result !== null) {
+    overallScore += p4Result.score * adjustedWeights.market_sentiment;
+  }
+
+  // Clamp to 0-100 and round
+  overallScore = Math.max(0, Math.min(100, Math.round(overallScore)));
 
   const calculatedAt = new Date().toISOString();
 
@@ -1040,21 +862,40 @@ export async function calculateVetrScore(ticker: string): Promise<VetrScoreResul
     ticker: upperTicker,
     overall_score: overallScore,
     components: {
-      pedigree,
-      filing_velocity: filingVelocity,
-      red_flag: redFlag,
-      growth,
-      governance,
+      financial_survival: {
+        score: p1Result?.score ?? 0,
+        weight: adjustedWeights.financial_survival,
+        sub_scores: {
+          cash_runway: p1Result?.cashRunway ?? 0,
+          solvency: p1Result?.solvency ?? 0,
+        },
+      },
+      operational_efficiency: {
+        score: p2Result?.score ?? 0,
+        weight: adjustedWeights.operational_efficiency,
+        sub_scores: {
+          efficiency_ratio: p2Result?.efficiencyRatio ?? 0,
+        },
+      },
+      shareholder_structure: {
+        score: p3Result?.score ?? 0,
+        weight: adjustedWeights.shareholder_structure,
+        sub_scores: {
+          pedigree: p3Result?.pedigree ?? 0,
+          dilution_penalty: p3Result?.dilution ?? 0,
+          insider_alignment: p3Result?.insider ?? 0,
+        },
+      },
+      market_sentiment: {
+        score: p4Result?.score ?? 0,
+        weight: adjustedWeights.market_sentiment,
+        sub_scores: {
+          liquidity: p4Result?.liquidity ?? 0,
+          news_velocity: p4Result?.newsVelocity ?? 0,
+        },
+      },
     },
-    weights: {
-      pedigree: WEIGHTS.pedigree,
-      filing_velocity: WEIGHTS.filing_velocity,
-      red_flag: WEIGHTS.red_flag,
-      growth: WEIGHTS.growth,
-      governance: WEIGHTS.governance,
-    },
-    bonus_points: bonusPoints,
-    penalty_points: penaltyPoints,
+    null_pillars: nullPillars,
     calculated_at: calculatedAt,
   };
 
@@ -1063,6 +904,14 @@ export async function calculateVetrScore(ticker: string): Promise<VetrScoreResul
 
   // Save to vetr_score_history table
   await saveScoreToHistory(upperTicker, result);
+
+  // Update stocks.vetr_score with new overall score
+  if (db) {
+    await db
+      .update(stocks)
+      .set({ vetrScore: overallScore })
+      .where(eq(stocks.ticker, upperTicker));
+  }
 
   return result;
 }
@@ -1076,15 +925,28 @@ async function saveScoreToHistory(ticker: string, result: VetrScoreResult): Prom
   }
 
   try {
-    // TODO: VS2-009 will update this to use new 4-pillar structure
     await db.insert(vetrScoreHistory).values({
       stockTicker: ticker,
       overallScore: result.overall_score,
-      // Temporary mapping from old to new schema (will be replaced in VS2-009)
-      financialSurvivalScore: 0,
-      operationalEfficiencyScore: 0,
-      shareholderStructureScore: 0,
-      marketSentimentScore: 0,
+      // 4 Pillar Scores
+      financialSurvivalScore: result.components.financial_survival.score,
+      operationalEfficiencyScore: result.components.operational_efficiency.score,
+      shareholderStructureScore: result.components.shareholder_structure.score,
+      marketSentimentScore: result.components.market_sentiment.score,
+      // Sub-scores
+      cashRunwayScore: result.components.financial_survival.sub_scores.cash_runway,
+      solvencyScore: result.components.financial_survival.sub_scores.solvency,
+      efficiencyScore: Math.round(result.components.operational_efficiency.sub_scores.efficiency_ratio * 100), // Convert ratio to 0-100 score
+      pedigreeSubScore: result.components.shareholder_structure.sub_scores.pedigree,
+      dilutionPenaltyScore: result.components.shareholder_structure.sub_scores.dilution_penalty,
+      insiderAlignmentScore: result.components.shareholder_structure.sub_scores.insider_alignment,
+      liquidityScore: result.components.market_sentiment.sub_scores.liquidity,
+      newsVelocityScore: result.components.market_sentiment.sub_scores.news_velocity,
+      // Weights
+      p1Weight: result.components.financial_survival.weight,
+      p2Weight: result.components.operational_efficiency.weight,
+      p3Weight: result.components.shareholder_structure.weight,
+      p4Weight: result.components.market_sentiment.weight,
     });
   } catch (error) {
     console.error(`Failed to save VETR score history for ${ticker}:`, error);

@@ -387,8 +387,7 @@ adminRoutes.post('/stocks/:ticker/recalculate-score', async (c) => {
     ticker: scoreResult.ticker,
     overall_score: scoreResult.overall_score,
     components: scoreResult.components,
-    bonus_points: scoreResult.bonus_points,
-    penalty_points: scoreResult.penalty_points,
+    null_pillars: scoreResult.null_pillars,
     calculated_at: scoreResult.calculated_at,
   }));
 });
