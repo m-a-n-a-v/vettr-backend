@@ -274,3 +274,22 @@ Details:
   - VS2-012 was a minimal change story as expected - the trend calculation logic is schema-agnostic and only uses the overall_score field
   - Always grep for old column names across the entire codebase to catch all references, not just in service functions
 ---
+## VS2-013: Update score comparison for new schema
+Status: ✅ COMPLETE
+Date: 2026-02-15
+Details:
+- Reviewed getScoreComparison() function in src/services/vetr-score.service.ts (lines 1116-1197)
+- Function already correctly uses overall_score for sector ranking - no changes needed
+- No references to old column names (pedigreeScore, filingVelocityScore, redFlagScore, growthScore, governanceScore) found in the function
+- Verified GET /stocks/:ticker/vetr-score/compare route handler (lines 45-51 in vetr-score.routes.ts) - already correct
+- Comprehensive search confirmed only valid references exist: comments documenting removed functions and local variable pedigreeScore in shareholderStructureScore()
+- Build passes successfully
+- No code changes required - this was a verification story
+- **Learnings for future iterations:**
+  - VS2-013 was already satisfied by previous implementations (VS2-009, VS2-012)
+  - The getScoreComparison() function is schema-agnostic since it only uses overall_score for peer ranking
+  - Sector comparison logic computes percentile rank, sector average/high/low from overall_score values
+  - The function fetches peer stocks from the same sector and ranks them by vetrScore field from stocks table
+  - This story served as a validation checkpoint to ensure the comparison logic wasn't affected by the schema migration
+  - Similar to VS2-012 (score trend), comparison functions that only use overall_score require no changes for V2 schema
+---
