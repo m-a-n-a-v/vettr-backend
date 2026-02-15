@@ -1220,7 +1220,6 @@ export async function getScoreHistory(ticker: string, months: number = 6): Promi
     )
     .orderBy(desc(vetrScoreHistory.calculatedAt));
 
-  // TODO: VS2-011 will update this to return new 4-pillar structure
   return rows.map((row) => ({
     id: row.id,
     stock_ticker: row.stockTicker,
