@@ -7,6 +7,7 @@ export * from './users.js';
 export * from './stocks.js';
 export * from './filings.js';
 export * from './executives.js';
+export * from './financial-data.js';
 export * from './alert-rules.js';
 export * from './alerts.js';
 export * from './watchlists.js';
