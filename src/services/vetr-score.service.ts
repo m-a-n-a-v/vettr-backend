@@ -797,6 +797,77 @@ export function marketSentimentScore(
   };
 }
 
+// --- Null Pillar Weight Redistribution ---
+
+/**
+ * Redistributes weights when a pillar returns null.
+ *
+ * When a pillar's inputs are ALL null, it should be skipped from the overall
+ * score calculation. Remaining pillars get proportionally larger weights so
+ * they still sum to 1.0.
+ *
+ * Base weights: P1=0.35, P2=0.25, P3=0.25, P4=0.15
+ *
+ * Example: If P2 (0.25) is null, totalAvailable = 0.75
+ * - newP1 = 0.35 / 0.75 = 0.4667
+ * - newP3 = 0.25 / 0.75 = 0.3333
+ * - newP4 = 0.15 / 0.75 = 0.2000
+ *
+ * If all pillars are null, overall score = 0, all weights = 0
+ *
+ * @param pillarResults - Array of pillar results with pillar name, score (or null), and base weight
+ * @returns { adjustedWeights: Record<string, number>, nullPillars: string[] }
+ */
+export function redistributeWeights(
+  pillarResults: Array<{
+    pillar: string;
+    score: number | null;
+    baseWeight: number;
+  }>
+): { adjustedWeights: Record<string, number>; nullPillars: string[] } {
+  // Identify null pillars
+  const nullPillars = pillarResults
+    .filter((p) => p.score === null)
+    .map((p) => p.pillar);
+
+  // If all pillars are null, return zero weights
+  if (nullPillars.length === pillarResults.length) {
+    const adjustedWeights: Record<string, number> = {};
+    pillarResults.forEach((p) => {
+      adjustedWeights[p.pillar] = 0;
+    });
+    return { adjustedWeights, nullPillars };
+  }
+
+  // If no pillars are null, return base weights unchanged
+  if (nullPillars.length === 0) {
+    const adjustedWeights: Record<string, number> = {};
+    pillarResults.forEach((p) => {
+      adjustedWeights[p.pillar] = p.baseWeight;
+    });
+    return { adjustedWeights, nullPillars: [] };
+  }
+
+  // Calculate total available weight from non-null pillars
+  const totalAvailable = pillarResults
+    .filter((p) => p.score !== null)
+    .reduce((sum, p) => sum + p.baseWeight, 0);
+
+  // Redistribute weights proportionally
+  const adjustedWeights: Record<string, number> = {};
+  pillarResults.forEach((p) => {
+    if (p.score === null) {
+      // Null pillar gets zero weight
+      adjustedWeights[p.pillar] = 0;
+    } else {
+      // Non-null pillar gets proportionally larger weight
+      adjustedWeights[p.pillar] = p.baseWeight / totalAvailable;
+    }
+  });
+
+  return { adjustedWeights, nullPillars };
+}
+
 // --- VETR Score Result Types ---
 
 export interface VetrScoreResult {
