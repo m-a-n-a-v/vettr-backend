@@ -30,8 +30,8 @@ function validateListParams(query: Record<string, string | undefined>) {
   const limit = query.limit ? parseInt(query.limit, 10) : 25;
   const offset = query.offset ? parseInt(query.offset, 10) : 0;
 
-  if (isNaN(limit) || limit <= 0 || limit > 100) {
-    throw new ValidationError('Limit must be a positive integer between 1 and 100');
+  if (isNaN(limit) || limit <= 0 || limit > 2000) {
+    throw new ValidationError('Limit must be a positive integer between 1 and 2000');
   }
 
   if (isNaN(offset) || offset < 0) {
