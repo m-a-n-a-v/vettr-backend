@@ -9,3 +9,7 @@ coverage/
 .vitest/
 drizzle/meta/
 .vercel
+
+# Ingestion data (large, machine-generated)
+scripts/ingest/data/
+scripts/ingest/venv/

@@ -17,7 +17,9 @@
     "db:migrate": "drizzle-kit migrate",
     "db:push": "tsx node_modules/drizzle-kit/bin.cjs push",
     "db:studio": "drizzle-kit studio",
-    "db:seed": "node --env-file=.env node_modules/.bin/tsx scripts/seed.ts"
+    "db:seed": "node --env-file=.env node_modules/.bin/tsx scripts/seed.ts",
+    "db:ingest": "node --env-file=.env node_modules/.bin/tsx scripts/ingest/03_ingest_to_db.ts",
+    "db:recalculate-scores": "node --env-file=.env node_modules/.bin/tsx scripts/ingest/04_recalculate_scores.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.0",
