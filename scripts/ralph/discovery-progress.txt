@@ -1,0 +1,150 @@
+# Ralph Progress Log - VETTR Discovery Page Enhancements
+Started: 2026-02-16
+Backend: /Users/manav/Space/code/vettr-backend
+iOS: /Users/manav/.claude-worktrees/vettr-ios/charming-lichterman
+Ops: /Users/manav/Space/code/vettr-ops-dashboard
+---
+
+## DISC-01: Backend: Add /discovery/collections endpoint
+Status: ✅ COMPLETE
+Date: 2026-02-16
+Repo: backend
+Details:
+- Created GET /v1/discovery/collections endpoint with JWT auth
+- Implemented 6 curated stock collections in discovery.service.ts:
+  1. Clean Sheets - High score (>75), no red flags, no debt
+  2. Cash-Rich Juniors - <$100M cap, >20% cash ratio, no debt
+  3. Critical Mineral Powerhouses - Copper, Lithium, Uranium, Nickel sectors
+  4. Serial Winners - High pedigree score (>=75)
+  5. Dividend Aristocrats - Top TSX stocks (proxy implementation)
+  6. Insider Conviction - High score with >20% insider ownership
+- Each collection returns up to 30 stocks sorted by VETR score
+- Results cached in Redis for 30 minutes
+- Query logic uses stocks, financial_data, vetr_score_history, and red_flag_history tables
+- All acceptance criteria met: returns 6 collections with proper structure, cached, npm build passes
+Files changed:
+- src/services/discovery.service.ts (new)
+- src/routes/discovery.routes.ts (new)
+- src/routes/index.ts (modified)
+- src/app.ts (modified)
+Commit: f966bfd
+---
+
+## DISC-02: Backend: Add multi-sector filter to GET /stocks
+Status: ✅ COMPLETE
+Date: 2026-02-16
+Repo: backend
+Details:
+- Updated GET /v1/stocks endpoint to support comma-separated sector filtering
+- Backward compatible: single sector still works with eq() filter
+- Multi-sector support: comma-separated values use inArray() for OR filtering
+- Examples:
+  - GET /stocks?sector=Gold → returns only Gold sector stocks
+  - GET /stocks?sector=Gold,Silver,Copper → returns stocks in any of these sectors
+- Updated stock.service.ts getStocks() function with sector parsing logic
+- All acceptance criteria met: multi-select works, backward compatible, npm build passes
+Files changed:
+- src/services/stock.service.ts (modified)
+Commit: 6889ea8
+---
+
+## DISC-03: iOS: Multi-select sector filter on Discovery page
+Status: ✅ COMPLETE
+Date: 2026-02-16
+Repo: ios
+Details:
+- Updated Discovery page sector filter to support multi-select functionality
+- Changed @State var from selectedSector: String? to selectedSectors: Set<String>
+- Modified sectorChipButton to toggle sectors in/out of the set
+- Individual sector chips toggle on tap (add/remove from set)
+- "All" button clears all selections and shows as selected when set is empty
+- Updated filteredStocks computed property to filter by multiple sectors using Set.contains()
+- Multi-sector filter combines with search filter (both filters apply together)
+- Visual feedback: selected chips show accent background, unselected show card background
+- All acceptance criteria met: multi-select works, "All" button works, filters combine, compiles successfully
+Files changed:
+- vettr-ios/Features/Discovery/Views/DiscoveryView.swift (modified)
+Commit: 426a7f2
+---
+
+## DISC-04: iOS: Add Featured Collections section to Discovery page
+Status: ✅ COMPLETE
+Date: 2026-02-16
+Repo: ios
+Details:
+- Created FeaturedCollection data model with CollectionStock for transient API data
+- Built CollectionCardView component displaying icon, title, tagline, and criteria summary in a card layout
+- Implemented CollectionDetailView showing full collection details and stock list
+- Added DiscoveryEndpoint with DTO structs (DiscoveryCollectionsResponse, CollectionDTO, CollectionStockDTO)
+- Updated DiscoveryView to include Featured Collections section above Featured Stocks
+- Collections displayed in 2-column adaptive grid (min 160pt width per card)
+- Fetches collections from GET /discovery/collections API on view appear
+- Loading skeleton shown while fetching (6 placeholder cards)
+- Tapping collection card navigates to detail view with full stock list
+- Each stock in detail view shows ticker, name, price, change%, VETR score
+- Navigation to StockDetailView if stock exists in SwiftData
+- All acceptance criteria met: 6 cards in grid, proper data display, navigation works, API integration complete, compiles successfully
+Files changed:
+- vettr-ios/Features/Discovery/Models/FeaturedCollection.swift (new)
+- vettr-ios/Features/Discovery/Views/CollectionCardView.swift (new)
+- vettr-ios/Features/Discovery/Views/CollectionDetailView.swift (new)
+- vettr-ios/Core/Services/Networking/DiscoveryEndpoint.swift (new)
+- vettr-ios/Features/Discovery/Views/DiscoveryView.swift (modified)
+Commit: ec67911
+---
+
+## DISC-05: iOS: Sync service — fetch collections from API
+Status: ✅ COMPLETE
+Date: 2026-02-16
+Repo: ios
+Details:
+- This story was already completed as part of DISC-04 implementation
+- DiscoveryEndpoint.swift created with all required components:
+  - GET /discovery/collections endpoint case using JWT auth (not admin secret)
+  - DTO structs: DiscoveryCollectionsResponse, CollectionDTO, CollectionStockDTO
+  - Proper snake_case decoding with CodingKeys for criteria_summary, market_cap, price_change, vetr_score
+  - Mapping functions to convert DTOs to domain models (FeaturedCollection, CollectionStock)
+- DiscoveryView.swift already fetches collections in .task {} using APIClient().retry()
+- JWT authentication handled automatically by APIClient (no admin secret needed)
+- All acceptance criteria met: DTOs decode correctly, uses JWT auth, DiscoveryView fetches on appear, compiles successfully
+Files changed:
+- Already completed in DISC-04 (no additional changes needed)
+---
+
+## DISC-06: Backend: Ensure /discovery/collections works with JWT auth
+Status: ✅ COMPLETE
+Date: 2026-02-16
+Repo: backend
+Details:
+- This story was already completed correctly in DISC-01 implementation
+- Verified that /discovery/collections endpoint uses JWT auth (authMiddleware) not admin secret
+- Route registered at /v1/discovery in app.ts (line 223)
+- discoveryRoutes applies authMiddleware globally to all discovery routes (discovery.routes.ts:14)
+- Endpoint accessible to all authenticated users regardless of tier (free, pro, premium)
+- No admin secret required - uses standard JWT Bearer token authentication
+- All acceptance criteria met: accessible with JWT token, no admin secret required, works for all tiers, npm build passes
+Files changed:
+- Already correctly implemented in DISC-01 (no changes needed)
+---
+
+## DISC-07: Ops Dashboard: Add Discovery Collections preview to Dashboard
+Status: ✅ COMPLETE
+Date: 2026-02-16
+Repo: ops
+Details:
+- Added useDiscoveryCollections hook to useAnalytics.ts for fetching collections
+- Hook fetches from /discovery/collections endpoint (uses admin secret via apiClient interceptor)
+- Added DiscoveryCollection and DiscoveryCollectionsData TypeScript interfaces
+- Created Discovery Collections section in Dashboard.tsx showing 6 collection cards
+- Layout: responsive 3-column grid (1 col on mobile, 2 on tablet, 3 on desktop)
+- Each card displays: icon emoji, collection name, tagline, and stock count badge
+- Loading state: 6 skeleton placeholder cards while fetching
+- Empty state: icon + "No collections available" message
+- Cards have hover effect (shadow on hover) and proper spacing
+- Section positioned after Metrics Summary Cards and before User Growth Chart
+- All acceptance criteria met: shows 6 cards with names and stock counts, responsive grid layout, data fetched from API, npm build passes
+Files changed:
+- src/hooks/useAnalytics.ts (modified - added useDiscoveryCollections hook)
+- src/pages/Dashboard.tsx (modified - added Discovery Collections section)
+Commit: (pending)
+---

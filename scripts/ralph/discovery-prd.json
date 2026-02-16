@@ -1,0 +1,114 @@
+{
+  "project": "VETTR Discovery Page Enhancements",
+  "branchName": "main",
+  "description": "Multi-select sector filter + 6 curated featured collections on Discovery page across backend API, iOS app, and ops dashboard.",
+  "repos": {
+    "backend": "/Users/manav/Space/code/vettr-backend",
+    "ios": "/Users/manav/.claude-worktrees/vettr-ios/charming-lichterman",
+    "ops": "/Users/manav/Space/code/vettr-ops-dashboard"
+  },
+  "stories": [
+    {
+      "id": "DISC-01",
+      "title": "Backend: Add /discovery/collections endpoint",
+      "priority": 1,
+      "passes": true,
+      "repo": "backend",
+      "description": "Create a new route GET /v1/discovery/collections that returns 6 curated stock collections. Each collection is computed server-side from existing DB data. No new tables needed — just query logic.\n\nEndpoint: GET /discovery/collections (authenticated, any tier)\nResponse: { success: true, data: { collections: [...] } }\n\nEach collection object:\n{\n  id: string,\n  name: string,\n  tagline: string,\n  icon: string (SF Symbol name for iOS / emoji fallback),\n  criteria_summary: string (the bottom-left stat text),\n  stocks: Stock[] (array of matching stocks with ticker, name, exchange, sector, marketCap, price, priceChange, vetrScore)\n}\n\nThe 6 collections and their query logic:\n\n1. clean_sheets — 'The Clean Sheet Collection'\n   Tagline: 'Score >75, Zero Red Flags. Safety first.'\n   Icon: 'checkmark.shield' / ✅\n   Query: stocks WHERE vetr_score > 75 AND stock has zero entries in red_flag_history (or none with severity High/Critical in last 90 days) AND financial_data.total_debt = 0 (or IS NULL for stocks without debt data)\n   Criteria summary: 'Avg Vettr Score: {avg}  Stocks: {count}'\n\n2. cash_rich_juniors — 'Cash-Rich Juniors'\n   Tagline: '<$100M Cap, >20% Cash, No Debt. Funded for growth.'\n   Icon: 'banknote' / 💰\n   Query: stocks WHERE market_cap < 100000000 AND financial_data.cash > 0 AND financial_data.total_assets > 0 AND (financial_data.cash / financial_data.total_assets) > 0.20 AND (financial_data.total_debt IS NULL OR financial_data.total_debt = 0)\n   Criteria summary: 'Avg Runway: {avg_runway} Yrs  Stocks: {count}' (runway = cash / abs(monthly_burn) / 12, handle nulls)\n\n3. critical_mineral_powerhouses — 'Critical Mineral Powerhouses'\n   Tagline: 'Copper, Lithium, Uranium, Nickel. Powering the future.'\n   Icon: 'bolt.fill' / ⚡\n   Query: stocks WHERE sector IN ('Copper', 'Lithium', 'Uranium', 'Nickel', 'Battery Metals', 'Critical Minerals', 'Base Metals') — also do case-insensitive ILIKE matching for sector containing these keywords\n   Criteria summary: 'Sector Beta: {placeholder}  Stocks: {count}'\n\n4. serial_winners — 'The Serial Winners (High Pedigree)'\n   Tagline: 'Management with 2+ successful exits. Bet on the jockey.'\n   Icon: 'trophy' / 🏆\n   Query: stocks WHERE the latest vetr_score_history entry has pedigree_sub_score >= 75\n   Criteria summary: 'Avg Pedigree Score: {avg}  Stocks: {count}'\n\n5. dividend_aristocrats — 'Dividend Aristocrats (North)'\n   Tagline: 'TSX companies with 5+ years consecutive dividend growth.'\n   Icon: 'crown' / 👑\n   Query: stocks WHERE exchange = 'TSX' AND vetr_score >= 50 — This is a simplified proxy since we don't track dividend history. Limit to 20 highest-scoring TSX stocks.\n   Criteria summary: 'Avg Yield: N/A  Stocks: {count}'\n\n6. insider_conviction — 'Insider Conviction'\n   Tagline: 'High-score companies with >20% insider ownership.'\n   Icon: 'person.badge.shield.checkmark' / 🛡️\n   Query: stocks WHERE vetr_score >= 60 AND financial_data.insider_shares IS NOT NULL AND financial_data.total_shares IS NOT NULL AND financial_data.total_shares > 0 AND (financial_data.insider_shares::float / financial_data.total_shares::float) > 0.20\n   Criteria summary: 'Avg Insider: {avg_pct}%  Stocks: {count}'\n\nImplementation notes:\n- Create src/services/discovery.service.ts with getCollections() function\n- Create src/routes/discovery.routes.ts with the GET endpoint\n- Register route in src/routes/index.ts\n- Cache the result in Redis for 30 minutes (key: 'discovery:collections')\n- Each collection should return max 30 stocks, sorted by vetr_score desc\n- Use existing Drizzle schema and db instance\n- All JSON fields use snake_case\n- Must pass npm run build",
+      "acceptance": [
+        "GET /discovery/collections returns 6 collections with stock arrays",
+        "Each collection has id, name, tagline, icon, criteria_summary, stocks[]",
+        "Collections are cached in Redis for 30 minutes",
+        "npm run build passes"
+      ]
+    },
+    {
+      "id": "DISC-02",
+      "title": "Backend: Add multi-sector filter to GET /stocks",
+      "priority": 2,
+      "passes": true,
+      "repo": "backend",
+      "description": "Update the GET /v1/stocks endpoint to support multiple sector values. Currently `sector` query param accepts a single string. Change it to accept comma-separated values.\n\nExamples:\n- GET /stocks?sector=Gold → existing behavior (single sector)\n- GET /stocks?sector=Gold,Silver,Copper → returns stocks in any of these sectors\n\nImplementation:\n- In src/routes/stocks.routes.ts or src/services/stock.service.ts, parse the sector param\n- If it contains commas, split and use drizzle `inArray(stocks.sector, sectorArray)` instead of `eq(stocks.sector, sector)`\n- Keep backward compatibility: single sector still works as before\n- Must pass npm run build",
+      "acceptance": [
+        "GET /stocks?sector=Gold returns only Gold sector stocks",
+        "GET /stocks?sector=Gold,Silver returns Gold and Silver stocks",
+        "Backward compatible with existing single-sector usage",
+        "npm run build passes"
+      ]
+    },
+    {
+      "id": "DISC-03",
+      "title": "iOS: Multi-select sector filter on Discovery page",
+      "priority": 3,
+      "passes": true,
+      "repo": "ios",
+      "description": "Update the Discovery page sector filter to support multi-select. When 'All' is selected, no sector filter is applied (existing behavior). When the user taps individual sectors, they can select multiple — each tap toggles that sector on/off.\n\nChanges to DiscoveryView.swift:\n1. Change `@State private var selectedSector: String?` to `@State private var selectedSectors: Set<String>`\n2. Update `sectorChipButton` to toggle sectors in/out of the set\n3. When selectedSectors is empty, show all stocks (equivalent to 'All')\n4. The 'All' button should clear the set (deselect everything)\n5. Visual: selected chips get accent background, unselected get card background (same styling, just multiple can be active)\n6. Update `filteredStocks` computed property to filter by `selectedSectors.contains(stock.sector)`\n7. If selectedSectors is empty, don't filter by sector at all\n\nKeep the existing search filter logic — sector filter AND search filter should combine.\n\nMust compile with Xcode (swift build or xcodebuild).",
+      "acceptance": [
+        "User can tap multiple sector chips to select them",
+        "Tapping a selected chip deselects it",
+        "'All' button clears all selections",
+        "Stock list filters correctly by multiple sectors",
+        "Search + multi-sector filter work together",
+        "Compiles successfully"
+      ]
+    },
+    {
+      "id": "DISC-04",
+      "title": "iOS: Add Featured Collections section to Discovery page",
+      "priority": 4,
+      "passes": true,
+      "repo": "ios",
+      "description": "Replace the current 'Featured Stocks' horizontal carousel with a 'Featured Collections' grid that shows 6 curated collection cards. The design should match the attached reference image: cards in a 2-column (iPhone) or 3-column (iPad) grid, each showing icon + title + tagline + stats.\n\nNew files to create:\n- vettr-ios/Features/Discovery/Models/FeaturedCollection.swift — data model\n- vettr-ios/Features/Discovery/Views/CollectionCardView.swift — card component\n- vettr-ios/Features/Discovery/Views/CollectionDetailView.swift — detail view showing stocks in collection\n\nFeaturedCollection model:\n```swift\nstruct FeaturedCollection: Identifiable, Hashable {\n    let id: String\n    let name: String\n    let tagline: String\n    let icon: String  // SF Symbol name\n    let criteriaSummary: String\n    let stocks: [Stock]\n}\n```\n\nCollectionCardView design (matching reference image):\n- Dark card background (Color.vettr.cardBackground) with subtle gradient\n- Top-left: SF Symbol icon in a circle with accent tint\n- Title: bold, white text\n- Tagline: smaller gray text, 2-3 lines max\n- Bottom: criteria summary text in accent color (e.g., 'Avg Vettr Score: 82  Stocks: 18')\n- Card has rounded corners (16pt), slight shadow\n- Card is tappable → navigates to CollectionDetailView\n\nCollectionDetailView:\n- Navigation title = collection name\n- List of stocks from the collection using existing StockRowView or similar\n- Each stock row shows: ticker, name, price, change%, VETR score\n\nDiscoveryView changes:\n- Add a new section 'Featured Collections' ABOVE the existing Featured Stocks section\n- Use LazyVGrid with 2 columns (adaptive, min 160pt)\n- Fetch collections from API: GET /discovery/collections\n- Add fetchCollections() method to the view or a new ViewModel\n- Show skeleton loading state while fetching\n- Keep the existing 'Featured Stocks' section below (renamed to 'Top Rated' if desired)\n\nAPI integration:\n- Use existing APIClient to fetch from /discovery/collections\n- Create a DTO struct (DiscoveryCollectionsResponse) to decode the response\n- Map DTO to FeaturedCollection model\n- Cache locally (just @State, no persistence needed)\n\nTheming: use existing Color.vettr.*, Typography.*, Spacing.* design tokens.\nMust compile successfully.",
+      "acceptance": [
+        "6 collection cards displayed in grid layout",
+        "Each card shows icon, title, tagline, stats",
+        "Tapping a card navigates to detail view with stock list",
+        "Collections fetched from /discovery/collections API",
+        "Loading skeleton shown while fetching",
+        "Compiles successfully"
+      ]
+    },
+    {
+      "id": "DISC-05",
+      "title": "iOS: Sync service — fetch collections from API",
+      "priority": 5,
+      "passes": true,
+      "repo": "ios",
+      "description": "Add the networking layer for fetching discovery collections. This needs:\n\n1. Add a new endpoint case to AdminEndpoints.swift or create a DiscoveryEndpoint:\n   - GET /discovery/collections (no admin secret needed, uses JWT auth)\n\n2. Create DTO structs for the response:\n```swift\nstruct DiscoveryCollectionsResponse: Decodable {\n    let success: Bool\n    let data: DiscoveryCollectionsData\n}\n\nstruct DiscoveryCollectionsData: Decodable {\n    let collections: [CollectionDTO]\n}\n\nstruct CollectionDTO: Decodable {\n    let id: String\n    let name: String\n    let tagline: String\n    let icon: String\n    let criteriaSummary: String\n    let stocks: [CollectionStockDTO]\n    \n    enum CodingKeys: String, CodingKey {\n        case id, name, tagline, icon, stocks\n        case criteriaSummary = \"criteria_summary\"\n    }\n}\n\nstruct CollectionStockDTO: Decodable {\n    let ticker: String\n    let name: String\n    let exchange: String\n    let sector: String\n    let marketCap: Double?\n    let price: Double?\n    let priceChange: Double?\n    let vetrScore: Int?\n    \n    enum CodingKeys: String, CodingKey {\n        case ticker, name, exchange, sector\n        case marketCap = \"market_cap\"\n        case price\n        case priceChange = \"price_change\"\n        case vetrScore = \"vetr_score\"\n    }\n}\n```\n\n3. The endpoint should NOT use admin secret — it's a user-facing endpoint. Check how stocks.routes.ts auth works (uses JWT authMiddleware) and use the same auth header pattern.\n\n4. Wire up in DiscoveryView: on .task { }, fetch collections and set @State var.\n\nMust compile successfully.",
+      "acceptance": [
+        "DTO structs correctly decode /discovery/collections response",
+        "Endpoint uses JWT auth (not admin secret)",
+        "DiscoveryView fetches and displays collections on appear",
+        "Compiles successfully"
+      ]
+    },
+    {
+      "id": "DISC-06",
+      "title": "Backend: Ensure /discovery/collections works with JWT auth",
+      "priority": 6,
+      "passes": true,
+      "repo": "backend",
+      "description": "The /discovery/collections endpoint from DISC-01 needs to be accessible with regular JWT auth (not just admin). Make sure:\n\n1. The route is registered under the authenticated routes (uses authMiddleware)\n2. It does NOT require admin secret\n3. It works for all tiers (free, pro, premium)\n4. Test by calling with a JWT token\n\nIf DISC-01 already did this correctly, just verify and mark as passed.\nMust pass npm run build.",
+      "acceptance": [
+        "Endpoint accessible with JWT auth token",
+        "No admin secret required",
+        "Works for free tier users",
+        "npm run build passes"
+      ]
+    },
+    {
+      "id": "DISC-07",
+      "title": "Ops Dashboard: Add Discovery Collections preview to Dashboard",
+      "priority": 7,
+      "passes": true,
+      "repo": "ops",
+      "description": "Add a new section to the ops dashboard's main Dashboard page showing a summary of the 6 discovery collections. This gives ops visibility into what users see.\n\nIn /Users/manav/Space/code/vettr-ops-dashboard/src/pages/Dashboard.tsx:\n\n1. Add a new analytics hook or extend useMetrics to fetch /admin/discovery-collections-stats (or just use the existing /discovery/collections endpoint with admin auth)\n\n2. Add a new section 'Discovery Collections' below the existing stats cards:\n   - 6 cards in a 3×2 grid (or responsive)\n   - Each card shows: collection name, stock count, icon/emoji\n   - Simple design matching existing dashboard card style\n\n3. If the backend doesn't have an admin endpoint for collections yet, use the regular /discovery/collections endpoint but authenticate with admin secret.\n\nMust build successfully (npm run build in the ops-dashboard repo).",
+      "acceptance": [
+        "Dashboard shows 6 collection cards with names and stock counts",
+        "Responsive grid layout",
+        "Data fetched from API",
+        "npm run build passes"
+      ]
+    }
+  ]
+}
