@@ -24,6 +24,7 @@ import {
   watchlistRoutes,
   syncRoutes,
   adminRoutes,
+  discoveryRoutes,
 } from './routes/index.js';
 import type { AuthUser } from './middleware/auth.js';
 
@@ -219,6 +220,7 @@ app.route('/subscription', subscriptionRoutes);
 app.route('/alerts', alertRoutes);
 app.route('/watchlist', watchlistRoutes);
 app.route('/sync', syncRoutes);
+app.route('/discovery', discoveryRoutes);
 app.route('/admin', adminRoutes);
 
 export { app };

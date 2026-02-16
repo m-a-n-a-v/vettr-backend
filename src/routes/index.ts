@@ -11,3 +11,4 @@ export { alertRoutes } from './alerts.routes.js';
 export { watchlistRoutes } from './watchlist.routes.js';
 export { syncRoutes } from './sync.routes.js';
 export { adminRoutes } from './admin.routes.js';
+export { discoveryRoutes } from './discovery.routes.js';
