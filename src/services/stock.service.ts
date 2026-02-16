@@ -1,4 +1,4 @@
-import { eq, ilike, or, sql, asc, desc, and } from 'drizzle-orm';
+import { eq, ilike, or, sql, asc, desc, and, inArray } from 'drizzle-orm';
 import { db } from '../config/database.js';
 import { stocks, executives, filings, watchlistItems } from '../db/schema/index.js';
 import { InternalError, NotFoundError } from '../utils/errors.js';
@@ -39,7 +39,13 @@ export async function getStocks(options: GetStocksOptions): Promise<GetStocksRes
   const conditions = [];
 
   if (sector) {
-    conditions.push(eq(stocks.sector, sector));
+    // Support comma-separated sectors for multi-select
+    const sectors = sector.split(',').map(s => s.trim()).filter(s => s.length > 0);
+    if (sectors.length > 1) {
+      conditions.push(inArray(stocks.sector, sectors));
+    } else if (sectors.length === 1) {
+      conditions.push(eq(stocks.sector, sectors[0]));
+    }
   }
 
   if (exchange) {
