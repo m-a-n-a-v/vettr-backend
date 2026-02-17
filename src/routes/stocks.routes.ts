@@ -178,7 +178,10 @@ stockRoutes.get('/:ticker/executives', async (c) => {
     const previousCompanies = (exec.previousCompanies as string[]) || [];
     const totalExperience = yearsAtCompany + (previousCompanies.length * 3);
     // Compute tenure risk based on years at company
-    const tenureRisk = yearsAtCompany >= 3 ? 'Stable' : yearsAtCompany >= 1 ? 'Watch' : 'Flight Risk';
+    // If tenure data is unknown (null/0), mark as Unknown instead of Flight Risk
+    const tenureRisk = exec.yearsAtCompany == null || exec.yearsAtCompany === 0
+      ? 'Unknown'
+      : yearsAtCompany >= 3 ? 'Stable' : yearsAtCompany >= 1 ? 'Watch' : 'Flight Risk';
 
     return {
       id: exec.id,
