@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { adminAuthMiddleware } from '../middleware/admin-auth.js';
 import { adminService } from '../services/admin.service.js';
+import { getCollections } from '../services/discovery.service.js';
 import { success } from '../utils/response.js';
 import { createAdminCrudRoutes } from './admin-crud.factory.js';
 import { users, stocks, executives, filings, alertRules, alerts, vetrScoreHistory, redFlagHistory, syncHistory, userSettings, refreshTokens, waitlist } from '../db/schema/index.js';
@@ -685,6 +686,15 @@ adminRoutes.get('/analytics/stock-health', async (c) => {
       most_flags: mostFlags,
     },
   }));
+});
+
+/**
+ * GET /admin/discovery/collections
+ * Returns curated discovery collections (admin-accessible version)
+ */
+adminRoutes.get('/discovery/collections', async (c) => {
+  const result = await getCollections();
+  return c.json(success(result));
 });
 
 export { adminRoutes };
