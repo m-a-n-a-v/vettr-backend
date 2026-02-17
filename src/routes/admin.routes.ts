@@ -3,7 +3,7 @@ import { adminAuthMiddleware } from '../middleware/admin-auth.js';
 import { adminService } from '../services/admin.service.js';
 import { success } from '../utils/response.js';
 import { createAdminCrudRoutes } from './admin-crud.factory.js';
-import { users, stocks, executives, filings, alertRules, alerts, vetrScoreHistory, redFlagHistory, syncHistory, userSettings, refreshTokens } from '../db/schema/index.js';
+import { users, stocks, executives, filings, alertRules, alerts, vetrScoreHistory, redFlagHistory, syncHistory, userSettings, refreshTokens, waitlist } from '../db/schema/index.js';
 import { watchlistItemsRoutes, filingReadsRoutes, redFlagAcknowledgmentsRoutes } from './admin-composite-pk.routes.js';
 import { db } from '../config/database.js';
 import { eq, sql } from 'drizzle-orm';
@@ -273,6 +273,25 @@ const refreshTokensRoutes = createAdminCrudRoutes({
 });
 
 adminRoutes.route('/refresh-tokens', refreshTokensRoutes);
+
+/**
+ * CRUD routes for waitlist table
+ * - GET /admin/waitlist - List waitlist entries with pagination, search, sort
+ * - GET /admin/waitlist/:id - Get a single waitlist entry by ID
+ * - POST /admin/waitlist - Create a new waitlist entry
+ * - PUT /admin/waitlist/:id - Update a waitlist entry
+ * - DELETE /admin/waitlist/:id - Delete a waitlist entry
+ */
+const waitlistAdminRoutes = createAdminCrudRoutes({
+  tableName: 'waitlist',
+  table: waitlist,
+  primaryKey: 'id',
+  searchableColumns: ['email'],
+  filterableColumns: ['source'],
+  sortableColumns: ['email', 'createdAt', 'source'],
+});
+
+adminRoutes.route('/waitlist', waitlistAdminRoutes);
 
 /**
  * Composite primary key tables (no single 'id' column)

@@ -25,6 +25,8 @@ import {
   syncRoutes,
   adminRoutes,
   discoveryRoutes,
+  waitlistRoutes,
+  pulseRoutes,
 } from './routes/index.js';
 import type { AuthUser } from './middleware/auth.js';
 
@@ -222,6 +224,8 @@ app.route('/watchlist', watchlistRoutes);
 app.route('/sync', syncRoutes);
 app.route('/discovery', discoveryRoutes);
 app.route('/admin', adminRoutes);
+app.route('/waitlist', waitlistRoutes);
+app.route('/pulse', pulseRoutes);
 
 export { app };
 export default app;

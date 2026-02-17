@@ -1,0 +1,233 @@
+# Ralph Pulse Profile Progress Log
+# Started: 2026-02-16
+## 2026-02-16 - PULSE-I01 Completed
+Story: PULSE-I01 - iOS: Pulse page filter all data by watchlist stocks
+Status: ✅ COMPLETED
+
+Changes:
+- Modified PulseView.swift @Query to filter stocks where isFavorite==true using #Predicate
+- Renamed filings query to allFilings and created computed property recentMaterialFilings that filters by watchlist stock IDs
+- Added emptyWatchlistState view using EmptyStateView with 'star.circle' icon
+- All computed metrics (riskDistribution, topGainer, topLoser, movers, topRatedStocks) now use only watchlisted stocks
+- Empty state shows "Your Watchlist is Empty" with "Browse Stocks" button when no watchlisted stocks exist
+- Skeleton loading state preserved for initial load
+
+Build: ✅ BUILD SUCCEEDED
+Commit: e314165 - feat: PULSE-I01 - iOS: Pulse page filter all data by watchlist stocks
+Pushed: origin/claude/charming-lichterman
+
+## 2026-02-16 - PULSE-I02 Completed
+Story: PULSE-I02 - iOS: Stocks page 'My Watchlist' section + watchlist management
+Status: ✅ COMPLETED
+
+Changes:
+- Added @Query for watchlist stocks (isFavorite==true) in StocksView.swift
+- Added @Environment(\.authState) to access user's tier for watchlist limits
+- Created dedicated 'My Watchlist' section at top of Stocks page before 'All Stocks' section
+- Implemented watchlistRow view showing stock details with remove button (minus.circle.fill, red)
+- Added watchlist count display showing 'X / Y stocks' with tier limit ('unlimited' for premium)
+- Added inline empty state "No stocks in your watchlist yet" when watchlist is empty
+- Removed old 'Favorites' toggle button from search/filter bar
+- Modified StockDetailView to enforce watchlist limits when toggling favorite ON
+- Added @Query for watchlistStocks count in StockDetailView
+- Implemented tier limit check that prevents adding when limit reached
+- Added alert "Watchlist limit reached. Upgrade to [next tier] for more." with heavy haptic feedback
+- All Stocks section continues to show all stocks (not filtered by watchlist status)
+
+Build: ✅ BUILD SUCCEEDED
+Commit: 4853455 - feat: PULSE-I02 - iOS: Stocks page 'My Watchlist' section + watchlist management
+Pushed: origin/claude/charming-lichterman
+
+## 2026-02-16 - PULSE-I03 Completed
+Story: PULSE-I03 - iOS: 'See All' navigation from Pulse to relevant sections
+Status: ✅ COMPLETED
+
+Changes:
+- Added PulseDestination enum for navigation destinations (allFilings, topScores, topMovers)
+- Added NavigationStack wrapper to PulseView.swift with NavigationPath state for programmatic navigation
+- Added action closures to all three SectionHeaderView calls that append destinations to navigation path
+- Created AllFilingsListView: Simple list view showing all watchlist filings with stock ticker, title, type, and date
+- Created WatchlistStocksListView: Reusable list view for showing watchlist stocks with full details and VETR score badges
+- Added navigationDestination modifiers for PulseDestination enum (routes to appropriate list views)
+- Added navigationDestination for Stock type to navigate to StockDetailView
+- Made stock cards in Top VETTR Scores section tappable via NavigationLink
+- Made stock rows in Top Movers section tappable via NavigationLink
+- Recent Events 'See All' navigates to full watchlist filings list
+- Top VETTR Scores 'See All' navigates to stocks sorted by VETR score (descending)
+- Top Movers 'See All' navigates to stocks sorted by absolute price change (descending)
+
+Build: ✅ BUILD SUCCEEDED
+Commit: 12bc93d - feat: PULSE-I03 - iOS: 'See All' navigation from Pulse to relevant sections
+Pushed: origin/claude/charming-lichterman
+
+## 2026-02-16 - PULSE-W01 Completed
+Story: PULSE-W01 - Web: Pulse page filter all data by watchlist stocks
+Status: ✅ COMPLETED
+
+Changes:
+- Replaced useStocks({ limit: 100 }) with useWatchlist() as primary data source in pulse/page.tsx
+- Removed useStocks import and kept only useWatchlist, useFilings, and useRedFlagTrend hooks
+- All computed metrics now use watchlist stocks only:
+  - stocksTracked: counts watchlist stocks
+  - avgVetrScore: computed from watchlist stocks
+  - riskDistribution: low/medium/high risk computed from watchlist stocks
+  - topGainer/topLoser: sorted from watchlist stocks by price_change_percent
+  - topScores: top 5 watchlist stocks sorted by vetr_score
+  - topMovers: top 5 watchlist stocks sorted by absolute price change
+- Created watchlistTickers Set for efficient O(1) ticker lookup
+- Filtered filings client-side to only include filings whose ticker matches a watchlist stock ticker
+- Added empty state with StarIcon when watchlist is empty (stocks.length === 0 && !isLoadingStocks)
+- Empty state shows "Your Watchlist is Empty" title, descriptive message, and "Browse Stocks" button that navigates to /stocks
+- Wrapped all content sections in conditional render that only shows when watchlist is not empty
+- Preserved skeleton loading and error states
+- Red flag trend kept as-is (global data)
+
+Build: ✅ BUILD SUCCEEDED (npm run build)
+Commit: 018d9b6 - feat: PULSE-W01 - Web: Pulse page filter all data by watchlist stocks
+Pushed: origin/main
+
+## 2026-02-16 - PULSE-W02 Completed
+Story: PULSE-W02 - Web: Stocks page 'My Watchlist' section + watchlist management
+Status: ✅ COMPLETED
+
+Changes:
+- Added 'My Watchlist' section at top of Stocks page before 'All Stocks' section
+- Integrated useSubscription() hook to get tier limits (watchlist_limit)
+- Display watchlist stocks in card layout with:
+  - Ticker, company name, price, price change indicator
+  - VETR Score badge
+  - Remove button (trash icon) that calls removeFromWatchlist(ticker)
+- Show count as 'X / Y stocks' where Y comes from subscription.watchlist_limit
+  - Shows 'unlimited' when watchlist_limit is -1 (premium tier)
+- Empty state: inline muted message 'No stocks in your watchlist yet. Star a stock to add it.'
+- Added 'All Stocks' section header to separate from watchlist
+- Removed 'Favorites Only' toggle button from filter bar
+- Added toast error handler for tier limit exceeded:
+  - Catches TIER_LIMIT_EXCEEDED error from backend
+  - Shows toast 'Watchlist full. Upgrade your plan for more.'
+  - Applied to both table and card view favorite toggles
+- Removed favoritesOnly state and all related filtering logic
+- Updated URL params to no longer include 'favorites' parameter
+- Updated empty state to remove favoritesOnly references
+
+Build: ✅ BUILD SUCCEEDED (npm run build)
+Commit: 01f232f - feat: PULSE-W02 - Web: Stocks page 'My Watchlist' section + watchlist management
+Pushed: origin/main
+
+## 2026-02-16 - PULSE-W03 Completed
+Story: PULSE-W03 - Web: 'See All' / 'View All' navigation from Pulse sections
+Status: ✅ COMPLETED
+
+Changes:
+- Added 'View All' link to Recent Filings section header that navigates to /stocks
+- Added 'View All' link to Top Movers section header that navigates to /stocks?sort=change&order=desc
+- Added 'View All' link to Top VETTR Scores section header that navigates to /stocks?sort=vetr_score&order=desc
+- All 'View All' links implemented as Next.js Link components
+- Styled as small text links (text-sm text-vettr-accent hover:underline)
+- Verified stock cards/rows already navigate to /stocks/{ticker} detail pages:
+  - Top Gainer/Top Loser: Already wrapped in Link components
+  - Top Movers: Already wrapped in Link components
+  - Top VETTR Scores: StockCard component already includes Link wrapper
+- Changed section headers from simple h2 to flex containers with justify-between to accommodate View All links
+- All sections now have proper header layout with title on left and View All link on right
+
+Build: ✅ BUILD SUCCEEDED (npm run build)
+Commit: a9e2fe7 - feat: PULSE-W03 - Web: 'See All' / 'View All' navigation from Pulse sections
+Pushed: origin/main
+
+## 2026-02-16 - PULSE-A01 Completed
+Story: PULSE-A01 - Android: Pulse page filter all data by watchlist stocks
+Status: ✅ COMPLETED
+
+Changes:
+- Modified PulseViewModel.kt to use stockRepository.getFavorites() instead of getStocks()
+- Changed data collection to load ONLY watchlisted stocks (isFavorite==true)
+- All derived state automatically recalculates from watchlist stocks only:
+  - riskDistribution: low/medium/high risk breakdown from watchlist stocks
+  - topGainer: best performing watchlisted stock
+  - topLoser: worst performing watchlisted stock
+  - topMovers: top 5 watchlist stocks by absolute price change
+  - topVetrScores: top 5 watchlist stocks by VETR score
+  - avgVetrScore: average VETR score across watchlist
+  - stocksTracked: count of watchlisted stocks
+- Added filings filtering to only include filings whose stockId matches a watchlisted stock ID
+- Created Set from stocks for efficient O(1) lookup when filtering filings
+- Modified PulseScreen.kt empty state to show watchlist-specific message
+- Added Icons.Default.Star import for empty state icon
+- Changed empty state from "No Market Data" to "Your Watchlist is Empty"
+- Updated subtitle to "Add stocks to your watchlist to see personalized insights"
+- Added "Browse Stocks" action button with onNavigateToStocks callback
+- Added onNavigateToStocks parameter to PulseScreen composable
+- Preserved skeleton loading state and error states as-is
+
+Build: ✅ BUILD SUCCESSFUL in 5s
+Commit: c24d0c0 - feat: PULSE-A01 - Android: Pulse page filter all data by watchlist stocks
+Pushed: origin/main
+
+## 2026-02-16 - PULSE-A02 Completed
+Story: PULSE-A02 - Android: Stocks page 'My Watchlist' section + watchlist management
+Status: ✅ COMPLETED
+
+Changes:
+- Modified StocksViewModel.kt to add favoriteStocks and favoriteCount flows:
+  - Added favoriteStocks: StateFlow<List<Stock>> from stockRepository.getFavorites()
+  - Added favoriteCount: StateFlow<Int> computed from favoriteStocks size
+  - Added watchlistLimit: StateFlow<Int> based on user's tier from AuthRepository
+  - Injected AuthRepository dependency in constructor
+  - Limit values: FREE=5, PRO=25, PREMIUM=Int.MAX_VALUE
+- Modified StocksScreen.kt to add 'My Watchlist' section:
+  - Added 'My Watchlist' section at top before search/all-stocks section
+  - Section header displays "My Watchlist" title
+  - Shows count as 'X / Y stocks' where Y is tier limit (displays 'Unlimited' for premium)
+  - Created WatchlistStockRow composable showing stock details with remove button
+  - Remove button uses filled star icon (Icons.Default.Star) that calls onToggleFavorite
+  - Shows inline message "No stocks in your watchlist yet" when watchlist is empty
+  - Added "All Stocks" header to separate sections with HorizontalDivider
+  - Added onToggleFavorite callback parameter to StocksScreen
+  - Imported necessary UI components: vettrPadding, Icons.Default.Star, IconButton
+- Modified StockDetailViewModel.kt to enforce watchlist limits:
+  - Injected AuthRepository dependency in constructor
+  - Added favoriteCount: StateFlow<Int> from stockRepository.getFavorites()
+  - Added watchlistLimit: StateFlow<Int> based on user's tier
+  - Updated toggleFavorite() function to check limit before adding stock to favorites
+  - When adding would exceed limit:
+    - Determines next tier for upgrade message (FREE→Pro, PRO→Premium)
+    - Sets error message: "Watchlist full. Upgrade to [next tier] for more."
+    - Triggers error haptic feedback
+    - Prevents the favorite toggle from executing
+  - Preserved medium haptic for successful toggle
+  - Preserved error haptic for failures
+
+Build: ✅ BUILD SUCCESSFUL in 5s
+Commit: 4cb804b - feat: PULSE-A02 - Android: Stocks page 'My Watchlist' section + watchlist management
+Pushed: origin/main
+
+## 2026-02-16 - PULSE-A03 Completed
+Story: PULSE-A03 - Android: 'See All' navigation from Pulse to relevant sections
+Status: ✅ COMPLETED
+
+Changes:
+- Modified PulseScreen.kt to add three new callback parameters:
+  - onSeeAllFilings: () -> Unit - for "Recent Events" section
+  - onSeeAllTopScores: () -> Unit - for "Top VETTR Scores" section
+  - onSeeAllMovers: () -> Unit - for "Top Movers" section
+- Wired SectionHeader component with onSeeAllClick callbacks for all three sections:
+  - Recent Events section: now displays "See All" button that triggers onSeeAllFilings
+  - Top VETTR Scores section: now displays "See All" button that triggers onSeeAllTopScores
+  - Top Movers section: now displays "See All" button that triggers onSeeAllMovers
+- Modified MainScreen.kt to wire all three callbacks to navigate to Stocks destination:
+  - All three callbacks navigate to BottomNavDestination.Stocks.route
+  - Updated selectedItemIndex to switch to Stocks tab
+  - Used proper navigation options (popUpTo, launchSingleTop, restoreState)
+  - onNavigateToStocks callback also wired for empty state navigation
+- Verified existing stock item navigation:
+  - VetrScoreStockCard: Already has onClick that calls onStockClick(stock.id) ✓
+  - Top Movers rows: Already clickable with onStockClick(stock.id) ✓
+  - EventCard: Already has onClick that calls onStockClick(stock.id) ✓
+- All navigation callbacks properly trigger tab switching and navigation to Stocks screen
+- SectionHeader component already supported onSeeAllClick parameter with "See All" button
+
+Build: ✅ BUILD SUCCESSFUL in 4s
+Commit: 38cb988 - feat: PULSE-A03 - Android: 'See All' navigation from Pulse to relevant sections
+Pushed: origin/main
+

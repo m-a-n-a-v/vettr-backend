@@ -15,3 +15,4 @@ export * from './vetr-scores.js';
 export * from './red-flags.js';
 export * from './sync.js';
 export * from './user-settings.js';
+export * from './waitlist.js';

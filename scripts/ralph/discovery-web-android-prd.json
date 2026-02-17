@@ -1,0 +1,139 @@
+{
+  "project": "VETTR Discovery Page Enhancements — Web + Android",
+  "branchName": "main",
+  "description": "Port the Discovery page enhancements (multi-select sector filter + 6 featured collections) to the web app (Next.js) and Android app (Kotlin/Compose). Backend already has /discovery/collections endpoint and multi-sector /stocks filter.",
+  "repos": {
+    "web": "/Users/manav/Space/code/vettr-web",
+    "android": "/Users/manav/Space/code/vettr-android"
+  },
+  "stories": [
+    {
+      "id": "DISC-W01",
+      "title": "Web: Multi-select sector filter on Discovery page",
+      "priority": 1,
+      "passes": true,
+      "repo": "web",
+      "description": "Update the Discovery page at src/app/(main)/discovery/page.tsx to support multi-select sector chips instead of single-select.\n\nCurrent behavior:\n- `selectedSector` is a single string state (`'All'` or a sector name)\n- Clicking a chip sets it as the only selected sector\n- URL param: `?sector=Gold`\n\nNew behavior:\n- Replace `const [selectedSector, setSelectedSector] = useState<string>(...)` with `const [selectedSectors, setSelectedSectors] = useState<Set<string>>(new Set())`\n- When selectedSectors is empty, treat as 'All' (no sector filter)\n- 'All' button clears the set\n- Clicking a sector chip toggles it in/out of the set\n- Multiple chips can be selected simultaneously\n- URL param: `?sectors=Gold,Silver` (comma-separated)\n- Initialize from URL: parse `sectors` param, split by comma into Set\n\nChip styling update:\n- Selected: `bg-vettr-accent/10 border border-vettr-accent/30 text-vettr-accent` (same as current)\n- Unselected: `bg-white/5 border border-white/10 text-gray-400 hover:text-white hover:bg-white/10` (same as current)\n- 'All' chip: selected styling when selectedSectors is empty\n\nFilter logic update in `filteredStocks`:\n```\nif (selectedSectors.size > 0) {\n  result = result.filter((s) => selectedSectors.has(s.sector));\n}\n```\n\nAlso update `filteredFilings`:\n```\nif (selectedSectors.size > 0) {\n  return filings.filter((filing) => {\n    const stock = allStocks.find((s) => s.ticker === filing.ticker);\n    return stock?.sector && selectedSectors.has(stock.sector);\n  });\n}\n```\n\nUpdate URL sync to use `sectors` param with comma-separated values.\nUpdate empty state messages to handle multi-select.\n\nMust pass `npm run build`.",
+      "acceptance": [
+        "User can tap multiple sector chips to select them",
+        "Tapping a selected chip deselects it",
+        "'All' button clears all selections",
+        "Stock list and filings filter correctly by multiple sectors",
+        "Search + multi-sector filter work together",
+        "URL syncs with comma-separated sectors param",
+        "npm run build passes"
+      ]
+    },
+    {
+      "id": "DISC-W02",
+      "title": "Web: Add useDiscoveryCollections hook",
+      "priority": 2,
+      "passes": true,
+      "repo": "web",
+      "description": "Create a new SWR hook for fetching discovery collections from the backend API.\n\nCreate file: `src/hooks/useDiscoveryCollections.ts`\n\nThe hook should:\n1. Fetch from GET /discovery/collections using the existing `api.get()` from api-client.ts\n2. Use SWR with a 5-minute deduplication interval (collections change rarely)\n3. Return: collections array, isLoading, isError, mutate\n\nAlso add TypeScript types to `src/types/api.ts`:\n```typescript\n// Discovery Collections\nexport interface CollectionStock {\n  ticker: string;\n  name: string;\n  exchange: string;\n  sector: string;\n  market_cap: number | null;\n  price: number | null;\n  price_change: number | null;\n  vetr_score: number | null;\n}\n\nexport interface DiscoveryCollection {\n  id: string;\n  name: string;\n  tagline: string;\n  icon: string;\n  criteria_summary: string;\n  stocks: CollectionStock[];\n}\n\nexport interface DiscoveryCollectionsData {\n  collections: DiscoveryCollection[];\n}\n```\n\nThe hook pattern should follow the existing useStocks.ts pattern:\n- Uses `api.get<ApiResponse<DiscoveryCollectionsData>>()` for type-safe fetching\n- Returns `{ collections, isLoading, isError, mutate }`\n- Handles API errors gracefully\n\nIMPORTANT: The /discovery/collections endpoint uses JWT auth (not admin secret). The existing api-client.ts already adds JWT Bearer token automatically to all requests, so this will work out of the box.\n\nMust pass `npm run build`.",
+      "acceptance": [
+        "useDiscoveryCollections hook fetches from /discovery/collections",
+        "TypeScript types added to api.ts",
+        "SWR caching with 5-minute dedup interval",
+        "Returns collections array, isLoading, isError, mutate",
+        "npm run build passes"
+      ]
+    },
+    {
+      "id": "DISC-W03",
+      "title": "Web: Add Featured Collections grid to Discovery page",
+      "priority": 3,
+      "passes": true,
+      "repo": "web",
+      "description": "Add a 'Featured Collections' section to the Discovery page ABOVE the existing 'Featured Stocks' section. Display 6 collection cards in a responsive grid.\n\nIn `src/app/(main)/discovery/page.tsx`:\n\n1. Import `useDiscoveryCollections` from the hook created in DISC-W02\n2. Call `const { collections, isLoading: isLoadingCollections } = useDiscoveryCollections()` alongside existing hooks\n3. Add a new section between 'Sector Filter Chips' and 'Featured Stocks'\n\nCollection Card Design (dark theme, matching existing vettr design):\n```\n<div className=\"bg-vettr-card/50 border border-white/5 rounded-2xl p-5 hover:border-vettr-accent/20 hover:bg-vettr-card/80 transition-all duration-300 cursor-pointer\">\n  <!-- Icon in circle -->\n  <div className=\"w-10 h-10 rounded-full bg-vettr-accent/10 flex items-center justify-center mb-3\">\n    <span className=\"text-xl\">{emojiForIcon}</span>\n  </div>\n  <!-- Title -->\n  <h3 className=\"text-base font-semibold text-white mb-1\">{collection.name}</h3>\n  <!-- Tagline -->\n  <p className=\"text-xs text-gray-400 mb-3 line-clamp-2\">{collection.tagline}</p>\n  <!-- Criteria summary -->\n  <p className=\"text-xs text-vettr-accent font-medium\">{collection.criteria_summary}</p>\n</div>\n```\n\nIcon mapping (SF Symbol → emoji):\n- checkmark.shield → shield emoji or use a checkmark icon component\n- banknote → money bag or dollar sign\n- bolt.fill → lightning bolt\n- trophy → trophy\n- crown → crown\n- person.badge.shield.checkmark → shield person\n\nCreate a simple icon map object:\n```typescript\nconst collectionIcons: Record<string, string> = {\n  'checkmark.shield': '✅',\n  'banknote': '💰',\n  'bolt.fill': '⚡',\n  'trophy': '🏆',\n  'crown': '👑',\n  'person.badge.shield.checkmark': '🛡️',\n};\n```\n\nGrid layout:\n- Mobile: 1 column\n- sm: 2 columns\n- lg: 3 columns\n```\n<div className=\"grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4\">\n```\n\nLoading state: Show 6 skeleton cards while loading\nEmpty state: Don't show section if no collections\n\n4. Clicking a collection card navigates to a new collection detail page:\n   `router.push(`/discovery/collection/${collection.id}`)`\n\nNote: The detail page will be created in the next story. For now, just wire up the navigation.\n\nMust pass `npm run build`.",
+      "acceptance": [
+        "6 collection cards displayed in responsive grid (1/2/3 columns)",
+        "Each card shows emoji icon, title, tagline, criteria summary",
+        "Cards have hover effects matching existing vettr design",
+        "Loading skeleton shown while fetching",
+        "Clicking a card navigates to /discovery/collection/{id}",
+        "Section appears above Featured Stocks",
+        "npm run build passes"
+      ]
+    },
+    {
+      "id": "DISC-W04",
+      "title": "Web: Add Collection Detail page",
+      "priority": 4,
+      "passes": true,
+      "repo": "web",
+      "description": "Create a new page at `src/app/(main)/discovery/collection/[id]/page.tsx` that shows the stocks in a specific collection.\n\nThe page receives the collection ID from the URL params. It should:\n1. Fetch collections using `useDiscoveryCollections()` hook\n2. Find the matching collection by ID from the fetched data\n3. Display collection header: icon, name, tagline, criteria summary\n4. Display stock list in a table/card format\n\nAlso create `src/app/(main)/discovery/collection/[id]/layout.tsx` with proper metadata.\n\nPage Layout:\n```\n<!-- Back button -->\n<button onClick={() => router.back()} className=\"flex items-center gap-1 text-sm text-gray-400 hover:text-white mb-4\">\n  ← Back to Discovery\n</button>\n\n<!-- Collection Header -->\n<div className=\"bg-vettr-card/30 border border-white/5 rounded-2xl p-6 mb-6\">\n  <div className=\"flex items-center gap-4 mb-4\">\n    <div className=\"w-14 h-14 rounded-full bg-vettr-accent/10 flex items-center justify-center\">\n      <span className=\"text-3xl\">{icon}</span>\n    </div>\n    <div>\n      <h1 className=\"text-2xl font-bold text-white\">{collection.name}</h1>\n      <p className=\"text-sm text-gray-400\">{collection.tagline}</p>\n    </div>\n  </div>\n  <p className=\"text-sm text-vettr-accent font-medium\">{collection.criteria_summary}</p>\n</div>\n\n<!-- Stocks List -->\n<div className=\"space-y-2\">\n  {collection.stocks.map(stock => (\n    <StockRow key={stock.ticker} stock={stock} onClick={() => router.push(`/stocks/${stock.ticker}`)} />\n  ))}\n</div>\n```\n\nStockRow should show: ticker (bold, accent), company name, sector badge, price, price change (green/red), VETR score badge.\n\nDesign the StockRow inline (don't import the main StockCard — it expects a different data shape). Keep it simple:\n```\n<div className=\"flex items-center justify-between bg-vettr-card/50 border border-white/5 rounded-xl p-4 hover:border-vettr-accent/20 cursor-pointer transition-all\">\n  <div className=\"flex items-center gap-3\">\n    <div>\n      <span className=\"text-sm font-bold text-vettr-accent\">{stock.ticker}</span>\n      <span className=\"text-xs text-gray-400 ml-2\">{stock.name}</span>\n    </div>\n  </div>\n  <div className=\"flex items-center gap-4\">\n    <span className=\"text-sm text-white\">${stock.price?.toFixed(2) || 'N/A'}</span>\n    <span className={`text-xs font-medium ${stock.price_change >= 0 ? 'text-green-400' : 'text-red-400'}`}>\n      {stock.price_change >= 0 ? '+' : ''}{stock.price_change?.toFixed(1) || '0.0'}%\n    </span>\n    <VetrScoreBadge score={stock.vetr_score} />\n  </div>\n</div>\n```\n\nLoading state: Show skeleton while loading\n404 state: If collection not found, show 'Collection not found' with link back to Discovery\n\nIMPORTANT: Use `'use client'` directive at top of page.tsx. Wrap in Suspense if using hooks.\n\nMust pass `npm run build`.",
+      "acceptance": [
+        "Page renders at /discovery/collection/{id}",
+        "Shows collection name, tagline, icon, criteria summary",
+        "Lists all stocks in the collection",
+        "Each stock shows ticker, name, price, change, VETR score",
+        "Clicking a stock navigates to /stocks/{ticker}",
+        "Back button returns to Discovery",
+        "Loading and not-found states handled",
+        "npm run build passes"
+      ]
+    },
+    {
+      "id": "DISC-A01",
+      "title": "Android: Multi-select sector filter on Discovery screen",
+      "priority": 5,
+      "passes": true,
+      "repo": "android",
+      "description": "Update the Android Discovery screen to support multi-select sector chips instead of single-select.\n\nChanges to DiscoveryViewModel.kt:\n1. Change `_selectedSector` from `MutableStateFlow(\"All\")` (single String) to `_selectedSectors` as `MutableStateFlow<Set<String>>(emptySet())`\n2. Expose as `val selectedSectors: StateFlow<Set<String>>`\n3. Replace `selectSector(sector: String)` with `toggleSector(sector: String)` that adds/removes from set\n4. Add `clearSectors()` that sets empty set (equivalent to 'All')\n5. Update `applyFilters()` to filter by multiple sectors:\n```kotlin\nval sectorFiltered = if (sectors.isEmpty()) allStocks\nelse allStocks.filter { stock -> stock.sector in sectors }\n```\n6. Update filings filtering similarly\n\nChanges to DiscoveryScreen.kt:\n1. Collect `val selectedSectors by viewModel.selectedSectors.collectAsStateWithLifecycle()`\n2. Update sector chip rendering:\n   - 'All' chip: `selected = selectedSectors.isEmpty()`, onClick calls `viewModel.clearSectors()`\n   - Individual sector chips: `selected = sector in selectedSectors`, onClick calls `viewModel.toggleSector(sector)`\n3. Update empty state messages to handle multi-select context\n\nMust compile successfully. Verify with: `cd /Users/manav/Space/code/vettr-android && ./gradlew app:compileDebugKotlin 2>&1 | tail -5`",
+      "acceptance": [
+        "User can tap multiple sector chips to select them",
+        "Tapping a selected chip deselects it",
+        "'All' button clears all selections",
+        "Stock list and filings filter correctly by multiple sectors",
+        "Search + multi-sector filter work together",
+        "Compiles successfully"
+      ]
+    },
+    {
+      "id": "DISC-A02",
+      "title": "Android: Add Discovery Collections API and data layer",
+      "priority": 6,
+      "passes": true,
+      "repo": "android",
+      "description": "Add the API endpoint and data models for fetching discovery collections.\n\n1. Add DTOs in `app/src/main/java/com/vettr/android/core/data/remote/DiscoveryCollectionDto.kt`:\n```kotlin\npackage com.vettr.android.core.data.remote\n\nimport com.google.gson.annotations.SerializedName\n\ndata class DiscoveryCollectionsResponse(\n    @SerializedName(\"success\") val success: Boolean,\n    @SerializedName(\"data\") val data: DiscoveryCollectionsData\n)\n\ndata class DiscoveryCollectionsData(\n    @SerializedName(\"collections\") val collections: List<DiscoveryCollectionDto>\n)\n\ndata class DiscoveryCollectionDto(\n    @SerializedName(\"id\") val id: String,\n    @SerializedName(\"name\") val name: String,\n    @SerializedName(\"tagline\") val tagline: String,\n    @SerializedName(\"icon\") val icon: String,\n    @SerializedName(\"criteria_summary\") val criteriaSummary: String,\n    @SerializedName(\"stocks\") val stocks: List<CollectionStockDto>\n)\n\ndata class CollectionStockDto(\n    @SerializedName(\"ticker\") val ticker: String,\n    @SerializedName(\"name\") val name: String,\n    @SerializedName(\"exchange\") val exchange: String,\n    @SerializedName(\"sector\") val sector: String,\n    @SerializedName(\"market_cap\") val marketCap: Double?,\n    @SerializedName(\"price\") val price: Double?,\n    @SerializedName(\"price_change\") val priceChange: Double?,\n    @SerializedName(\"vetr_score\") val vetrScore: Int?\n)\n```\n\n2. Add endpoint to VettrApi.kt:\n```kotlin\n@GET(\"discovery/collections\")\nsuspend fun getDiscoveryCollections(\n    @Header(\"X-Admin-Secret\") adminSecret: String = ADMIN_SECRET\n): DiscoveryCollectionsResponse\n```\n\nNote: The endpoint actually uses JWT auth, but since the Android app currently uses admin secret for all calls, we'll use admin secret here too. The backend accepts both.\n\nWait — actually check if the backend discovery route accepts admin secret. If not, the admin secret header will just be ignored and auth will fail. Let me check... The discovery endpoint uses `authMiddleware` (JWT only, not admin). So we need to use the JWT Bearer token instead.\n\nActually, looking at the existing Android code, ALL endpoints use X-Admin-Secret. The auth interceptor also adds Bearer token. So both headers are sent. But the discovery endpoint only accepts JWT. Since the AuthInterceptor adds the Bearer token automatically, this should work as long as the user is logged in.\n\nSo the API call should be:\n```kotlin\n@GET(\"discovery/collections\")\nsuspend fun getDiscoveryCollections(): DiscoveryCollectionsResponse\n```\n(No admin secret header — let the AuthInterceptor add JWT automatically)\n\nBUT if AuthInterceptor doesn't exist or doesn't add Bearer tokens, add the admin secret as a fallback. Check AuthInterceptor.kt first.\n\n3. Add a simple domain model if needed, or just use the DTO directly in the UI layer since collections are transient (not persisted in Room).\n\nMust compile successfully.",
+      "acceptance": [
+        "DTOs correctly map /discovery/collections JSON response",
+        "API endpoint added to VettrApi.kt",
+        "Response can be fetched without auth errors",
+        "Compiles successfully"
+      ]
+    },
+    {
+      "id": "DISC-A03",
+      "title": "Android: Add Featured Collections UI to Discovery screen",
+      "priority": 7,
+      "passes": true,
+      "repo": "android",
+      "description": "Add a 'Featured Collections' section to the Discovery screen showing 6 collection cards in a grid layout.\n\nChanges to DiscoveryViewModel.kt:\n1. Add state: `private val _collections = MutableStateFlow<List<DiscoveryCollectionDto>>(emptyList())`\n2. Add `val collections: StateFlow<List<DiscoveryCollectionDto>> = _collections.asStateFlow()`\n3. Add `private val _isLoadingCollections = MutableStateFlow(false)`\n4. In `loadData()`, add a launch block to fetch collections:\n```kotlin\nlaunch {\n    try {\n        _isLoadingCollections.value = true\n        val response = api.getDiscoveryCollections()\n        if (response.success) {\n            _collections.value = response.data.collections\n        }\n    } catch (e: Exception) {\n        // Collections are optional, don't show error\n    } finally {\n        _isLoadingCollections.value = false\n    }\n}\n```\nNote: You'll need to inject VettrApi into the ViewModel (it may already be available through StockRepository or directly).\n\nChanges to DiscoveryScreen.kt:\n1. Collect collections state: `val collections by viewModel.collections.collectAsStateWithLifecycle()`\n2. Add Featured Collections section ABOVE Featured Stocks in the LazyColumn\n3. Use a 2-column grid layout with LazyVerticalGrid or manual Column+Row arrangement:\n\nCollection Card composable (`CollectionCard`):\n```kotlin\n@Composable\nfun CollectionCard(\n    collection: DiscoveryCollectionDto,\n    onClick: () -> Unit,\n    modifier: Modifier = Modifier\n) {\n    Column(\n        modifier = modifier\n            .cardStyle()\n            .clickable(onClick = onClick)\n            .vettrPadding(),\n        verticalArrangement = Arrangement.spacedBy(Spacing.sm)\n    ) {\n        // Icon in circle\n        Box(\n            modifier = Modifier\n                .size(36.dp)\n                .clip(CircleShape)\n                .background(VettrAccent.copy(alpha = 0.15f)),\n            contentAlignment = Alignment.Center\n        ) {\n            Text(\n                text = iconToEmoji(collection.icon),\n                style = MaterialTheme.typography.titleMedium\n            )\n        }\n        // Title\n        Text(\n            text = collection.name,\n            style = MaterialTheme.typography.titleSmall,\n            fontWeight = FontWeight.Bold,\n            maxLines = 1,\n            overflow = TextOverflow.Ellipsis\n        )\n        // Tagline\n        Text(\n            text = collection.tagline,\n            style = MaterialTheme.typography.bodySmall,\n            color = MaterialTheme.colorScheme.onSurfaceVariant,\n            maxLines = 2,\n            overflow = TextOverflow.Ellipsis\n        )\n        // Criteria summary\n        Text(\n            text = collection.criteriaSummary,\n            style = MaterialTheme.typography.labelSmall,\n            color = VettrAccent,\n            fontWeight = FontWeight.Medium\n        )\n    }\n}\n```\n\nIcon mapping:\n```kotlin\nfun iconToEmoji(icon: String): String = when (icon) {\n    \"checkmark.shield\" -> \"✅\"\n    \"banknote\" -> \"💰\"\n    \"bolt.fill\" -> \"⚡\"\n    \"trophy\" -> \"🏆\"\n    \"crown\" -> \"👑\"\n    \"person.badge.shield.checkmark\" -> \"🛡️\"\n    else -> \"📊\"\n}\n```\n\nGrid layout — render 2 cards per row:\n```kotlin\nitem {\n    Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {\n        SectionHeader(title = \"Featured Collections\")\n        collections.chunked(2).forEach { row ->\n            Row(\n                horizontalArrangement = Arrangement.spacedBy(Spacing.md),\n                modifier = Modifier.fillMaxWidth()\n            ) {\n                row.forEach { collection ->\n                    CollectionCard(\n                        collection = collection,\n                        onClick = { /* navigate to detail */ },\n                        modifier = Modifier.weight(1f)\n                    )\n                }\n                // Add spacer if odd number\n                if (row.size == 1) {\n                    Spacer(modifier = Modifier.weight(1f))\n                }\n            }\n        }\n    }\n}\n```\n\nFor the collection detail view, when a user clicks a collection card, navigate to a new CollectionDetailScreen. For now, clicking a card can show a bottom sheet or a simple navigation — OR just pass the collection data via nav args.\n\nSimplest approach: Add `onCollectionClick: (String) -> Unit = {}` callback to DiscoveryScreen params, and the caller can handle navigation.\n\nSkeleton: Show 6 skeleton cards (2x3 grid) while loading collections.\n\nMust compile successfully.",
+      "acceptance": [
+        "6 collection cards displayed in 2-column grid",
+        "Each card shows emoji icon, title, tagline, criteria summary",
+        "Section appears above Featured Stocks",
+        "Loading skeleton shown while fetching",
+        "Cards are clickable",
+        "Compiles successfully"
+      ]
+    },
+    {
+      "id": "DISC-A04",
+      "title": "Android: Add Collection Detail screen",
+      "priority": 8,
+      "passes": true,
+      "repo": "android",
+      "description": "Create a Collection Detail screen that shows all stocks in a selected collection.\n\nCreate new file: `app/src/main/java/com/vettr/android/feature/discovery/CollectionDetailScreen.kt`\n\nThe screen receives collection data (either via navigation args or by re-fetching collections and finding by ID).\n\nSimplest approach: Pass the collection ID as a nav arg, fetch collections in the screen's ViewModel, and find the matching collection.\n\nOption A (preferred for simplicity): Create a simple composable that receives a `DiscoveryCollectionDto` directly and just displays it. The parent (DiscoveryScreen or NavHost) passes the data.\n\nOption B: Create a CollectionDetailViewModel that fetches collections and filters by ID.\n\nGo with Option A — create the composable and wire it up.\n\n```kotlin\n@Composable\nfun CollectionDetailScreen(\n    collection: DiscoveryCollectionDto,\n    onBackClick: () -> Unit,\n    onStockClick: (String) -> Unit,\n    modifier: Modifier = Modifier\n) {\n    Scaffold(\n        topBar = {\n            // Simple top bar with back button and collection name\n        }\n    ) { padding ->\n        LazyColumn(\n            modifier = modifier.padding(padding).padding(Spacing.md),\n            verticalArrangement = Arrangement.spacedBy(Spacing.md)\n        ) {\n            // Header with icon, name, tagline\n            item {\n                CollectionHeader(collection)\n            }\n            \n            // Stock list\n            items(collection.stocks, key = { it.ticker }) { stock ->\n                CollectionStockRow(\n                    stock = stock,\n                    onClick = { /* find stock ID and navigate */ }\n                )\n            }\n        }\n    }\n}\n```\n\nCollectionStockRow should show:\n- Ticker (bold, accent color)\n- Company name\n- Sector chip\n- Price\n- Price change (green/red)\n- VETR score badge\n\nFor navigation integration: Since this is a simple screen, you can either:\n1. Use a dialog/bottom sheet from DiscoveryScreen (simplest)\n2. OR add a new composable destination in VettrNavHost\n\nGo with approach 1 for simplicity: Show the detail in a full-screen dialog or a dedicated composable that replaces the content.\n\nAlternative simpler approach: In DiscoveryScreen, when a collection card is clicked, show the collection detail inline using a state variable:\n```kotlin\nvar selectedCollection by remember { mutableStateOf<DiscoveryCollectionDto?>(null) }\n\nif (selectedCollection != null) {\n    CollectionDetailScreen(\n        collection = selectedCollection!!,\n        onBackClick = { selectedCollection = null },\n        onStockClick = onStockClick\n    )\n} else {\n    // ... existing discovery content\n}\n```\n\nThis avoids modifying VettrNavHost.kt and keeps things contained.\n\nMust compile successfully.",
+      "acceptance": [
+        "Collection detail screen shows collection name, tagline, icon",
+        "Lists all stocks in the collection",
+        "Each stock shows ticker, name, price, change, VETR score",
+        "Back button returns to Discovery",
+        "Compiles successfully"
+      ]
+    }
+  ]
+}

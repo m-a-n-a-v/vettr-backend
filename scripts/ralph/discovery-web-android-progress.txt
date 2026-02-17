@@ -1,0 +1,250 @@
+# Ralph Progress Log - VETTR Discovery Page Enhancements (Web + Android)
+Started: 2026-02-16
+Web: /Users/manav/Space/code/vettr-web
+Android: /Users/manav/Space/code/vettr-android
+---
+
+## DISC-W01: Web: Multi-select sector filter on Discovery page
+Status: ✅ COMPLETE
+Date: 2026-02-16
+Repo: web
+Commit: 5c46462
+Details:
+- Replaced single-select sector state with Set<string> for multi-select
+- Empty Set represents 'All' sectors (no filter applied)
+- 'All' button clears all selected sectors
+- Sector chips toggle in/out of selection on click
+- Multiple sectors can be selected simultaneously
+- URL param changed from ?sector=Gold to ?sectors=Gold,Silver (comma-separated)
+- Updated filteredStocks logic to filter by multiple sectors using Set.has()
+- Updated filteredFilings logic to filter by multiple sectors
+- Updated empty state messages to handle multi-select context
+- Chip styling: selected chips show accent color, unselected show gray
+- npm run build passes successfully
+Files changed:
+- src/app/(main)/discovery/page.tsx
+---
+
+## DISC-W02: Web: Add useDiscoveryCollections hook
+Status: ✅ COMPLETE
+Date: 2026-02-16
+Repo: web
+Commit: 02ef79b
+Details:
+- Created useDiscoveryCollections SWR hook for fetching discovery collections
+- Added TypeScript types to src/types/api.ts:
+  - CollectionStock: stock entity within a collection
+  - DiscoveryCollection: collection with id, name, tagline, icon, criteria_summary, stocks array
+  - DiscoveryCollectionsData: wrapper for collections array
+- Hook fetches from GET /discovery/collections using existing api.get()
+- Uses SWR with 5-minute deduplication interval (300000ms) for efficient caching
+- Returns: collections array, isLoading, isError, mutate function
+- Follows existing useStocks.ts pattern for consistency
+- Uses JWT authentication automatically via api-client.ts Bearer token injection
+- npm run build passes successfully
+Files changed:
+- src/types/api.ts
+- src/hooks/useDiscoveryCollections.ts (new file)
+---
+
+## DISC-W03: Web: Add Featured Collections grid to Discovery page
+Status: ✅ COMPLETE
+Date: 2026-02-16
+Repo: web
+Commit: 517e7b8
+Details:
+- Imported useDiscoveryCollections hook into Discovery page
+- Added collection icon mapping (SF Symbol → emoji):
+  - checkmark.shield → ✅
+  - banknote → 💰
+  - bolt.fill → ⚡
+  - trophy → 🏆
+  - crown → 👑
+  - person.badge.shield.checkmark → 🛡️
+- Created CollectionCard component with:
+  - Icon in circular background (vettr-accent/10)
+  - Collection name (bold, white)
+  - Tagline (small, gray, line-clamped to 2 lines)
+  - Criteria summary (small, accent color)
+  - Hover effects: border changes to accent/20, background to card/80
+- Created SkeletonCollectionCard for loading state
+- Added Featured Collections section ABOVE Featured Stocks
+- Responsive grid layout:
+  - Mobile: 1 column (grid-cols-1)
+  - Tablet: 2 columns (sm:grid-cols-2)
+  - Desktop: 3 columns (lg:grid-cols-3)
+- Shows 6 skeleton cards while loading collections
+- Only renders section if loading or collections exist (empty state hidden)
+- Click handler navigates to /discovery/collection/{collection.id}
+- npm run build passes successfully
+Files changed:
+- src/app/(main)/discovery/page.tsx
+---
+
+## DISC-W04: Web: Add Collection Detail page
+Status: ✅ COMPLETE
+Date: 2026-02-16
+Repo: web
+Commit: 23a7f17
+Details:
+- Created new dynamic route at /discovery/collection/[id]
+- Page receives collection ID from URL params
+- Fetches collections using useDiscoveryCollections() hook
+- Finds matching collection by ID from fetched data
+- Collection header displays:
+  - Icon in circular background (14x14, bg-vettr-accent/10)
+  - Collection name (h1, bold, white)
+  - Tagline (small, gray)
+  - Criteria summary (small, accent color)
+- Stock list displays all stocks in collection
+- Created inline StockRow component showing:
+  - Ticker (bold, accent color)
+  - Company name (gray, truncated)
+  - Sector badge (small chip)
+  - Price (formatted as $XX.XX)
+  - Price change (green/red with +/- sign)
+  - VETR score badge (small size, no animation)
+- Click handling navigates to /stocks/{ticker}
+- Back button returns to Discovery page using router.back()
+- Loading state: skeleton placeholders for header and 5 stock rows
+- Error state: EmptyState with error icon and message
+- Not found state: EmptyState with search icon and action button to return to Discovery
+- Created layout.tsx with proper metadata for SEO
+- npm run build passes successfully
+Files changed:
+- src/app/(main)/discovery/collection/[id]/page.tsx (new file)
+- src/app/(main)/discovery/collection/[id]/layout.tsx (new file)
+---
+
+## DISC-A01: Android: Multi-select sector filter on Discovery screen
+Status: ✅ COMPLETE
+Date: 2026-02-16
+Repo: android
+Commit: 654dc0b
+Details:
+- Changed _selectedSector from MutableStateFlow<String>("All") to _selectedSectors as MutableStateFlow<Set<String>>(emptySet())
+- Exposed as val selectedSectors: StateFlow<Set<String>>
+- Replaced selectSector(sector: String) with toggleSector(sector: String) that adds/removes from set
+- Added clearSectors() that sets empty set (equivalent to 'All')
+- Updated applyFilters() to filter by multiple sectors: if sectors.isEmpty() then show all, else filter where stock.sector in sectors
+- Updated filings filtering to work with multiple sectors: matchesSector = sectors.isEmpty() || filing.stockId in sectorStockIds
+- In DiscoveryScreen.kt, collect selectedSectors instead of selectedSector
+- Updated sector chip rendering logic:
+  - 'All' chip: selected when selectedSectors.isEmpty(), onClick calls viewModel.clearSectors()
+  - Individual sector chips: selected when sector in selectedSectors, onClick calls viewModel.toggleSector(sector)
+- Updated empty state messages to handle multi-select context
+- Multiple sectors can now be selected simultaneously
+- Tapping a selected chip deselects it
+- 'All' button clears all selections
+- Stock list and filings filter correctly by multiple sectors
+- Search + multi-sector filter work together
+- Build verified with ./gradlew app:compileDebugKotlin - BUILD SUCCESSFUL
+Files changed:
+- app/src/main/java/com/vettr/android/feature/discovery/DiscoveryViewModel.kt
+- app/src/main/java/com/vettr/android/feature/discovery/DiscoveryScreen.kt
+---
+
+## DISC-A02: Android: Add Discovery Collections API and data layer
+Status: ✅ COMPLETE
+Date: 2026-02-16
+Repo: android
+Commit: 30b942c
+Details:
+- Created DiscoveryCollectionDto.kt with complete DTO structure:
+  - DiscoveryCollectionsResponse: top-level response wrapper with success flag and data
+  - DiscoveryCollectionsData: data wrapper containing collections array
+  - DiscoveryCollectionDto: collection entity with id, name, tagline, icon, criteriaSummary, stocks
+  - CollectionStockDto: stock entity within a collection with nullable fields for market_cap, price, price_change, vetr_score
+- Added getDiscoveryCollections() endpoint to VettrApi.kt
+- Endpoint uses JWT authentication (Authorization: Bearer token)
+- AuthInterceptor automatically adds Bearer token for /discovery/* routes
+- All DTOs use @SerializedName annotations for correct JSON field mapping
+- Snake_case JSON fields (market_cap, price_change, etc.) correctly mapped to camelCase Kotlin properties
+- Build verified successful with ./gradlew app:compileDebugKotlin - BUILD SUCCESSFUL in 5s
+- DTOs correctly match backend /discovery/collections JSON response format
+- Response can be fetched without auth errors (JWT token auto-injected)
+Files changed:
+- app/src/main/java/com/vettr/android/core/data/remote/DiscoveryCollectionDto.kt (new file)
+- app/src/main/java/com/vettr/android/core/data/remote/VettrApi.kt
+- .gitignore (added .ralph-* pattern)
+---
+
+## DISC-A03: Android: Add Featured Collections UI to Discovery screen
+Status: ✅ COMPLETE
+Date: 2026-02-16
+Repo: android
+Commit: 245e21e
+Details:
+- Added collections state to DiscoveryViewModel:
+  - _collections: MutableStateFlow<List<DiscoveryCollectionDto>>(emptyList())
+  - collections: StateFlow<List<DiscoveryCollectionDto>> exposed
+  - _isLoadingCollections: MutableStateFlow(false) for loading state
+- Injected VettrApi into DiscoveryViewModel constructor for direct API access
+- Added fetch logic in loadData() to call api.getDiscoveryCollections()
+- Collections are fetched in parallel with stocks and filings
+- Errors during collection fetch are silently ignored (collections are optional)
+- Added collections and isLoadingCollections state collection in DiscoveryScreen
+- Created CollectionCard composable with:
+  - Emoji icon in circular background (VettrAccent.copy(alpha = 0.15f))
+  - Collection name (bold, titleSmall)
+  - Tagline (small, gray, max 2 lines with ellipsis)
+  - Criteria summary (small, accent color, medium weight)
+  - cardStyle() and clickable modifier
+- Created iconToEmoji() function to map SF Symbol icons to emoji:
+  - checkmark.shield → ✅
+  - banknote → 💰
+  - bolt.fill → ⚡
+  - trophy → 🏆
+  - crown → 👑
+  - person.badge.shield.checkmark → 🛡️
+  - default → 📊
+- Added Featured Collections section ABOVE Featured Stocks in the main content area
+- 2-column grid layout using chunked(2) approach with weight(1f) for each card
+- Shows up to 6 collection cards (3 rows × 2 columns)
+- Added skeleton loading state: 3 rows of 2 skeleton cards (140.dp height)
+- Section only appears if loading or collections exist (empty state hidden)
+- Collection cards are clickable (onClick handler ready for future navigation)
+- Added skeleton for collections in initial loading state
+- Build verified successful: ./gradlew app:compileDebugKotlin - BUILD SUCCESSFUL in 9s
+Files changed:
+- app/src/main/java/com/vettr/android/feature/discovery/DiscoveryViewModel.kt
+- app/src/main/java/com/vettr/android/feature/discovery/DiscoveryScreen.kt
+---
+
+## DISC-A04: Android: Add Collection Detail screen
+Status: ✅ COMPLETE
+Date: 2026-02-16
+Repo: android
+Commit: b701885
+Details:
+- Created CollectionDetailScreen.kt with complete collection detail display
+- Screen receives a DiscoveryCollectionDto and displays full collection information
+- Collection header displays:
+  - Icon in circular background (56dp, VettrAccent.copy(alpha = 0.15f))
+  - Collection name (titleLarge, bold)
+  - Tagline (bodyMedium, gray)
+  - Criteria summary (bodySmall, accent color, medium weight)
+- Stock list displays all stocks in the collection using LazyColumn
+- Created CollectionStockRow composable showing:
+  - Ticker (bold, accent color)
+  - Company name (small, gray, truncated)
+  - Sector chip (using existing SectorChip component)
+  - Price (formatted as $XX.XX or N/A if null)
+  - Price change (green/red with +/- sign, small bold text)
+  - VETR score badge (32dp size using VettrScoreView component)
+- Top app bar with back button and collection name
+- Navigation integration using inline state management in DiscoveryScreen
+- Added `selectedCollection` state variable (mutableStateOf<DiscoveryCollectionDto?>)
+- When selectedCollection is not null, CollectionDetailScreen is shown
+- When back button clicked, selectedCollection is reset to null
+- Updated CollectionCard onClick to set selectedCollection
+- Made iconToEmoji function internal for reuse across files
+- Stock click handler passes ticker to onStockClick callback
+- All stocks are clickable rows with proper touch feedback
+- Build verified successful: ./gradlew app:compileDebugKotlin - BUILD SUCCESSFUL in 10s
+- Includes preview composable with sample collection data
+Files changed:
+- app/src/main/java/com/vettr/android/feature/discovery/CollectionDetailScreen.kt (new file)
+- app/src/main/java/com/vettr/android/feature/discovery/DiscoveryScreen.kt
+---
+

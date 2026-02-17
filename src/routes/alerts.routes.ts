@@ -11,7 +11,15 @@ import {
   getRulesForStock,
   toggleActive,
 } from '../services/alert-rule.service.js';
-import { success } from '../utils/response.js';
+import {
+  getAlertsForUser,
+  markAlertAsRead,
+  markAllAlertsAsRead,
+  deleteAlert,
+  getUnreadCount,
+} from '../services/alert.service.js';
+import { success, paginated } from '../utils/response.js';
+import { evaluateAlerts } from '../services/alert-evaluation.service.js';
 
 type Variables = {
   user: AuthUser;
@@ -19,8 +27,54 @@ type Variables = {
 
 const alertRoutes = new Hono<{ Variables: Variables }>();
 
+// POST /alerts/evaluate - Admin-only: trigger alert evaluation
+alertRoutes.post('/evaluate', async (c) => {
+  // Check admin secret
+  const adminSecret = c.req.header('X-Admin-Secret');
+  if (!adminSecret || adminSecret !== process.env.ADMIN_SECRET) {
+    return c.json({ success: false, error: { code: 'FORBIDDEN', message: 'Invalid admin secret' } }, 403);
+  }
+
+  const result = await evaluateAlerts();
+  return c.json(success({ triggered_count: result.triggeredCount, evaluated_rules: result.evaluatedRules }), 200);
+});
+
 // Apply auth middleware to all alert routes
 alertRoutes.use('*', authMiddleware);
+
+// ─── DTO Helpers ────────────────────────────────────────────────────────────
+
+// Helper function to convert triggered alert to DTO
+function toAlertDto(alert: any, stockTicker?: string) {
+  return {
+    id: alert.id,
+    stock_ticker: stockTicker || alert.stockTicker || '',
+    alert_type: alert.alertType,
+    title: alert.title,
+    message: alert.message,
+    triggered_at: alert.triggeredAt?.toISOString?.() || alert.triggeredAt,
+    is_read: alert.isRead,
+    rule_id: alert.alertRuleId,
+  };
+}
+
+// Helper function to convert alert rule to DTO
+function toAlertRuleDto(rule: any) {
+  return {
+    id: rule.id,
+    stock_ticker: rule.stockTicker,
+    rule_type: rule.ruleType,
+    trigger_conditions: rule.triggerConditions,
+    condition_operator: rule.conditionOperator,
+    frequency: rule.frequency,
+    threshold: rule.threshold,
+    is_active: rule.isActive,
+    created_at: rule.createdAt.toISOString(),
+    last_triggered_at: rule.lastTriggeredAt?.toISOString() ?? null,
+  };
+}
+
+// ─── Zod Schemas ────────────────────────────────────────────────────────────
 
 // Zod schema for creating an alert rule
 const createAlertRuleSchema = z.object({
@@ -42,21 +96,69 @@ const updateAlertRuleSchema = z.object({
   is_active: z.boolean().optional(),
 });
 
-// Helper function to convert alert rule to DTO
-function toAlertRuleDto(rule: any) {
-  return {
-    id: rule.id,
-    stock_ticker: rule.stockTicker,
-    rule_type: rule.ruleType,
-    trigger_conditions: rule.triggerConditions,
-    condition_operator: rule.conditionOperator,
-    frequency: rule.frequency,
-    threshold: rule.threshold,
-    is_active: rule.isActive,
-    created_at: rule.createdAt.toISOString(),
-    last_triggered_at: rule.lastTriggeredAt?.toISOString() ?? null,
-  };
-}
+// ─── Triggered Alert Routes ─────────────────────────────────────────────────
+// These are registered BEFORE the /rules/* routes and /:id routes to avoid conflicts.
+
+// GET /alerts - List user's triggered alerts with pagination
+alertRoutes.get('/', async (c) => {
+  const user = c.get('user');
+  const unreadOnly = c.req.query('unread_only') === 'true';
+  const limit = Math.min(parseInt(c.req.query('limit') || '20', 10), 100);
+  const offset = parseInt(c.req.query('offset') || '0', 10);
+
+  const { rows, total } = await getAlertsForUser(user.id, { unreadOnly, limit, offset });
+
+  const alertsDto = rows.map((row) => toAlertDto(row, row.stockTicker ?? undefined));
+
+  return c.json(
+    paginated(alertsDto, {
+      total,
+      limit,
+      offset,
+      has_more: offset + limit < total,
+    }),
+    200,
+  );
+});
+
+// GET /alerts/unread-count - Get unread alert count
+alertRoutes.get('/unread-count', async (c) => {
+  const user = c.get('user');
+  const count = await getUnreadCount(user.id);
+
+  return c.json(success({ unread_count: count }), 200);
+});
+
+// POST /alerts/read-all - Mark all alerts as read
+alertRoutes.post('/read-all', async (c) => {
+  const user = c.get('user');
+  await markAllAlertsAsRead(user.id);
+
+  return c.json(success({ updated: true }), 200);
+});
+
+// POST /alerts/:id/read - Mark single alert as read
+alertRoutes.post('/:id/read', async (c) => {
+  const user = c.get('user');
+  const alertId = c.req.param('id');
+
+  const alert = await markAlertAsRead(alertId, user.id);
+  const alertDto = toAlertDto(alert);
+
+  return c.json(success(alertDto), 200);
+});
+
+// DELETE /alerts/:id - Delete a triggered alert
+alertRoutes.delete('/:id', async (c) => {
+  const user = c.get('user');
+  const alertId = c.req.param('id');
+
+  await deleteAlert(alertId, user.id);
+
+  return c.json(success({ deleted: true }), 200);
+});
+
+// ─── Alert Rule Routes ──────────────────────────────────────────────────────
 
 // GET /alerts/rules - List user's alert rules
 alertRoutes.get('/rules', async (c) => {

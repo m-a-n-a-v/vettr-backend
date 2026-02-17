@@ -1,0 +1,200 @@
+{
+  "project": "VETTR Alerts \u2014 Complete E2E Implementation",
+  "description": "Make alerts fully functional: rules CRUD, triggered alerts, tier-gated overlays across all platforms",
+  "stories": [
+    {
+      "id": "ALERT-B01",
+      "title": "Backend: Triggered alerts API endpoints",
+      "repo": "backend",
+      "priority": 1,
+      "description": "Create src/services/alert.service.ts with functions: getAlertsForUser (paginated, joined with stocks for ticker, unread_only filter), markAlertAsRead, markAllAlertsAsRead, deleteAlert, getUnreadCount. Add routes to src/routes/alerts.routes.ts: GET / (list alerts), GET /unread-count, POST /read-all, POST /:id/read, DELETE /:id. All require auth. DTO format: { id, stock_ticker, alert_type, title, message, triggered_at, is_read, rule_id }. Join alerts with stocks table to get ticker. Use existing patterns from alert-rule.service.ts.",
+      "acceptance": [
+        "GET /alerts returns paginated alerts with stock_ticker",
+        "POST /alerts/:id/read marks alert as read",
+        "POST /alerts/read-all marks all user alerts as read",
+        "DELETE /alerts/:id deletes alert with ownership check",
+        "GET /alerts/unread-count returns count",
+        "All routes require auth",
+        "Builds with npm run build"
+      ],
+      "passes": false
+    },
+    {
+      "id": "ALERT-B02",
+      "title": "Backend: Alert evaluation service",
+      "repo": "backend",
+      "priority": 2,
+      "description": "Create src/services/alert-evaluation.service.ts with evaluateAlerts() function. Query all active alert rules, for each rule check conditions against stock data. Rule types: Red Flag (check vetr score < 50 means risk), Financing/Consolidation/Drill Results (check recent filings with matching type), Executive Changes (check if executives changed). Create entries in alerts table when conditions match. Update last_triggered_at on the rule. 24hr dedup: don't re-trigger if last_triggered_at within 24 hours for same rule. Add POST /alerts/evaluate admin endpoint (check X-Admin-Secret header). Import stocks, filings, executives, vetrScores from schema. Use db queries to check conditions.",
+      "acceptance": [
+        "evaluateAlerts() queries active rules and creates alerts",
+        "Red Flag rules trigger based on vetr score",
+        "Filing-based rules trigger on matching filing types",
+        "24hr dedup prevents duplicate alerts",
+        "POST /alerts/evaluate admin endpoint works",
+        "last_triggered_at updated on rules",
+        "Builds with npm run build"
+      ],
+      "passes": false
+    },
+    {
+      "id": "ALERT-B03",
+      "title": "Backend: Seed sample triggered alerts",
+      "repo": "backend",
+      "priority": 3,
+      "description": "Create src/db/seed/alerts.ts that seeds sample alert rules and triggered alerts. First query existing users and stocks from the database. For the first user found, create 5 alert rules across different stocks and types (Red Flag, Financing, Executive Changes). Then create 8-10 sample triggered alerts (mix of read/unread) linking to those rules and stocks. Use the existing patterns from other seed files. Export a seedAlerts() function. Add it to src/db/seed/index.ts seed sequence (after stocks). Run it to populate data.",
+      "acceptance": [
+        "Seed creates alert rules for a real user",
+        "Seed creates triggered alerts linked to rules and stocks",
+        "Mix of read and unread alerts",
+        "Various alert types represented",
+        "seedAlerts() exported and callable",
+        "Builds with npm run build"
+      ],
+      "passes": false
+    },
+    {
+      "id": "ALERT-W01",
+      "title": "Web: Fix field mapping in useAlertRules hook",
+      "repo": "web",
+      "priority": 4,
+      "description": "Fix src/hooks/useAlertRules.ts \u2014 the backend returns snake_case fields (stock_ticker, rule_type, is_active, trigger_conditions) but the web types expect (ticker, alert_type, is_enabled, condition). In the SWR fetcher, map the response: ticker=raw.stock_ticker, alert_type=raw.rule_type, is_enabled=raw.is_active, condition=raw.trigger_conditions, frequency maps instant->Real-time, daily->Daily, weekly->Weekly. For mutations (createRule, updateRule), reverse-map before sending: stock_ticker=data.ticker, rule_type=data.alert_type, trigger_conditions=data.condition||{}, frequency maps Real-time->instant, Daily->daily, Weekly->weekly. Also update the toggle optimistic update to use is_enabled (not enabled). Check AlertRuleCreator.tsx handleSubmit to ensure it sends the right field names.",
+      "acceptance": [
+        "Alert rules load correctly from API with mapped fields",
+        "Creating a new rule sends correct backend field names",
+        "Updating a rule sends correct backend field names",
+        "Toggle enable/disable works with optimistic updates",
+        "Frequency correctly mapped both directions",
+        "Builds with npm run build"
+      ],
+      "passes": false
+    },
+    {
+      "id": "ALERT-W02",
+      "title": "Web: Real triggered alerts + replace mock data",
+      "repo": "web",
+      "priority": 5,
+      "description": "Create src/hooks/useAlertTriggers.ts \u2014 SWR hook fetching GET /alerts. Include markAsRead(id)->POST /alerts/:id/read, markAllAsRead()->POST /alerts/read-all, deleteTrigger(id)->DELETE /alerts/:id. Map response fields (stock_ticker->ticker, etc). In src/app/(main)/alerts/page.tsx: import useAlertTriggers, replace mockRecentTriggers constant with real data from the hook. Add 'Mark all read' button next to 'Recent Triggers' heading. Show unread indicator (dot/badge) on unread alerts. Add empty state when no triggers. Remove the old mockRecentTriggers array entirely.",
+      "acceptance": [
+        "useAlertTriggers hook fetches from GET /alerts",
+        "Mock data (AAPL, TSLA, MSFT) completely removed",
+        "Real triggered alerts displayed",
+        "Mark as read works on individual alerts",
+        "Mark all read button works",
+        "Empty state shown when no alerts",
+        "Builds with npm run build"
+      ],
+      "passes": false
+    },
+    {
+      "id": "ALERT-W03",
+      "title": "Web: Tier-gated upgrade overlay for non-watchlist stocks",
+      "repo": "web",
+      "priority": 6,
+      "description": "In src/app/(main)/alerts/page.tsx: import useWatchlist and useSubscription hooks. Create a helper: isAlertLocked(ticker) that returns true if ticker is NOT in watchlist AND watchlist.length >= subscription.watchlist_limit (where -1 means unlimited). For locked alert rules: show ticker and type but blur/dim the rest of the card, add a semi-transparent overlay with a lock icon and 'Upgrade for full details' text. Clicking opens UpgradeModal (already exists at src/components/UpgradeModal.tsx). Same for locked triggered alerts. For unlocked alerts: show full details as before. Import UpgradeModal and add showUpgradeModal state.",
+      "acceptance": [
+        "Non-watchlist stock alerts show locked/blurred overlay",
+        "Watchlist stock alerts show full details",
+        "Lock overlay has upgrade CTA button",
+        "Clicking upgrade opens UpgradeModal",
+        "Works for both alert rules and triggered alerts sections",
+        "Builds with npm run build"
+      ],
+      "passes": false
+    },
+    {
+      "id": "ALERT-W04",
+      "title": "Web: Unread badge on navigation alerts icon",
+      "repo": "web",
+      "priority": 7,
+      "description": "Find the navigation component (check src/components/ for BottomNav, Sidebar, Navigation, or similar). Add an unread alert count badge to the Alerts nav icon. Create a simple useUnreadAlertCount hook or use SWR directly to fetch GET /alerts/unread-count. Show a red dot or number badge (e.g. small red circle with white number) on the Alerts icon when unread > 0. The badge should animate in. If count > 99, show '99+'. Refresh on SWR interval (60s).",
+      "acceptance": [
+        "Unread count badge visible on Alerts nav icon",
+        "Badge shows count when > 0, hidden when 0",
+        "Count refreshes periodically",
+        "Badge disappears after marking all as read",
+        "Builds with npm run build"
+      ],
+      "passes": false
+    },
+    {
+      "id": "ALERT-I01",
+      "title": "iOS: Replace mock service with real API",
+      "repo": "ios",
+      "priority": 8,
+      "description": "Create vettr-ios/Core/Services/APIAlertRuleService.swift implementing AlertRuleServiceProtocol. Use URLSession to call backend API at https://vettr-backend.vercel.app/v1. Endpoints: GET /alerts/rules (list rules), POST /alerts/rules (create), PUT /alerts/rules/:id (update), DELETE /alerts/rules/:id (delete), POST /alerts/rules/:id/enable, POST /alerts/rules/:id/disable. Map snake_case JSON to Swift models: stock_ticker->stockTicker, rule_type->ruleType, is_active->isActive, trigger_conditions->triggerConditions. Also fetch triggered alerts: GET /alerts. Auth: include JWT token from AuthService/keychain in Authorization header. Update AlertsViewModel to use the new API service instead of MockAlertRuleService. Check Core/Services/AlertRuleService.swift for the protocol definition.",
+      "acceptance": [
+        "APIAlertRuleService implements protocol with real HTTP calls",
+        "Field mapping works correctly snake_case to camelCase",
+        "Alert rules load from real backend",
+        "CRUD operations (create, update, delete, toggle) work",
+        "Triggered alerts fetched from GET /alerts",
+        "Auth token included in requests",
+        "Builds with xcodebuild"
+      ],
+      "passes": false
+    },
+    {
+      "id": "ALERT-I02",
+      "title": "iOS: Tier-gated upgrade overlay",
+      "repo": "ios",
+      "priority": 9,
+      "description": "In AlertsView.swift and AlertRuleRowView.swift: Check if each alert rule's stock ticker is in the user's watchlist (check stocks where isFavorite==true). If the stock is NOT in watchlist AND the watchlist count >= VETTRTier.watchlistLimit: show the alert with minimal info (ticker + rule type only), add a semi-transparent overlay with a lock SF Symbol (lock.fill) and text 'Upgrade for details'. Tap opens UpgradeView as a sheet (already exists at vettr-ios/Features/Upgrade/UpgradeView.swift). For watchlist stocks, show full details normally. Use @Query to get watchlist stocks for comparison.",
+      "acceptance": [
+        "Non-watchlist alerts show locked overlay",
+        "Watchlist alerts show full details",
+        "Lock overlay shows upgrade prompt",
+        "Tapping opens UpgradeView sheet",
+        "Works for both rules and triggered alerts",
+        "Builds with xcodebuild"
+      ],
+      "passes": false
+    },
+    {
+      "id": "ALERT-A01",
+      "title": "Android: Replace Room-only with API service",
+      "repo": "android",
+      "priority": 10,
+      "description": "Create app/src/main/java/com/vettr/android/core/network/AlertRuleApiService.kt as a Retrofit interface with endpoints: GET alerts/rules, POST alerts/rules, PUT alerts/rules/{id}, DELETE alerts/rules/{id}, POST alerts/rules/{id}/enable, POST alerts/rules/{id}/disable, GET alerts, POST alerts/{id}/read, POST alerts/read-all. Create API response DTOs with snake_case field names (stock_ticker, rule_type, etc). Update AlertRuleRepositoryImpl to call API first, then cache responses to Room. Map snake_case API fields to Kotlin model. Add Hilt module binding. Update AlertsViewModel to handle API loading states and errors.",
+      "acceptance": [
+        "Retrofit API service with all alert endpoints",
+        "Repository calls API and caches to Room",
+        "Field mapping from snake_case API to Kotlin model",
+        "Alert rules and triggered alerts load from backend",
+        "CRUD operations work through API",
+        "Hilt DI properly configured",
+        "Builds with gradlew"
+      ],
+      "passes": false
+    },
+    {
+      "id": "ALERT-A02",
+      "title": "Android: Tier-gated upgrade overlay",
+      "repo": "android",
+      "priority": 11,
+      "description": "In AlertsScreen.kt: Check if each alert rule's stock ticker is in favorites (from StockRepository.getFavorites()). If NOT in favorites AND favorites count >= VettrTier.watchlistLimit: show a locked card with ticker + type, blurred/dimmed content, lock icon (Icons.Default.Lock), 'Upgrade for details' text. Clicking opens UpgradeDialog (exists at feature/upgrade/UpgradeDialog.kt). For favorite stocks, show full details. Collect favorites as state in AlertsViewModel.",
+      "acceptance": [
+        "Non-favorite alerts show locked overlay",
+        "Favorite alerts show full details",
+        "Lock overlay shows upgrade prompt",
+        "Tapping opens UpgradeDialog",
+        "Builds with gradlew"
+      ],
+      "passes": false
+    },
+    {
+      "id": "ALERT-O01",
+      "title": "Ops Dashboard: Fix filters + add stats",
+      "repo": "ops",
+      "priority": 12,
+      "description": "In src/pages/AlertRules.tsx: Update filterOptions ruleType to match actual values: Red Flag, Financing, Executive Changes, Consolidation, Drill Results. Update frequency options to: instant, daily, weekly (remove hourly/realtime). In src/pages/Alerts.tsx: Update alertType filter to match: Red Flag, Financing, Executive Changes, Consolidation, Drill Results. In src/pages/Dashboard.tsx: Add an alerts summary card showing total active rules count, triggered alerts (24h), unread alerts count. Use the existing useTable/API patterns to fetch stats.",
+      "acceptance": [
+        "AlertRules filter types match actual rule types",
+        "AlertRules frequency options match actual values",
+        "Alerts filter types match actual alert types",
+        "Dashboard shows alerts summary stats card",
+        "Builds with npm run build"
+      ],
+      "passes": false
+    }
+  ]
+}

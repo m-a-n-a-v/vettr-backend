@@ -4,6 +4,7 @@ import { seedStocks, stockSeedData } from './stocks.js';
 import { seedFilings } from './filings.js';
 import { seedExecutives } from './executives.js';
 import { seedFinancialData } from './financial-data.js';
+import { seedAlerts } from './alerts.js';
 import { calculateVetrScore } from '../../services/vetr-score.service.js';
 import { eq } from 'drizzle-orm';
 
@@ -63,6 +64,9 @@ export async function runAllSeeds(): Promise<void> {
     }
   }
 
+  // 6. Seed sample alerts
+  const alertCount = await seedAlerts();
+
   const duration = ((Date.now() - startTime) / 1000).toFixed(2);
 
   console.log('\n📊 Seed Summary:');
@@ -71,6 +75,7 @@ export async function runAllSeeds(): Promise<void> {
   console.log(`   Executives:     ${executiveCount}`);
   console.log(`   Financial Data: ${financialDataCount}`);
   console.log(`   Scores Calculated: ${scoresCalculated}`);
+  console.log(`   Alerts:         ${alertCount}`);
   console.log(`   Duration:       ${duration}s`);
   console.log('\n✅ Database seed complete!');
 }
