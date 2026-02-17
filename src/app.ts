@@ -44,7 +44,8 @@ const app = new OpenAPIHono<{ Variables: Variables }>().basePath('/v1');
 // or wildcard '*' for all origins
 const corsOrigin = (() => {
   if (env.CORS_ORIGIN === '*') {
-    return '*';
+    // Reflect the requesting origin so credentials: true is valid
+    return (origin: string) => origin || '*';
   }
 
   const allowedOrigins = env.CORS_ORIGIN.split(',').map(origin => origin.trim());
@@ -62,6 +63,7 @@ app.use(
   cors({
     origin: corsOrigin,
     credentials: true,
+    allowHeaders: ['Content-Type', 'Authorization', 'X-Admin-Secret'],
   })
 );
 
