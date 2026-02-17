@@ -1,4 +1,4 @@
-import { eq, desc, and, gte, sql } from 'drizzle-orm';
+import { eq, desc, and, gte, sql, inArray } from 'drizzle-orm';
 import { db } from '../config/database.js';
 import { stocks, filings, executives, redFlagHistory, redFlagAcknowledgments } from '../db/schema/index.js';
 import { InternalError, NotFoundError } from '../utils/errors.js';
@@ -604,6 +604,68 @@ async function saveRedFlagsToHistory(
     // Log but don't fail the detection if history save fails
     console.error(`Failed to save red flag history for ${stockTicker}:`, error);
   }
+}
+
+/**
+ * Get the latest red flag history entry IDs per flag_type for a stock,
+ * along with per-user acknowledgment status.
+ * Returns a map of flagType → { id, is_acknowledged }.
+ */
+export async function getLatestFlagIdsForStock(
+  ticker: string,
+  userId: string,
+): Promise<Record<string, { id: string; is_acknowledged: boolean }>> {
+  if (!db) {
+    return {};
+  }
+
+  const upperTicker = ticker.toUpperCase();
+
+  // Get the most recent entry per flag_type using a subquery
+  // We fetch the latest 5 (one per type) ordered by detectedAt desc
+  const latestFlags = await db
+    .select({
+      id: redFlagHistory.id,
+      flagType: redFlagHistory.flagType,
+      detectedAt: redFlagHistory.detectedAt,
+    })
+    .from(redFlagHistory)
+    .where(eq(redFlagHistory.stockTicker, upperTicker))
+    .orderBy(desc(redFlagHistory.detectedAt))
+    .limit(20); // fetch enough to cover all types
+
+  // Deduplicate: keep only the most recent entry per flag_type
+  const latestByType = new Map<string, { id: string; detectedAt: Date }>();
+  for (const flag of latestFlags) {
+    if (!latestByType.has(flag.flagType)) {
+      latestByType.set(flag.flagType, { id: flag.id, detectedAt: flag.detectedAt });
+    }
+  }
+
+  if (latestByType.size === 0) {
+    return {};
+  }
+
+  // Check acknowledgment status for these flag IDs
+  const flagIds = Array.from(latestByType.values()).map(f => f.id);
+  const acks = await db
+    .select({ redFlagId: redFlagAcknowledgments.redFlagId })
+    .from(redFlagAcknowledgments)
+    .where(
+      and(
+        eq(redFlagAcknowledgments.userId, userId),
+        inArray(redFlagAcknowledgments.redFlagId, flagIds),
+      ),
+    );
+
+  const ackedIds = new Set(acks.map(a => a.redFlagId));
+
+  const result: Record<string, { id: string; is_acknowledged: boolean }> = {};
+  for (const [flagType, { id }] of latestByType) {
+    result[flagType] = { id, is_acknowledged: ackedIds.has(id) };
+  }
+
+  return result;
 }
 
 // --- History Query Functions ---

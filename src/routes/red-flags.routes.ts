@@ -10,6 +10,7 @@ import {
   acknowledgeRedFlag,
   acknowledgeAllForStock,
   getRedFlagTrend,
+  getLatestFlagIdsForStock,
 } from '../services/red-flag.service.js';
 import { success, paginated } from '../utils/response.js';
 
@@ -72,8 +73,12 @@ redFlagStockRoutes.post('/:ticker/red-flags/acknowledge-all', async (c) => {
 // Maps backend DetectedFlagResult to frontend RedFlagsResponse format
 redFlagStockRoutes.get('/:ticker/red-flags', async (c) => {
   const ticker = c.req.param('ticker');
+  const user = c.get('user');
 
   const result = await detectRedFlags(ticker);
+
+  // Get real database IDs + per-user acknowledgment status
+  const flagIdMap = await getLatestFlagIdsForStock(ticker, user.id);
 
   // Build the breakdown from individual flag scores
   const flagsByType: Record<string, number> = {};
@@ -94,21 +99,24 @@ redFlagStockRoutes.get('/:ticker/red-flags', async (c) => {
     },
     detected_flags: result.flags
       .filter(f => f.score > 20) // Only show flags with meaningful scores
-      .map((flag, index) => ({
-        id: `${result.ticker}-${flag.flag_type}-${index}`,
-        ticker: result.ticker,
-        name: flag.flag_type
-          .split('_')
-          .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1))
-          .join(' '),
-        explanation: flag.description,
-        severity: flag.score >= 80 ? 'Critical'
-          : flag.score >= 60 ? 'High'
-          : flag.score >= 40 ? 'Moderate'
-          : 'Low',
-        detected_at: result.detected_at,
-        is_acknowledged: false,
-      })),
+      .map((flag) => {
+        const historyEntry = flagIdMap[flag.flag_type];
+        return {
+          id: historyEntry?.id ?? `${result.ticker}-${flag.flag_type}`,
+          ticker: result.ticker,
+          name: flag.flag_type
+            .split('_')
+            .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1))
+            .join(' '),
+          explanation: flag.description,
+          severity: flag.score >= 80 ? 'Critical'
+            : flag.score >= 60 ? 'High'
+            : flag.score >= 40 ? 'Moderate'
+            : 'Low',
+          detected_at: result.detected_at,
+          is_acknowledged: historyEntry?.is_acknowledged ?? false,
+        };
+      }),
   };
 
   return c.json(success(responseDto), 200);
