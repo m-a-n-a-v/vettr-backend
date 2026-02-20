@@ -271,7 +271,8 @@ export async function detectExecutiveChurn(stockTicker: string): Promise<RedFlag
   const executiveList = await getExecutivesForTicker(upperTicker);
 
   // Executives with less than 1 year tenure indicate recent churn
-  const recentChanges = executiveList.filter((e) => e.yearsAtCompany < 1);
+  // Skip executives with unknown tenure (0 or null) — missing data is not a red flag
+  const recentChanges = executiveList.filter((e) => e.yearsAtCompany != null && e.yearsAtCompany > 0 && e.yearsAtCompany < 1);
   const churnCount = recentChanges.length;
 
   let score: number;
