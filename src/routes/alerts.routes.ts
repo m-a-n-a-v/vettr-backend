@@ -20,6 +20,7 @@ import {
 } from '../services/alert.service.js';
 import { success, paginated } from '../utils/response.js';
 import { evaluateAlerts } from '../services/alert-evaluation.service.js';
+import { generateNotificationsForUser } from '../services/notification-generator.service.js';
 
 type Variables = {
   user: AuthUser;
@@ -106,6 +107,11 @@ alertRoutes.get('/', async (c) => {
   const limit = Math.min(parseInt(c.req.query('limit') || '20', 10), 100);
   const offset = parseInt(c.req.query('offset') || '0', 10);
 
+  // Lazily generate notifications (fire-and-forget, runs at most once per 24h)
+  generateNotificationsForUser(user.id).catch((err) =>
+    console.error('Notification generation failed:', err)
+  );
+
   const { rows, total } = await getAlertsForUser(user.id, { unreadOnly, limit, offset });
 
   const alertsDto = rows.map((row) => toAlertDto(row, row.stockTicker ?? undefined));
@@ -124,6 +130,12 @@ alertRoutes.get('/', async (c) => {
 // GET /alerts/unread-count - Get unread alert count
 alertRoutes.get('/unread-count', async (c) => {
   const user = c.get('user');
+
+  // Lazily generate notifications (fire-and-forget, runs at most once per 24h)
+  generateNotificationsForUser(user.id).catch((err) =>
+    console.error('Notification generation failed:', err)
+  );
+
   const count = await getUnreadCount(user.id);
 
   return c.json(success({ unread_count: count }), 200);
