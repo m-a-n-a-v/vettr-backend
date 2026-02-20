@@ -57,7 +57,7 @@
         "npm run build passes with no TypeScript errors"
       ],
       "priority": 3,
-      "passes": false
+      "passes": true
     },
     {
       "id": "CRON-004",
@@ -72,7 +72,7 @@
         "npm run build passes with no TypeScript errors"
       ],
       "priority": 4,
-      "passes": false
+      "passes": true
     },
     {
       "id": "CRON-005",
@@ -87,7 +87,7 @@
         "npm run build passes with no TypeScript errors"
       ],
       "priority": 5,
-      "passes": false
+      "passes": true
     },
     {
       "id": "CRON-006",
@@ -108,7 +108,7 @@
         "npm run test passes"
       ],
       "priority": 6,
-      "passes": false
+      "passes": true
     },
     {
       "id": "CRON-007",

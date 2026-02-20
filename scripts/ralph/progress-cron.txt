@@ -51,3 +51,101 @@ Details:
 - TypeScript requires explicit db null checks even though db is initialized in config
 ---
 
+## CRON-003: Create cron routes with GET endpoints
+Status: ✅ COMPLETE
+Date: 2026-02-19
+Details:
+- Created src/routes/cron.routes.ts with Hono router instance
+- Applied cronAuthMiddleware to all routes via cronRoutes.use('*', cronAuthMiddleware)
+- Implemented GET /scores endpoint that calls refreshScoresChunk() and returns success response
+- Implemented GET /red-flags endpoint that calls refreshRedFlagsChunk() and returns success response
+- Implemented GET /refresh-all endpoint that calls refreshAllChunked() - primary endpoint for Vercel cron
+- Implemented GET /status endpoint that reads Redis cursor keys and queries total stock count, calculates progress percentages
+- Implemented GET /reset endpoint that deletes both Redis cursor keys to force a full re-run
+- Exported cronRoutes from the module
+- Added InternalError import and db null check in /status endpoint for TypeScript safety
+- All imports use .js extension for ESM compatibility
+- npm run build passes with no TypeScript errors
+- Files changed: src/routes/cron.routes.ts (new)
+
+**Learnings for future iterations:**
+- Drizzle count() function returns an array with a single object { value: count }, not a direct number
+- The status endpoint provides a quick way to monitor cron progress without processing any tickers
+- The reset endpoint is useful for testing or manual intervention when the cursor needs to be reset
+- All endpoints are protected by cronAuthMiddleware, ensuring only authorized cron requests can trigger them
+- TypeScript null checks are required even for db queries in route handlers
+---
+
+## CRON-004: Register cron routes on main app and export from routes index
+Status: ✅ COMPLETE
+Date: 2026-02-19
+Details:
+- Added export { cronRoutes } from './cron.routes.js' to src/routes/index.ts
+- Imported cronRoutes in src/app.ts from the routes barrel export
+- Registered cron routes with app.route('/cron', cronRoutes) in src/app.ts
+- Cron routes are now accessible at: GET /v1/cron/scores, GET /v1/cron/red-flags, GET /v1/cron/refresh-all, GET /v1/cron/status, GET /v1/cron/reset
+- All imports use .js extension for ESM compatibility
+- npm run build passes with no TypeScript errors
+- Files changed: src/routes/index.ts, src/app.ts
+
+**Learnings for future iterations:**
+- The route registration follows the consistent pattern used by all other route modules
+- Cron routes are registered at the same level as other top-level routes like /admin, /auth, /stocks
+- The barrel export pattern in routes/index.ts keeps imports clean and organized
+- Cron endpoints are now live and protected by cronAuthMiddleware
+---
+
+## CRON-005: Configure Vercel cron schedule in vercel.json
+Status: ✅ COMPLETE
+Date: 2026-02-19
+Details:
+- Updated vercel.json to add 'crons' array with a single cron entry
+- Added cron entry with path '/v1/cron/refresh-all' and schedule '0 */6 * * *' (runs every 6 hours at minute 0)
+- Added 'functions' config with maxDuration set to 300 seconds (5 minutes) for api/index.ts
+- Kept existing vercel.json fields (framework, installCommand, buildCommand) unchanged
+- Final vercel.json structure: framework, installCommand, buildCommand, functions, crons
+- npm run build passes with no TypeScript errors
+- Files changed: vercel.json
+
+**Learnings for future iterations:**
+- Vercel crons are production-only features; they automatically add Authorization: Bearer <CRON_SECRET> header if CRON_SECRET env var is set in Vercel project settings
+- The schedule '0 */6 * * *' runs at minute 0 of every 6th hour (0:00, 6:00, 12:00, 18:00)
+- With 1300+ tickers and ~100 per chunk, it will take approximately 13 invocations to complete a full cycle (13 chunks × 6 hours = ~78 hours or 3.25 days)
+- The maxDuration of 300 seconds applies to all functions in api/index.ts (our single Vercel entry point)
+- This gives ample time to process 100 tickers per chunk with concurrency of 10
+- In development, crons won't run automatically - you test by calling the endpoints manually with the CRON_SECRET header
+---
+
+## CRON-006: Write integration tests for cron endpoints
+Status: ✅ COMPLETE
+Date: 2026-02-19
+Details:
+- Created tests/cron.test.ts with 20 comprehensive integration tests covering all cron endpoints
+- Authentication tests: validates CRON_SECRET Bearer token auth (401 on missing/wrong token, 200 on valid token)
+- GET /v1/cron/scores: tests chunked score refresh with correct response shape, empty failures array, is_complete flag
+- GET /v1/cron/red-flags: tests chunked red flag refresh with similar response structure
+- GET /v1/cron/refresh-all: tests combined refresh returning both scores and red_flags results with total_duration_ms
+- GET /v1/cron/status: tests progress tracking with Redis offsets, progress percentages, null offset handling
+- GET /v1/cron/reset: tests cursor reset functionality using cache.del
+- Response format validation: verifies all fields use snake_case (stocks_processed, duration_ms, chunk_info, etc.) and success wrapper
+- Mocked cron service (refreshScoresChunk, refreshRedFlagsChunk, refreshAllChunked) for fast execution
+- Mocked cache service (get, set, del) to avoid Redis dependency
+- Mocked database with Drizzle query builder chaining pattern - supports select().from().orderBy() chains and thenable for count queries
+- Added beforeEach hook to re-setup database mock chain for each test to ensure proper test isolation
+- All 20 tests pass in isolation and when run together
+- npm run build passes with no TypeScript errors
+- npm run test passes (169 total tests across entire suite)
+- Files changed: tests/cron.test.ts (new, 677 lines)
+
+**Learnings for future iterations:**
+- Vitest mocking with vi.mock requires careful setup for chained method calls (Drizzle query builder pattern)
+- Database mocks need to be thenable (implement .then()) to work with await on Drizzle queries that return promises
+- Use vi.hoisted() for shared mock instances across test file, but can't define complex functions inside hoisted scope
+- Mock chains (select -> from -> orderBy) need to return the mock object itself for chaining to work
+- vi.clearAllMocks() clears call history but doesn't restore mock implementations - need to manually re-setup in beforeEach
+- Test isolation is critical - mocks must be reset between tests to avoid interference
+- When testing routes that call service functions with default parameters, expect the function to be called with no args (not the default value)
+- The error handler logs to stderr during tests are expected for 401 tests - these aren't test failures, just logged errors
+- For testing cron auth middleware, follow the same pattern as admin auth tests: mock env config with CRON_SECRET
+---
+

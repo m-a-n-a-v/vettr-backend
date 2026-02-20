@@ -4,8 +4,8 @@ import { refreshScoresChunk, refreshRedFlagsChunk, refreshAllChunked } from '../
 import { success } from '../utils/response.js';
 import * as cache from '../services/cache.service.js';
 import { db } from '../config/database.js';
-import { stocks } from '../db/schema/index.js';
-import { count } from 'drizzle-orm';
+import { stocks, cronJobRuns } from '../db/schema/index.js';
+import { count, desc } from 'drizzle-orm';
 import { InternalError } from '../utils/errors.js';
 
 const cronRoutes = new Hono();
@@ -103,6 +103,30 @@ cronRoutes.get('/reset', async (c) => {
 
   return c.json(success({
     message: 'Cron cursors reset',
+  }));
+});
+
+/**
+ * GET /cron/history
+ * Returns the last 50 cron job execution history records.
+ * Useful for monitoring job health and troubleshooting failures.
+ *
+ * Protected by Authorization: Bearer <CRON_SECRET>
+ */
+cronRoutes.get('/history', async (c) => {
+  if (!db) {
+    throw new InternalError('Database not available');
+  }
+
+  const history = await db
+    .select()
+    .from(cronJobRuns)
+    .orderBy(desc(cronJobRuns.startedAt))
+    .limit(50);
+
+  return c.json(success({
+    runs: history,
+    total: history.length,
   }));
 });
 

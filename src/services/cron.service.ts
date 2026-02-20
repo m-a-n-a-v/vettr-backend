@@ -1,6 +1,6 @@
-import { asc } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
 import { db } from '../config/database.js';
-import { stocks } from '../db/schema/index.js';
+import { stocks, cronJobRuns } from '../db/schema/index.js';
 import { calculateVetrScore } from './vetr-score.service.js';
 import { detectRedFlags } from './red-flag.service.js';
 import { InternalError } from '../utils/errors.js';
@@ -99,55 +99,102 @@ export async function refreshScoresChunk(chunkSize: number = 100): Promise<CronJ
   const chunk = allStocks.slice(currentOffset, currentOffset + chunkSize);
   const tickers = chunk.map((s) => s.ticker);
 
+  // Create job history record with 'running' status
+  const [jobRecord] = await db
+    .insert(cronJobRuns)
+    .values({
+      jobName,
+      status: 'running',
+      chunkOffset: currentOffset,
+      chunkSize,
+      totalStocks,
+    })
+    .returning();
+
   console.log(
     `Cron ${jobName}: processing tickers ${currentOffset}-${currentOffset + chunk.length} of ${totalStocks}`
   );
 
-  // Process the chunk with controlled concurrency
-  const { succeeded, failed, failures } = await processBatch(
-    tickers,
-    async (ticker) => {
-      console.log(`  [${jobName}] Processing ${ticker}...`);
-      await calculateVetrScore(ticker);
-      console.log(`  [${jobName}] ✓ ${ticker}`);
+  try {
+    // Process the chunk with controlled concurrency
+    // Bust the Redis cache before each calculation to ensure fresh data
+    const { succeeded, failed, failures } = await processBatch(
+      tickers,
+      async (ticker) => {
+        console.log(`  [${jobName}] Processing ${ticker}...`);
+        // Invalidate cached score so calculateVetrScore recomputes from DB
+        await cache.del(`vetr_score:${ticker.toUpperCase()}`);
+        await calculateVetrScore(ticker);
+        console.log(`  [${jobName}] ✓ ${ticker}`);
+      }
+    );
+
+    // Calculate next offset
+    const nextOffset = currentOffset + chunk.length;
+    const isComplete = nextOffset >= totalStocks;
+
+    // Update Redis cursor (or reset to 0 if complete)
+    if (isComplete) {
+      await cache.set(SCORES_CURSOR_KEY, 0, REDIS_CURSOR_TTL);
+      console.log(`Cron ${jobName}: cycle complete, cursor reset to 0`);
+    } else {
+      await cache.set(SCORES_CURSOR_KEY, nextOffset, REDIS_CURSOR_TTL);
+      console.log(`Cron ${jobName}: cursor updated to ${nextOffset}`);
     }
-  );
 
-  // Calculate next offset
-  const nextOffset = currentOffset + chunk.length;
-  const isComplete = nextOffset >= totalStocks;
+    const durationMs = Date.now() - startTime;
+    const completedAt = new Date().toISOString();
 
-  // Update Redis cursor (or reset to 0 if complete)
-  if (isComplete) {
-    await cache.set(SCORES_CURSOR_KEY, 0, REDIS_CURSOR_TTL);
-    console.log(`Cron ${jobName}: cycle complete, cursor reset to 0`);
-  } else {
-    await cache.set(SCORES_CURSOR_KEY, nextOffset, REDIS_CURSOR_TTL);
-    console.log(`Cron ${jobName}: cursor updated to ${nextOffset}`);
+    console.log(
+      `Cron ${jobName}: completed in ${durationMs}ms - ${succeeded} succeeded, ${failed} failed`
+    );
+
+    // Update job history record to 'completed'
+    await db
+      .update(cronJobRuns)
+      .set({
+        status: 'completed',
+        stocksProcessed: chunk.length,
+        succeeded,
+        failedCount: failed,
+        failures: failures.length > 0 ? failures : null,
+        durationMs,
+        completedAt: new Date(),
+      })
+      .where(eq(cronJobRuns.id, jobRecord.id));
+
+    return {
+      job: jobName,
+      stocks_processed: chunk.length,
+      succeeded,
+      failed,
+      failures,
+      duration_ms: durationMs,
+      completed_at: completedAt,
+      chunk_info: {
+        current_offset: currentOffset,
+        chunk_size: chunkSize,
+        total_stocks: totalStocks,
+        is_complete: isComplete,
+      },
+    };
+  } catch (error) {
+    const durationMs = Date.now() - startTime;
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
+    // Update job history record to 'failed'
+    await db
+      .update(cronJobRuns)
+      .set({
+        status: 'failed',
+        durationMs,
+        completedAt: new Date(),
+        errorMessage,
+      })
+      .where(eq(cronJobRuns.id, jobRecord.id));
+
+    throw error;
   }
-
-  const durationMs = Date.now() - startTime;
-  const completedAt = new Date().toISOString();
-
-  console.log(
-    `Cron ${jobName}: completed in ${durationMs}ms - ${succeeded} succeeded, ${failed} failed`
-  );
-
-  return {
-    job: jobName,
-    stocks_processed: chunk.length,
-    succeeded,
-    failed,
-    failures,
-    duration_ms: durationMs,
-    completed_at: completedAt,
-    chunk_info: {
-      current_offset: currentOffset,
-      chunk_size: chunkSize,
-      total_stocks: totalStocks,
-      is_complete: isComplete,
-    },
-  };
 }
 
 /**
@@ -177,55 +224,102 @@ export async function refreshRedFlagsChunk(chunkSize: number = 100): Promise<Cro
   const chunk = allStocks.slice(currentOffset, currentOffset + chunkSize);
   const tickers = chunk.map((s) => s.ticker);
 
+  // Create job history record with 'running' status
+  const [jobRecord] = await db
+    .insert(cronJobRuns)
+    .values({
+      jobName,
+      status: 'running',
+      chunkOffset: currentOffset,
+      chunkSize,
+      totalStocks,
+    })
+    .returning();
+
   console.log(
     `Cron ${jobName}: processing tickers ${currentOffset}-${currentOffset + chunk.length} of ${totalStocks}`
   );
 
-  // Process the chunk with controlled concurrency
-  const { succeeded, failed, failures } = await processBatch(
-    tickers,
-    async (ticker) => {
-      console.log(`  [${jobName}] Processing ${ticker}...`);
-      await detectRedFlags(ticker);
-      console.log(`  [${jobName}] ✓ ${ticker}`);
+  try {
+    // Process the chunk with controlled concurrency
+    // Bust the Redis cache before each detection to ensure fresh data
+    const { succeeded, failed, failures } = await processBatch(
+      tickers,
+      async (ticker) => {
+        console.log(`  [${jobName}] Processing ${ticker}...`);
+        // Invalidate cached red flags so detectRedFlags recomputes from DB
+        await cache.del(`red_flags:${ticker.toUpperCase()}`);
+        await detectRedFlags(ticker);
+        console.log(`  [${jobName}] ✓ ${ticker}`);
+      }
+    );
+
+    // Calculate next offset
+    const nextOffset = currentOffset + chunk.length;
+    const isComplete = nextOffset >= totalStocks;
+
+    // Update Redis cursor (or reset to 0 if complete)
+    if (isComplete) {
+      await cache.set(RED_FLAGS_CURSOR_KEY, 0, REDIS_CURSOR_TTL);
+      console.log(`Cron ${jobName}: cycle complete, cursor reset to 0`);
+    } else {
+      await cache.set(RED_FLAGS_CURSOR_KEY, nextOffset, REDIS_CURSOR_TTL);
+      console.log(`Cron ${jobName}: cursor updated to ${nextOffset}`);
     }
-  );
 
-  // Calculate next offset
-  const nextOffset = currentOffset + chunk.length;
-  const isComplete = nextOffset >= totalStocks;
+    const durationMs = Date.now() - startTime;
+    const completedAt = new Date().toISOString();
 
-  // Update Redis cursor (or reset to 0 if complete)
-  if (isComplete) {
-    await cache.set(RED_FLAGS_CURSOR_KEY, 0, REDIS_CURSOR_TTL);
-    console.log(`Cron ${jobName}: cycle complete, cursor reset to 0`);
-  } else {
-    await cache.set(RED_FLAGS_CURSOR_KEY, nextOffset, REDIS_CURSOR_TTL);
-    console.log(`Cron ${jobName}: cursor updated to ${nextOffset}`);
+    console.log(
+      `Cron ${jobName}: completed in ${durationMs}ms - ${succeeded} succeeded, ${failed} failed`
+    );
+
+    // Update job history record to 'completed'
+    await db
+      .update(cronJobRuns)
+      .set({
+        status: 'completed',
+        stocksProcessed: chunk.length,
+        succeeded,
+        failedCount: failed,
+        failures: failures.length > 0 ? failures : null,
+        durationMs,
+        completedAt: new Date(),
+      })
+      .where(eq(cronJobRuns.id, jobRecord.id));
+
+    return {
+      job: jobName,
+      stocks_processed: chunk.length,
+      succeeded,
+      failed,
+      failures,
+      duration_ms: durationMs,
+      completed_at: completedAt,
+      chunk_info: {
+        current_offset: currentOffset,
+        chunk_size: chunkSize,
+        total_stocks: totalStocks,
+        is_complete: isComplete,
+      },
+    };
+  } catch (error) {
+    const durationMs = Date.now() - startTime;
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
+    // Update job history record to 'failed'
+    await db
+      .update(cronJobRuns)
+      .set({
+        status: 'failed',
+        durationMs,
+        completedAt: new Date(),
+        errorMessage,
+      })
+      .where(eq(cronJobRuns.id, jobRecord.id));
+
+    throw error;
   }
-
-  const durationMs = Date.now() - startTime;
-  const completedAt = new Date().toISOString();
-
-  console.log(
-    `Cron ${jobName}: completed in ${durationMs}ms - ${succeeded} succeeded, ${failed} failed`
-  );
-
-  return {
-    job: jobName,
-    stocks_processed: chunk.length,
-    succeeded,
-    failed,
-    failures,
-    duration_ms: durationMs,
-    completed_at: completedAt,
-    chunk_info: {
-      current_offset: currentOffset,
-      chunk_size: chunkSize,
-      total_stocks: totalStocks,
-      is_complete: isComplete,
-    },
-  };
 }
 
 /**
