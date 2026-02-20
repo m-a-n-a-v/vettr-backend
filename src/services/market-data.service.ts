@@ -9,13 +9,16 @@
  * - quoteSummary(financialData + defaultKeyStatistics): Cash, debt, revenue, insider %
  */
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 import YahooFinance from 'yahoo-finance2';
 import { eq } from 'drizzle-orm';
 import { db } from '../config/database.js';
 import { stocks, financialData } from '../db/schema/index.js';
 import { InternalError } from '../utils/errors.js';
 
-const yf = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
+// yahoo-finance2 v3 exports a class constructor as default
+// TypeScript CJS types don't reflect this, so we cast
+const yf = new (YahooFinance as any)({ suppressNotices: ['yahooSurvey'] }) as InstanceType<any>;
 
 /** Yahoo Finance ticker suffix by exchange */
 const EXCHANGE_SUFFIX: Record<string, string> = {
