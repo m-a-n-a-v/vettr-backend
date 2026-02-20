@@ -191,7 +191,7 @@ alertRoutes.post('/rules', validateBody(createAlertRuleSchema), async (c) => {
     userId: user.id,
     stockTicker: body.stock_ticker,
     ruleType: body.rule_type,
-    triggerConditions: body.trigger_conditions,
+    triggerConditions: body.trigger_conditions ?? {},
     conditionOperator: body.condition_operator,
     frequency: body.frequency,
     threshold: body.threshold,
