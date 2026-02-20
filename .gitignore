@@ -13,3 +13,4 @@ drizzle/meta/
 # Ingestion data (large, machine-generated)
 scripts/ingest/data/
 scripts/ingest/venv/
+.env.vercel
