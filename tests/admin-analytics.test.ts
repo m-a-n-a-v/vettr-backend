@@ -7,6 +7,23 @@ import { sql } from 'drizzle-orm';
  * These tests verify the analytics aggregation queries return correct data shapes.
  */
 
+const ADMIN_SECRET = 'test-admin-secret';
+
+// Mock the env config module so ADMIN_SECRET is recognized by the auth middleware
+// Note: Must use inline string in factory since vi.mock is hoisted above variable declarations
+vi.mock('../src/config/env.js', async () => {
+  const actual = await vi.importActual<typeof import('../src/config/env.js')>(
+    '../src/config/env.js'
+  );
+  return {
+    ...actual,
+    env: {
+      ...actual.env,
+      ADMIN_SECRET: 'test-admin-secret',
+    },
+  };
+});
+
 // Mock the database module
 vi.mock('../src/config/database.js', async () => {
   const actual = await vi.importActual<typeof import('../src/config/database.js')>(
@@ -21,13 +38,10 @@ vi.mock('../src/config/database.js', async () => {
 });
 
 describe('Admin Analytics Endpoints Integration Tests', () => {
-  const ADMIN_SECRET = 'test-admin-secret';
   let mockDb: any;
 
   beforeEach(async () => {
     vi.clearAllMocks();
-    // Set admin secret for testing
-    process.env.ADMIN_SECRET = ADMIN_SECRET;
 
     // Get the mocked database instance
     const dbModule = await import('../src/config/database.js');
@@ -36,7 +50,6 @@ describe('Admin Analytics Endpoints Integration Tests', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
-    delete process.env.ADMIN_SECRET;
   });
 
   describe('GET /v1/admin/analytics/user-growth', () => {

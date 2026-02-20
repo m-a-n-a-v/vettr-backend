@@ -115,12 +115,12 @@ describe('Stock and Filing Endpoints Integration Tests', () => {
       expect(data.data.items).toHaveLength(2);
       expect(data.data.items[0]).toMatchObject({
         ticker: 'NXE',
-        name: 'NexGen Energy Ltd.',
+        company_name: 'NexGen Energy Ltd.',
         exchange: 'TSX',
         sector: 'Energy',
         market_cap: 5000000000,
-        price: 12.45,
-        price_change: 0.05,
+        current_price: 12.45,
+        price_change_percent: 0.05,
         vetr_score: 85,
       });
       expect(data.data.pagination).toMatchObject({
@@ -409,7 +409,7 @@ describe('Stock and Filing Endpoints Integration Tests', () => {
       expect(data.success).toBe(true);
       expect(data.data).toMatchObject({
         ticker: 'NXE',
-        name: 'NexGen Energy Ltd.',
+        company_name: 'NexGen Energy Ltd.',
       });
       expect(data.data.executives_summary.total).toBe(5);
       expect(data.data.executives_summary.top).toHaveLength(1);
@@ -498,8 +498,8 @@ describe('Stock and Filing Endpoints Integration Tests', () => {
       expect(data.data.items[0]).toMatchObject({
         type: 'Press Release',
         title: 'Q4 Results',
-        stock_ticker: 'NXE',
-        stock_name: 'NexGen Energy Ltd.',
+        ticker: 'NXE',
+        company_name: 'NexGen Energy Ltd.',
       });
       expect(data.data.pagination).toMatchObject({
         total: 75,

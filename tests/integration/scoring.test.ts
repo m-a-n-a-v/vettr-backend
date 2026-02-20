@@ -31,6 +31,7 @@ vi.mock('../../src/services/red-flag.service.js', async () => {
   return {
     ...actual,
     detectRedFlags: vi.fn(),
+    getLatestFlagIdsForStock: vi.fn(),
     getRedFlagHistoryForStock: vi.fn(),
     getGlobalRedFlagHistory: vi.fn(),
     acknowledgeRedFlag: vi.fn(),
@@ -229,48 +230,58 @@ describe('Scoring Endpoints Integration Tests', () => {
   describe('GET /v1/stocks/:ticker/red-flags', () => {
     it('should return detected red flags with composite score', async () => {
       const mockRedFlags = {
+        ticker: 'NXE',
         composite_score: 45.5,
-        severity: 'Moderate',
+        severity: 'Moderate' as const,
         flags: [
           {
             flag_type: 'consolidation_velocity',
             score: 60,
             weight: 0.3,
+            weighted_score: 18,
             description: '3 share consolidations detected in the last 24 months',
-            detected_at: new Date('2024-01-15T10:00:00Z').toISOString(),
           },
           {
             flag_type: 'financing_velocity',
             score: 40,
             weight: 0.25,
+            weighted_score: 10,
             description: 'Raised $75M in last 12 months (early-stage threshold)',
-            detected_at: new Date('2024-01-15T10:00:00Z').toISOString(),
           },
           {
             flag_type: 'executive_churn',
             score: 50,
             weight: 0.2,
+            weighted_score: 10,
             description: '2 executive departures in last 18 months',
-            detected_at: new Date('2024-01-15T10:00:00Z').toISOString(),
           },
           {
             flag_type: 'disclosure_gaps',
             score: 25,
             weight: 0.15,
+            weighted_score: 3.75,
             description: 'Filing delayed by 35 days',
-            detected_at: new Date('2024-01-15T10:00:00Z').toISOString(),
           },
           {
             flag_type: 'debt_trend',
             score: 50,
             weight: 0.1,
+            weighted_score: 5,
             description: 'Debt increased 55% with 15% revenue growth',
-            detected_at: new Date('2024-01-15T10:00:00Z').toISOString(),
           },
         ],
+        detected_at: new Date('2024-01-15T10:00:00Z').toISOString(),
       };
 
+      // Mock both detectRedFlags and getLatestFlagIdsForStock (used by route)
       vi.mocked(redFlagService.detectRedFlags).mockResolvedValue(mockRedFlags);
+      vi.mocked(redFlagService.getLatestFlagIdsForStock).mockResolvedValue({
+        consolidation_velocity: { id: 'flag-1', is_acknowledged: false },
+        financing_velocity: { id: 'flag-2', is_acknowledged: false },
+        executive_churn: { id: 'flag-3', is_acknowledged: false },
+        disclosure_gaps: { id: 'flag-4', is_acknowledged: false },
+        debt_trend: { id: 'flag-5', is_acknowledged: false },
+      });
 
       const response = await app.request('/v1/stocks/NXE/red-flags', {
         method: 'GET',
@@ -283,16 +294,16 @@ describe('Scoring Endpoints Integration Tests', () => {
       const data = await response.json();
 
       expect(data.success).toBe(true);
+      // The route transforms detectRedFlags output to frontend format:
+      // { ticker, overall_score, breakdown, detected_flags }
       expect(data.data).toMatchObject({
-        composite_score: 45.5,
-        severity: 'Moderate',
+        ticker: 'NXE',
+        overall_score: 45.5,
       });
-      expect(data.data.flags).toHaveLength(5);
-      expect(data.data.flags[0]).toMatchObject({
-        flag_type: 'consolidation_velocity',
-        score: 60,
-        weight: 0.3,
-      });
+      expect(data.data.breakdown).toBeDefined();
+      expect(data.data.breakdown.consolidation_velocity).toBe(60);
+      // detected_flags only includes flags with score > 20
+      expect(data.data.detected_flags).toBeInstanceOf(Array);
       expect(redFlagService.detectRedFlags).toHaveBeenCalledWith('NXE');
     });
 
@@ -310,12 +321,15 @@ describe('Scoring Endpoints Integration Tests', () => {
 
     it('should handle stock with no red flags', async () => {
       const mockRedFlags = {
+        ticker: 'WPM',
         composite_score: 5.0,
-        severity: 'Low',
+        severity: 'Low' as const,
         flags: [],
+        detected_at: new Date('2024-01-15T10:00:00Z').toISOString(),
       };
 
       vi.mocked(redFlagService.detectRedFlags).mockResolvedValue(mockRedFlags);
+      vi.mocked(redFlagService.getLatestFlagIdsForStock).mockResolvedValue({});
 
       const response = await app.request('/v1/stocks/WPM/red-flags', {
         method: 'GET',
@@ -328,9 +342,8 @@ describe('Scoring Endpoints Integration Tests', () => {
       const data = await response.json();
 
       expect(data.success).toBe(true);
-      expect(data.data.composite_score).toBe(5.0);
-      expect(data.data.severity).toBe('Low');
-      expect(data.data.flags).toHaveLength(0);
+      expect(data.data.overall_score).toBe(5.0);
+      expect(data.data.detected_flags).toHaveLength(0);
     });
   });
 

@@ -1,13 +1,39 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { app } from '../src/app.js';
-import * as adminCrudService from '../src/services/admin-crud.service.js';
 
 /**
  * Integration tests for admin CRUD endpoints.
  * These tests verify the generic admin CRUD functionality for managing database tables.
  */
 
-// Mock the admin CRUD service
+const ADMIN_SECRET = 'test-admin-secret';
+
+// Note: vi.mock is hoisted above all variable declarations, so we cannot reference
+// top-level variables inside vi.mock factories. We must use inline values.
+
+// Mock the env config module so ADMIN_SECRET is recognized by the auth middleware
+vi.mock('../src/config/env.js', async () => {
+  const actual = await vi.importActual<typeof import('../src/config/env.js')>(
+    '../src/config/env.js'
+  );
+  return {
+    ...actual,
+    env: {
+      ...actual.env,
+      ADMIN_SECRET: 'test-admin-secret',
+    },
+  };
+});
+
+// Mock the admin CRUD service - all instances share the same mock methods via vi.hoisted
+const { mockListRecords, mockGetById, mockCreateRecord, mockUpdateRecord, mockDeleteRecord } = vi.hoisted(() => ({
+  mockListRecords: vi.fn(),
+  mockGetById: vi.fn(),
+  mockCreateRecord: vi.fn(),
+  mockUpdateRecord: vi.fn(),
+  mockDeleteRecord: vi.fn(),
+}));
+
 vi.mock('../src/services/admin-crud.service.js', async () => {
   const actual = await vi.importActual<typeof import('../src/services/admin-crud.service.js')>(
     '../src/services/admin-crud.service.js'
@@ -15,32 +41,22 @@ vi.mock('../src/services/admin-crud.service.js', async () => {
   return {
     ...actual,
     AdminCrudService: vi.fn().mockImplementation(() => ({
-      listRecords: vi.fn(),
-      getById: vi.fn(),
-      createRecord: vi.fn(),
-      updateRecord: vi.fn(),
-      deleteRecord: vi.fn(),
+      listRecords: mockListRecords,
+      getById: mockGetById,
+      createRecord: mockCreateRecord,
+      updateRecord: mockUpdateRecord,
+      deleteRecord: mockDeleteRecord,
     })),
   };
 });
 
 describe('Admin CRUD Endpoints Integration Tests', () => {
-  const ADMIN_SECRET = 'test-admin-secret';
-  let mockService: any;
-
   beforeEach(() => {
     vi.clearAllMocks();
-    // Set admin secret for testing
-    process.env.ADMIN_SECRET = ADMIN_SECRET;
-
-    // Get the mocked service instance
-    const AdminCrudServiceMock = vi.mocked(adminCrudService.AdminCrudService);
-    mockService = new AdminCrudServiceMock();
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
-    delete process.env.ADMIN_SECRET;
   });
 
   describe('GET /v1/admin/users', () => {
@@ -66,7 +82,7 @@ describe('Admin CRUD Endpoints Integration Tests', () => {
         },
       ];
 
-      mockService.listRecords.mockResolvedValue({
+      mockListRecords.mockResolvedValue({
         items: mockUsers,
         pagination: {
           total: 50,
@@ -114,7 +130,7 @@ describe('Admin CRUD Endpoints Integration Tests', () => {
         },
       ];
 
-      mockService.listRecords.mockResolvedValue({
+      mockListRecords.mockResolvedValue({
         items: mockUsers,
         pagination: {
           total: 1,
@@ -136,7 +152,7 @@ describe('Admin CRUD Endpoints Integration Tests', () => {
 
       expect(data.success).toBe(true);
       expect(data.data.items).toHaveLength(1);
-      expect(mockService.listRecords).toHaveBeenCalledWith(
+      expect(mockListRecords).toHaveBeenCalledWith(
         expect.any(Object),
         expect.any(Object),
         expect.objectContaining({
@@ -167,7 +183,7 @@ describe('Admin CRUD Endpoints Integration Tests', () => {
         },
       ];
 
-      mockService.listRecords.mockResolvedValue({
+      mockListRecords.mockResolvedValue({
         items: mockUsers,
         pagination: {
           total: 2,
@@ -188,7 +204,7 @@ describe('Admin CRUD Endpoints Integration Tests', () => {
       const data = await response.json();
 
       expect(data.success).toBe(true);
-      expect(mockService.listRecords).toHaveBeenCalledWith(
+      expect(mockListRecords).toHaveBeenCalledWith(
         expect.any(Object),
         expect.any(Object),
         expect.objectContaining({
@@ -210,7 +226,7 @@ describe('Admin CRUD Endpoints Integration Tests', () => {
         },
       ];
 
-      mockService.listRecords.mockResolvedValue({
+      mockListRecords.mockResolvedValue({
         items: mockUsers,
         pagination: {
           total: 1,
@@ -233,7 +249,7 @@ describe('Admin CRUD Endpoints Integration Tests', () => {
       expect(data.success).toBe(true);
       expect(data.data.items).toHaveLength(1);
       expect(data.data.items[0].tier).toBe('free');
-      expect(mockService.listRecords).toHaveBeenCalledWith(
+      expect(mockListRecords).toHaveBeenCalledWith(
         expect.any(Object),
         expect.any(Object),
         expect.objectContaining({
@@ -258,7 +274,7 @@ describe('Admin CRUD Endpoints Integration Tests', () => {
         updatedAt: new Date('2024-01-01'),
       };
 
-      mockService.getById.mockResolvedValue(mockUser);
+      mockGetById.mockResolvedValue(mockUser);
 
       const response = await app.request(`/v1/admin/users/${userId}`, {
         method: 'GET',
@@ -274,10 +290,10 @@ describe('Admin CRUD Endpoints Integration Tests', () => {
       expect(data.data).toMatchObject({
         id: userId,
         email: 'user@example.com',
-        display_name: 'Test User',
+        displayName: 'Test User',
         tier: 'pro',
       });
-      expect(mockService.getById).toHaveBeenCalledWith(
+      expect(mockGetById).toHaveBeenCalledWith(
         expect.any(Object),
         'id',
         userId
@@ -288,7 +304,7 @@ describe('Admin CRUD Endpoints Integration Tests', () => {
       const userId = crypto.randomUUID();
       const { NotFoundError } = await import('../src/utils/errors.js');
 
-      mockService.getById.mockRejectedValue(new NotFoundError('User not found'));
+      mockGetById.mockRejectedValue(new NotFoundError('User not found'));
 
       const response = await app.request(`/v1/admin/users/${userId}`, {
         method: 'GET',
@@ -322,7 +338,7 @@ describe('Admin CRUD Endpoints Integration Tests', () => {
         updatedAt: new Date('2024-01-01'),
       };
 
-      mockService.createRecord.mockResolvedValue(createdUser);
+      mockCreateRecord.mockResolvedValue(createdUser);
 
       const response = await app.request('/v1/admin/users', {
         method: 'POST',
@@ -339,10 +355,10 @@ describe('Admin CRUD Endpoints Integration Tests', () => {
       expect(data.success).toBe(true);
       expect(data.data).toMatchObject({
         email: 'newuser@example.com',
-        display_name: 'New User',
+        displayName: 'New User',
         tier: 'free',
       });
-      expect(mockService.createRecord).toHaveBeenCalledWith(
+      expect(mockCreateRecord).toHaveBeenCalledWith(
         expect.any(Object),
         expect.objectContaining({
           email: 'newuser@example.com',
@@ -369,7 +385,7 @@ describe('Admin CRUD Endpoints Integration Tests', () => {
         updatedAt: new Date('2024-01-02'),
       };
 
-      mockService.updateRecord.mockResolvedValue(updatedUser);
+      mockUpdateRecord.mockResolvedValue(updatedUser);
 
       const response = await app.request(`/v1/admin/users/${userId}`, {
         method: 'PUT',
@@ -386,10 +402,10 @@ describe('Admin CRUD Endpoints Integration Tests', () => {
       expect(data.success).toBe(true);
       expect(data.data).toMatchObject({
         id: userId,
-        display_name: 'Updated Name',
+        displayName: 'Updated Name',
         tier: 'premium',
       });
-      expect(mockService.updateRecord).toHaveBeenCalledWith(
+      expect(mockUpdateRecord).toHaveBeenCalledWith(
         expect.any(Object),
         'id',
         userId,
@@ -404,7 +420,7 @@ describe('Admin CRUD Endpoints Integration Tests', () => {
     it('should delete a user and return 200', async () => {
       const userId = crypto.randomUUID();
 
-      mockService.deleteRecord.mockResolvedValue({ deleted: true });
+      mockDeleteRecord.mockResolvedValue({ deleted: true });
 
       const response = await app.request(`/v1/admin/users/${userId}`, {
         method: 'DELETE',
@@ -420,7 +436,7 @@ describe('Admin CRUD Endpoints Integration Tests', () => {
       expect(data.data).toMatchObject({
         deleted: true,
       });
-      expect(mockService.deleteRecord).toHaveBeenCalledWith(
+      expect(mockDeleteRecord).toHaveBeenCalledWith(
         expect.any(Object),
         'id',
         userId
@@ -431,7 +447,7 @@ describe('Admin CRUD Endpoints Integration Tests', () => {
       const userId = crypto.randomUUID();
       const { NotFoundError } = await import('../src/utils/errors.js');
 
-      mockService.deleteRecord.mockRejectedValue(new NotFoundError('User not found'));
+      mockDeleteRecord.mockRejectedValue(new NotFoundError('User not found'));
 
       const response = await app.request(`/v1/admin/users/${userId}`, {
         method: 'DELETE',
