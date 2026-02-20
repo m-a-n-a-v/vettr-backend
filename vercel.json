@@ -1,5 +1,16 @@
 {
   "framework": "hono",
   "installCommand": "npm install --include=dev",
-  "buildCommand": "echo 'skip tsc - vercel handles ts compilation'"
+  "buildCommand": "echo 'skip tsc - vercel handles ts compilation'",
+  "functions": {
+    "api/index.ts": {
+      "maxDuration": 300
+    }
+  },
+  "crons": [
+    {
+      "path": "/v1/cron/refresh-all",
+      "schedule": "0 */6 * * *"
+    }
+  ]
 }
