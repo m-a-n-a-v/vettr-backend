@@ -1,0 +1,147 @@
+{
+  "project": "VETTR Cron Jobs",
+  "phase": "Phase 1",
+  "branchName": "ralph/vettr-cron",
+  "description": "Vercel Cron Jobs for periodic data refresh of ALL 1300+ stock tickers in the VETTR platform. Implements chunked scheduled endpoints that recalculate VETR scores and re-detect red flags for every ticker in the Neon production database. Uses chunked processing with Redis cursor tracking to handle the full ticker universe across multiple cron invocations within Vercel's 300-second function timeout. Includes CRON_SECRET-based authentication and comprehensive logging.",
+  "totalStories": 8,
+  "userStories": [
+    {
+      "id": "CRON-001",
+      "title": "Add CRON_SECRET to environment schema and create cron auth middleware",
+      "description": "As a developer, I want a CRON_SECRET environment variable and a middleware to verify Vercel cron requests so that cron endpoints are protected from unauthorized access.",
+      "acceptanceCriteria": [
+        "Add CRON_SECRET as an optional string field to the Zod env schema in src/config/env.ts",
+        "Create src/middleware/cron-auth.ts that exports a cronAuthMiddleware function compatible with Hono middleware signature (c, next) => Promise<void>",
+        "The middleware checks the Authorization header for 'Bearer <CRON_SECRET>' format. Extract the token after 'Bearer ' and compare against env.CRON_SECRET",
+        "If CRON_SECRET env var is not set (undefined), allow the request through (dev mode bypass, same pattern as admin-auth.ts)",
+        "If CRON_SECRET is set but the Authorization header is missing or the token doesn't match, throw AuthRequiredError('Invalid cron secret') from src/utils/errors.js",
+        "All local imports use .js extension (ESM requirement)",
+        "npm run build passes with no TypeScript errors"
+      ],
+      "priority": 1,
+      "passes": true
+    },
+    {
+      "id": "CRON-002",
+      "title": "Create cron service with chunked batch processing for 1300+ tickers",
+      "description": "As a developer, I want a cron service that processes all 1300+ stocks using chunked batch processing with Redis cursor tracking so that the entire ticker universe can be refreshed across multiple cron invocations within Vercel's 300-second function timeout.",
+      "acceptanceCriteria": [
+        "Create src/services/cron.service.ts",
+        "Export type CronJobResult = { job: string, stocks_processed: number, succeeded: number, failed: number, failures: Array<{ ticker: string, error: string }>, duration_ms: number, completed_at: string, chunk_info: { current_offset: number, chunk_size: number, total_stocks: number, is_complete: boolean } }",
+        "Export async function refreshScoresChunk(chunkSize: number = 100): Promise<CronJobResult> that: (1) reads a Redis cursor key 'cron:scores:offset' to know where to resume (default 0), (2) queries all stock tickers from the stocks table ordered by ticker ASC, (3) takes a slice from offset to offset+chunkSize, (4) processes this chunk by calling calculateVetrScore(ticker) for each ticker with concurrency of 10 using Promise.allSettled on batches of 10, (5) updates the Redis cursor to offset+chunkSize, (6) if offset+chunkSize >= total stocks, resets cursor to 0 and sets is_complete=true, (7) returns CronJobResult with chunk_info showing progress",
+        "Export async function refreshRedFlagsChunk(chunkSize: number = 100): Promise<CronJobResult> following the same pattern but calling detectRedFlags(ticker) and using Redis cursor key 'cron:red-flags:offset'",
+        "Export async function refreshAllChunked(chunkSize: number = 100): Promise<{ scores: CronJobResult, red_flags: CronJobResult, total_duration_ms: number }> that calls refreshScoresChunk() followed by refreshRedFlagsChunk() sequentially",
+        "Use a separate Redis key 'cron:scores:offset' and 'cron:red-flags:offset' (integers) to track the current position. Use cache.get and cache.set from cache.service.ts with a TTL of 86400 (24 hours) so the cursor auto-resets if cron stops running",
+        "Each function logs progress to console for Vercel function logs: 'Cron scores chunk: processing tickers 100-200 of 1300', ticker-level results",
+        "Import calculateVetrScore from '../services/vetr-score.service.js' and detectRedFlags from '../services/red-flag.service.js'",
+        "All local imports use .js extension",
+        "npm run build passes with no TypeScript errors"
+      ],
+      "priority": 2,
+      "passes": true
+    },
+    {
+      "id": "CRON-003",
+      "title": "Create cron routes with GET endpoints",
+      "description": "As a developer, I want GET endpoints for each cron job so that Vercel cron scheduler can trigger them on a schedule.",
+      "acceptanceCriteria": [
+        "Create src/routes/cron.routes.ts",
+        "Create a new Hono router instance and apply cronAuthMiddleware to all routes via cronRoutes.use('*', cronAuthMiddleware)",
+        "Add GET /scores endpoint that calls refreshScoresChunk() from cron.service.ts and returns c.json(success(result))",
+        "Add GET /red-flags endpoint that calls refreshRedFlagsChunk() from cron.service.ts and returns c.json(success(result))",
+        "Add GET /refresh-all endpoint that calls refreshAllChunked() from cron.service.ts and returns c.json(success(result)). This is the primary endpoint called by Vercel cron",
+        "Add GET /status endpoint that reads both Redis cursor keys ('cron:scores:offset' and 'cron:red-flags:offset') and queries total stock count, returns c.json(success({ scores_offset, red_flags_offset, total_stocks, scores_progress_pct, red_flags_progress_pct })). This endpoint helps monitor cron progress",
+        "Add GET /reset endpoint that deletes both Redis cursor keys (sets offset back to 0), returns c.json(success({ message: 'Cron cursors reset' })). Useful for forcing a full re-run from the beginning",
+        "Export cronRoutes from the module",
+        "All local imports use .js extension",
+        "npm run build passes with no TypeScript errors"
+      ],
+      "priority": 3,
+      "passes": false
+    },
+    {
+      "id": "CRON-004",
+      "title": "Register cron routes on main app and export from routes index",
+      "description": "As a developer, I want cron routes registered on the main Hono app so that they are accessible as API endpoints.",
+      "acceptanceCriteria": [
+        "Add export { cronRoutes } from './cron.routes.js' to src/routes/index.ts",
+        "Import cronRoutes in src/app.ts from the routes barrel export",
+        "Register the cron routes with app.route('/cron', cronRoutes) in src/app.ts alongside the other route registrations",
+        "The full paths will be: GET /v1/cron/scores, GET /v1/cron/red-flags, GET /v1/cron/refresh-all, GET /v1/cron/status, GET /v1/cron/reset",
+        "All local imports use .js extension",
+        "npm run build passes with no TypeScript errors"
+      ],
+      "priority": 4,
+      "passes": false
+    },
+    {
+      "id": "CRON-005",
+      "title": "Configure Vercel cron schedule in vercel.json",
+      "description": "As a developer, I want Vercel cron schedules configured so that the data refresh runs automatically in production every 6 hours, processing a chunk of tickers each time until the full universe is refreshed.",
+      "acceptanceCriteria": [
+        "Update vercel.json to add a 'crons' array",
+        "Add a cron entry with path '/v1/cron/refresh-all' and schedule '0 */6 * * *' (every 6 hours at minute 0). With 1300+ tickers and ~100 per chunk, this will complete a full cycle in approximately 3-4 days (13 chunks × 6 hours = ~78 hours)",
+        "Add a 'functions' config setting maxDuration to 300 (5 minutes) for the API: { 'api/index.ts': { 'maxDuration': 300 } }. This gives ample time to process a 100-ticker chunk",
+        "Keep existing vercel.json fields (framework, installCommand, buildCommand) unchanged",
+        "The final vercel.json should look like: { 'framework': 'hono', 'installCommand': '...', 'buildCommand': '...', 'functions': { 'api/index.ts': { 'maxDuration': 300 } }, 'crons': [{ 'path': '/v1/cron/refresh-all', 'schedule': '0 */6 * * *' }] }",
+        "npm run build passes with no TypeScript errors"
+      ],
+      "priority": 5,
+      "passes": false
+    },
+    {
+      "id": "CRON-006",
+      "title": "Write integration tests for cron endpoints",
+      "description": "As a developer, I want tests for the cron endpoints so that I can verify the cron authentication, chunked processing, and endpoint responses work correctly.",
+      "acceptanceCriteria": [
+        "Create tests/cron.test.ts",
+        "Test that GET /v1/cron/refresh-all returns 401 when CRON_SECRET is set and no Authorization header is provided",
+        "Test that GET /v1/cron/refresh-all returns 401 when Authorization header has wrong token",
+        "Test that GET /v1/cron/scores returns 200 with { success: true, data: { job: 'refresh-scores', stocks_processed: number, succeeded: number, failed: number, failures: [], duration_ms: number, completed_at: string, chunk_info: { current_offset: number, chunk_size: number, total_stocks: number, is_complete: boolean } } } shape when properly authenticated",
+        "Test that GET /v1/cron/red-flags returns 200 with similar shape but job: 'refresh-red-flags'",
+        "Test that GET /v1/cron/refresh-all returns 200 with { success: true, data: { scores: {...}, red_flags: {...}, total_duration_ms: number } } shape",
+        "Test that GET /v1/cron/status returns 200 with progress information including scores_offset, red_flags_offset, total_stocks",
+        "Test that GET /v1/cron/reset returns 200 and resets cursor positions",
+        "Use the existing test infrastructure pattern from tests/setup.ts and tests/helpers/",
+        "All tests use vitest",
+        "npm run build passes with no TypeScript errors",
+        "npm run test passes"
+      ],
+      "priority": 6,
+      "passes": false
+    },
+    {
+      "id": "CRON-007",
+      "title": "Add cron job history tracking to database",
+      "description": "As a developer, I want cron job execution history persisted in the database so that we can monitor job health and troubleshoot failures from the ops dashboard.",
+      "acceptanceCriteria": [
+        "Create src/db/schema/cron-jobs.ts with a cron_job_runs table: id (uuid PK defaultRandom), job_name (varchar 50, not null), status (varchar 20, not null, values: 'running', 'completed', 'failed'), stocks_processed (integer default 0), succeeded (integer default 0), failed_count (integer default 0), failures (jsonb, nullable, array of { ticker, error }), chunk_offset (integer), chunk_size (integer), total_stocks (integer), duration_ms (integer), started_at (timestamp defaultNow), completed_at (timestamp nullable), error_message (text nullable)",
+        "Add index on job_name and started_at for querying recent runs",
+        "Export the table from src/db/schema/index.ts barrel",
+        "Update the cron service functions (refreshScoresChunk, refreshRedFlagsChunk) to: (1) insert a 'running' record at start, (2) update to 'completed' with results on success, (3) update to 'failed' with error_message on fatal error",
+        "Add GET /v1/cron/history endpoint in cron.routes.ts that queries the last 50 cron_job_runs ordered by started_at DESC, protected by cronAuthMiddleware, returns paginated results",
+        "All local imports use .js extension",
+        "npm run build passes with no TypeScript errors"
+      ],
+      "priority": 7,
+      "passes": false
+    },
+    {
+      "id": "CRON-008",
+      "title": "Final verification: build, test, and deploy readiness",
+      "description": "As a developer, I want a final verification pass to ensure everything is production-ready.",
+      "acceptanceCriteria": [
+        "Run npm run build and verify zero errors",
+        "Run npm run test and verify all tests pass (including new cron tests)",
+        "Verify vercel.json has correct cron configuration with the crons array and functions maxDuration",
+        "Verify cron routes are registered and accessible: GET /v1/cron/refresh-all, GET /v1/cron/scores, GET /v1/cron/red-flags, GET /v1/cron/status, GET /v1/cron/reset, GET /v1/cron/history",
+        "Verify the cron auth middleware properly rejects requests when CRON_SECRET is set but wrong token provided",
+        "Verify the chunked processing correctly reads and updates Redis cursor positions",
+        "No TODO comments or placeholder implementations remain in cron-related files",
+        "npm run build passes with no TypeScript errors"
+      ],
+      "priority": 8,
+      "passes": false
+    }
+  ]
+}

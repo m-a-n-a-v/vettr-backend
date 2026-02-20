@@ -1,0 +1,53 @@
+# Ralph Progress Log - VETTR Cron Jobs
+Started: Thu Feb 19 22:34:11 EST 2026
+Project: VETTR Cron Jobs
+Backend: /Users/manav/Space/code/vettr-backend
+---
+## CRON-001: Add CRON_SECRET to environment schema and create cron auth middleware
+Status: ✅ COMPLETE
+Date: 2026-02-19
+Details:
+- Added CRON_SECRET as optional string field to Zod env schema in src/config/env.ts
+- Created src/middleware/cron-auth.ts with cronAuthMiddleware function
+- Middleware extracts Bearer token from Authorization header and validates against env.CRON_SECRET
+- Implements dev mode bypass when CRON_SECRET is not set (same pattern as admin-auth.ts)
+- Throws AuthRequiredError('Invalid cron secret') on auth failure
+- All imports use .js extension for ESM compatibility
+- npm run build passes with no TypeScript errors
+- Files changed: src/config/env.ts, src/middleware/cron-auth.ts (new)
+
+**Learnings for future iterations:**
+- The admin-auth.ts middleware provides an excellent pattern to follow for cron auth
+- Bearer token extraction: authHeader.substring(7) to skip 'Bearer ' prefix
+- Dev mode bypass pattern: check if secret is undefined, allow through if not configured
+- AuthRequiredError from src/utils/errors.js is the correct error type for auth failures
+---
+
+## CRON-002: Create cron service with chunked batch processing for 1300+ tickers
+Status: ✅ COMPLETE
+Date: 2026-02-19
+Details:
+- Created src/services/cron.service.ts with complete chunked batch processing logic
+- Exported CronJobResult type with all required fields: job, stocks_processed, succeeded, failed, failures, duration_ms, completed_at, chunk_info
+- Implemented refreshScoresChunk(chunkSize: number = 100) with Redis cursor tracking using 'cron:scores:offset'
+- Implemented refreshRedFlagsChunk(chunkSize: number = 100) with Redis cursor tracking using 'cron:red-flags:offset'
+- Implemented refreshAllChunked() that calls both functions sequentially and returns combined results
+- Uses processBatch() helper function to process tickers in batches of 10 concurrently using Promise.allSettled
+- Queries all stock tickers ordered by ticker ASC, slices chunk based on Redis offset
+- Updates Redis cursor after each chunk, resets to 0 when cycle is complete (is_complete=true)
+- Redis cursors have 24h TTL (86400 seconds) for auto-reset if cron stops running
+- Comprehensive console logging for Vercel function logs: chunk ranges, per-ticker progress, success/failure counts
+- Added InternalError import and db null checks for TypeScript safety
+- All imports use .js extension for ESM compatibility
+- npm run build passes with no TypeScript errors
+- Files changed: src/services/cron.service.ts (new)
+
+**Learnings for future iterations:**
+- Promise.allSettled is the correct choice for batch processing - it doesn't short-circuit on failures
+- Processing in batches of 10 keeps concurrency controlled and prevents overwhelming the services
+- Redis cursor pattern: read offset → process chunk → update offset → reset to 0 when complete
+- The existing calculateVetrScore and detectRedFlags functions handle their own caching and DB writes, so the cron service just needs to call them
+- Console.log statements are valuable for Vercel function logs - they help monitor cron execution in production
+- TypeScript requires explicit db null checks even though db is initialized in config
+---
+
