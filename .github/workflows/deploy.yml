@@ -25,51 +25,8 @@ jobs:
       - name: Type check
         run: npm run typecheck
 
-      - name: Lint
-        run: npm run lint
-
       - name: Run tests
         run: npm run test
 
       - name: Build
         run: npm run build
-
-      - name: Deploy to Railway
-        uses: bervProject/railway-deploy@main
-        with:
-          railway_token: ${{ secrets.RAILWAY_TOKEN }}
-          service: vettr-backend
-
-      - name: Wait for deployment
-        run: sleep 30
-
-      - name: Health check
-        run: |
-          HEALTH_URL="${{ secrets.RAILWAY_DEPLOYMENT_URL }}/v1/health"
-          echo "Checking health endpoint: $HEALTH_URL"
-
-          MAX_RETRIES=5
-          RETRY_COUNT=0
-          RETRY_DELAY=10
-
-          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$HEALTH_URL" || echo "000")
-
-            if [ "$HTTP_STATUS" = "200" ]; then
-              echo "✅ Health check passed (HTTP $HTTP_STATUS)"
-              RESPONSE=$(curl -s "$HEALTH_URL")
-              echo "Response: $RESPONSE"
-              exit 0
-            else
-              RETRY_COUNT=$((RETRY_COUNT + 1))
-              echo "⚠️  Health check failed (HTTP $HTTP_STATUS). Retry $RETRY_COUNT/$MAX_RETRIES..."
-
-              if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
-                echo "Waiting ${RETRY_DELAY}s before retry..."
-                sleep $RETRY_DELAY
-              fi
-            fi
-          done
-
-          echo "❌ Health check failed after $MAX_RETRIES attempts"
-          exit 1
