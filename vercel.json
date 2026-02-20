@@ -9,8 +9,16 @@
   },
   "crons": [
     {
-      "path": "/v1/cron/refresh-all",
-      "schedule": "*/30 * * * *"
+      "path": "/v1/cron/market-data",
+      "schedule": "0 */2 * * *"
+    },
+    {
+      "path": "/v1/cron/scores",
+      "schedule": "20 */2 * * *"
+    },
+    {
+      "path": "/v1/cron/red-flags",
+      "schedule": "40 */2 * * *"
     }
   ]
 }

@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { cronAuthMiddleware } from '../middleware/cron-auth.js';
-import { refreshScoresChunk, refreshRedFlagsChunk, refreshAllChunked } from '../services/cron.service.js';
+import { refreshMarketDataChunk, refreshScoresChunk, refreshRedFlagsChunk } from '../services/cron.service.js';
 import { success } from '../utils/response.js';
 import * as cache from '../services/cache.service.js';
 import { db } from '../config/database.js';
@@ -14,9 +14,22 @@ const cronRoutes = new Hono();
 cronRoutes.use('*', cronAuthMiddleware);
 
 /**
+ * GET /cron/market-data
+ * Fetches fresh prices, financials, and volume from Yahoo Finance.
+ * Updates stocks + financial_data tables.
+ * Runs at :00 every 2 hours. 1000 tickers per chunk.
+ *
+ * Protected by Authorization: Bearer <CRON_SECRET>
+ */
+cronRoutes.get('/market-data', async (c) => {
+  const result = await refreshMarketDataChunk();
+  return c.json(success(result));
+});
+
+/**
  * GET /cron/scores
  * Refreshes VETR scores for a chunk of stocks (default 1000).
- * Uses Redis cursor 'cron:scores:offset' to track progress.
+ * Runs at :20 every 2 hours (after market data is updated).
  *
  * Protected by Authorization: Bearer <CRON_SECRET>
  */
@@ -28,7 +41,7 @@ cronRoutes.get('/scores', async (c) => {
 /**
  * GET /cron/red-flags
  * Refreshes red flags for a chunk of stocks (default 1000).
- * Uses Redis cursor 'cron:red-flags:offset' to track progress.
+ * Runs at :40 every 2 hours (after scores are updated).
  *
  * Protected by Authorization: Bearer <CRON_SECRET>
  */
@@ -38,33 +51,16 @@ cronRoutes.get('/red-flags', async (c) => {
 });
 
 /**
- * GET /cron/refresh-all
- * Primary endpoint called by Vercel cron scheduler.
- * Refreshes both VETR scores and red flags in sequence.
- * Each job processes a chunk (~1000 tickers) and tracks progress with Redis cursors.
- *
- * Protected by Authorization: Bearer <CRON_SECRET>
- */
-cronRoutes.get('/refresh-all', async (c) => {
-  const result = await refreshAllChunked();
-  return c.json(success(result));
-});
-
-/**
  * GET /cron/status
- * Returns current cron job progress including:
- * - Current offset for scores and red flags
- * - Total stock count
- * - Progress percentages
+ * Returns current cron job progress for all 3 jobs.
  *
  * Protected by Authorization: Bearer <CRON_SECRET>
  */
 cronRoutes.get('/status', async (c) => {
-  // Get current offsets from Redis
+  const marketDataOffset = (await cache.get<number>('cron:market-data:offset')) || 0;
   const scoresOffset = (await cache.get<number>('cron:scores:offset')) || 0;
   const redFlagsOffset = (await cache.get<number>('cron:red-flags:offset')) || 0;
 
-  // Query total stock count
   if (!db) {
     throw new InternalError('Database not available');
   }
@@ -73,43 +69,40 @@ cronRoutes.get('/status', async (c) => {
     .select({ value: count() })
     .from(stocks);
 
-  // Calculate progress percentages
-  const scoresProgressPct = totalStocks > 0
-    ? Math.round((scoresOffset / totalStocks) * 100)
-    : 0;
-  const redFlagsProgressPct = totalStocks > 0
-    ? Math.round((redFlagsOffset / totalStocks) * 100)
+  const pct = (offset: number) => totalStocks > 0
+    ? Math.round((offset / totalStocks) * 100)
     : 0;
 
   return c.json(success({
+    market_data_offset: marketDataOffset,
     scores_offset: scoresOffset,
     red_flags_offset: redFlagsOffset,
     total_stocks: totalStocks,
-    scores_progress_pct: scoresProgressPct,
-    red_flags_progress_pct: redFlagsProgressPct,
+    market_data_progress_pct: pct(marketDataOffset),
+    scores_progress_pct: pct(scoresOffset),
+    red_flags_progress_pct: pct(redFlagsOffset),
   }));
 });
 
 /**
  * GET /cron/reset
- * Resets both Redis cursor keys to 0, forcing a full re-run from the beginning.
- * Useful for manual intervention or testing.
+ * Resets all Redis cursor keys to 0, forcing a full re-run from the beginning.
  *
  * Protected by Authorization: Bearer <CRON_SECRET>
  */
 cronRoutes.get('/reset', async (c) => {
+  await cache.del('cron:market-data:offset');
   await cache.del('cron:scores:offset');
   await cache.del('cron:red-flags:offset');
 
   return c.json(success({
-    message: 'Cron cursors reset',
+    message: 'All cron cursors reset',
   }));
 });
 
 /**
  * GET /cron/history
  * Returns the last 50 cron job execution history records.
- * Useful for monitoring job health and troubleshooting failures.
  *
  * Protected by Authorization: Bearer <CRON_SECRET>
  */
