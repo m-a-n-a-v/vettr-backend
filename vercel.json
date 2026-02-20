@@ -10,15 +10,15 @@
   "crons": [
     {
       "path": "/v1/cron/market-data",
-      "schedule": "0 */2 * * *"
+      "schedule": "0 * * * *"
     },
     {
       "path": "/v1/cron/scores",
-      "schedule": "20 */2 * * *"
+      "schedule": "15 * * * *"
     },
     {
       "path": "/v1/cron/red-flags",
-      "schedule": "40 */2 * * *"
+      "schedule": "30 * * * *"
     }
   ]
 }

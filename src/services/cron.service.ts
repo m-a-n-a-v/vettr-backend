@@ -80,7 +80,7 @@ async function processBatch<T>(
  * Uses Redis cursor to track progress across multiple invocations.
  * Lower concurrency (5) to respect Yahoo Finance rate limits.
  */
-export async function refreshMarketDataChunk(chunkSize: number = 1000): Promise<CronJobResult> {
+export async function refreshMarketDataChunk(chunkSize: number = 2000): Promise<CronJobResult> {
   const startTime = Date.now();
   const jobName = 'refresh-market-data';
 
@@ -214,7 +214,7 @@ export async function refreshMarketDataChunk(chunkSize: number = 1000): Promise<
  * Refresh VETR scores for a chunk of stocks.
  * Uses Redis cursor to track progress across multiple invocations.
  */
-export async function refreshScoresChunk(chunkSize: number = 1000): Promise<CronJobResult> {
+export async function refreshScoresChunk(chunkSize: number = 2000): Promise<CronJobResult> {
   const startTime = Date.now();
   const jobName = 'refresh-scores';
 
@@ -339,7 +339,7 @@ export async function refreshScoresChunk(chunkSize: number = 1000): Promise<Cron
  * Refresh red flags for a chunk of stocks.
  * Uses Redis cursor to track progress across multiple invocations.
  */
-export async function refreshRedFlagsChunk(chunkSize: number = 1000): Promise<CronJobResult> {
+export async function refreshRedFlagsChunk(chunkSize: number = 2000): Promise<CronJobResult> {
   const startTime = Date.now();
   const jobName = 'refresh-red-flags';
 
