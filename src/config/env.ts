@@ -29,6 +29,9 @@ const envSchema = z.object({
 
   // Admin Configuration
   ADMIN_SECRET: z.string().optional(),
+
+  // Cron Configuration
+  CRON_SECRET: z.string().optional(),
 });
 
 const parseEnv = () => {
