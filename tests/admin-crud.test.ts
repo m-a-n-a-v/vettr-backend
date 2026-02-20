@@ -8,22 +8,16 @@ import { app } from '../src/app.js';
 
 const ADMIN_SECRET = 'test-admin-secret';
 
-// Note: vi.mock is hoisted above all variable declarations, so we cannot reference
-// top-level variables inside vi.mock factories. We must use inline values.
-
-// Mock the env config module so ADMIN_SECRET is recognized by the auth middleware
-vi.mock('../src/config/env.js', async () => {
-  const actual = await vi.importActual<typeof import('../src/config/env.js')>(
-    '../src/config/env.js'
-  );
-  return {
-    ...actual,
-    env: {
-      ...actual.env,
-      ADMIN_SECRET: 'test-admin-secret',
-    },
-  };
-});
+// Mock env config with hardcoded values (no vi.importActual to avoid CI timing issues)
+vi.mock('../src/config/env.js', () => ({
+  env: {
+    PORT: 3001,
+    NODE_ENV: 'test',
+    JWT_SECRET: 'test-jwt-secret-key-for-testing-only',
+    CORS_ORIGIN: '*',
+    ADMIN_SECRET: 'test-admin-secret',
+  },
+}));
 
 // Mock the admin CRUD service - all instances share the same mock methods via vi.hoisted
 const { mockListRecords, mockGetById, mockCreateRecord, mockUpdateRecord, mockDeleteRecord } = vi.hoisted(() => ({
@@ -34,21 +28,15 @@ const { mockListRecords, mockGetById, mockCreateRecord, mockUpdateRecord, mockDe
   mockDeleteRecord: vi.fn(),
 }));
 
-vi.mock('../src/services/admin-crud.service.js', async () => {
-  const actual = await vi.importActual<typeof import('../src/services/admin-crud.service.js')>(
-    '../src/services/admin-crud.service.js'
-  );
-  return {
-    ...actual,
-    AdminCrudService: vi.fn().mockImplementation(() => ({
-      listRecords: mockListRecords,
-      getById: mockGetById,
-      createRecord: mockCreateRecord,
-      updateRecord: mockUpdateRecord,
-      deleteRecord: mockDeleteRecord,
-    })),
-  };
-});
+vi.mock('../src/services/admin-crud.service.js', () => ({
+  AdminCrudService: vi.fn().mockImplementation(() => ({
+    listRecords: mockListRecords,
+    getById: mockGetById,
+    createRecord: mockCreateRecord,
+    updateRecord: mockUpdateRecord,
+    deleteRecord: mockDeleteRecord,
+  })),
+}));
 
 describe('Admin CRUD Endpoints Integration Tests', () => {
   beforeEach(() => {

@@ -9,33 +9,23 @@ import { sql } from 'drizzle-orm';
 
 const ADMIN_SECRET = 'test-admin-secret';
 
-// Mock the env config module so ADMIN_SECRET is recognized by the auth middleware
-// Note: Must use inline string in factory since vi.mock is hoisted above variable declarations
-vi.mock('../src/config/env.js', async () => {
-  const actual = await vi.importActual<typeof import('../src/config/env.js')>(
-    '../src/config/env.js'
-  );
-  return {
-    ...actual,
-    env: {
-      ...actual.env,
-      ADMIN_SECRET: 'test-admin-secret',
-    },
-  };
-});
+// Mock env config with hardcoded values (no vi.importActual to avoid CI timing issues)
+vi.mock('../src/config/env.js', () => ({
+  env: {
+    PORT: 3001,
+    NODE_ENV: 'test',
+    JWT_SECRET: 'test-jwt-secret-key-for-testing-only',
+    CORS_ORIGIN: '*',
+    ADMIN_SECRET: 'test-admin-secret',
+  },
+}));
 
-// Mock the database module
-vi.mock('../src/config/database.js', async () => {
-  const actual = await vi.importActual<typeof import('../src/config/database.js')>(
-    '../src/config/database.js'
-  );
-  return {
-    ...actual,
-    db: {
-      execute: vi.fn(),
-    },
-  };
-});
+// Mock the database module with a mock db object
+vi.mock('../src/config/database.js', () => ({
+  db: {
+    execute: vi.fn(),
+  },
+}));
 
 describe('Admin Analytics Endpoints Integration Tests', () => {
   let mockDb: any;
