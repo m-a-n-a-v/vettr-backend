@@ -76,7 +76,7 @@ async function processBatch<T>(
  * Refresh VETR scores for a chunk of stocks.
  * Uses Redis cursor to track progress across multiple invocations.
  */
-export async function refreshScoresChunk(chunkSize: number = 100): Promise<CronJobResult> {
+export async function refreshScoresChunk(chunkSize: number = 500): Promise<CronJobResult> {
   const startTime = Date.now();
   const jobName = 'refresh-scores';
 
@@ -201,7 +201,7 @@ export async function refreshScoresChunk(chunkSize: number = 100): Promise<CronJ
  * Refresh red flags for a chunk of stocks.
  * Uses Redis cursor to track progress across multiple invocations.
  */
-export async function refreshRedFlagsChunk(chunkSize: number = 100): Promise<CronJobResult> {
+export async function refreshRedFlagsChunk(chunkSize: number = 500): Promise<CronJobResult> {
   const startTime = Date.now();
   const jobName = 'refresh-red-flags';
 
@@ -327,7 +327,7 @@ export async function refreshRedFlagsChunk(chunkSize: number = 100): Promise<Cro
  * This is the main function called by the Vercel cron.
  */
 export async function refreshAllChunked(
-  chunkSize: number = 100
+  chunkSize: number = 500
 ): Promise<{
   scores: CronJobResult;
   red_flags: CronJobResult;

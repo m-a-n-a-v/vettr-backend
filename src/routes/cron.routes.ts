@@ -15,7 +15,7 @@ cronRoutes.use('*', cronAuthMiddleware);
 
 /**
  * GET /cron/scores
- * Refreshes VETR scores for a chunk of stocks (default 100).
+ * Refreshes VETR scores for a chunk of stocks (default 500).
  * Uses Redis cursor 'cron:scores:offset' to track progress.
  *
  * Protected by Authorization: Bearer <CRON_SECRET>
@@ -27,7 +27,7 @@ cronRoutes.get('/scores', async (c) => {
 
 /**
  * GET /cron/red-flags
- * Refreshes red flags for a chunk of stocks (default 100).
+ * Refreshes red flags for a chunk of stocks (default 500).
  * Uses Redis cursor 'cron:red-flags:offset' to track progress.
  *
  * Protected by Authorization: Bearer <CRON_SECRET>
@@ -41,7 +41,7 @@ cronRoutes.get('/red-flags', async (c) => {
  * GET /cron/refresh-all
  * Primary endpoint called by Vercel cron scheduler.
  * Refreshes both VETR scores and red flags in sequence.
- * Each job processes a chunk (~100 tickers) and tracks progress with Redis cursors.
+ * Each job processes a chunk (~500 tickers) and tracks progress with Redis cursors.
  *
  * Protected by Authorization: Bearer <CRON_SECRET>
  */
