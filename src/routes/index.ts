@@ -14,3 +14,4 @@ export { adminRoutes } from './admin.routes.js';
 export { discoveryRoutes } from './discovery.routes.js';
 export { waitlistRoutes } from './waitlist.routes.js';
 export { pulseRoutes } from './pulse.routes.js';
+export { cronRoutes } from './cron.routes.js';
