@@ -124,7 +124,7 @@
         "npm run build passes with no TypeScript errors"
       ],
       "priority": 7,
-      "passes": false
+      "passes": true
     },
     {
       "id": "CRON-008",
@@ -141,7 +141,7 @@
         "npm run build passes with no TypeScript errors"
       ],
       "priority": 8,
-      "passes": false
+      "passes": true
     }
   ]
 }

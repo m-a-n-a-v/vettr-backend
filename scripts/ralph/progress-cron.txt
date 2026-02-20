@@ -149,3 +149,86 @@ Details:
 - For testing cron auth middleware, follow the same pattern as admin auth tests: mock env config with CRON_SECRET
 ---
 
+## CRON-007: Add cron job history tracking to database
+Status: ✅ COMPLETE
+Date: 2026-02-19
+Details:
+- Created src/db/schema/cron-jobs.ts with cronJobRuns table (cron_job_runs)
+- Table fields: id (uuid PK), jobName (varchar 50), status (varchar 20: running/completed/failed), stocksProcessed, succeeded, failedCount, failures (jsonb), chunkOffset, chunkSize, totalStocks, durationMs, startedAt (timestamp defaultNow), completedAt (timestamp nullable), errorMessage (text nullable)
+- Added indexes on jobName and startedAt for efficient querying of recent runs
+- Exported cronJobRuns from src/db/schema/index.ts barrel
+- Updated refreshScoresChunk() in cron.service.ts to: (1) insert 'running' record at start with db.insert().returning(), (2) wrap processing in try/catch, (3) update to 'completed' with results on success, (4) update to 'failed' with errorMessage on fatal error
+- Updated refreshRedFlagsChunk() with identical job history tracking pattern
+- Added GET /v1/cron/history endpoint in cron.routes.ts that queries last 50 runs ordered by startedAt DESC, protected by cronAuthMiddleware
+- History endpoint returns { success: true, data: { runs: [...], total: number } } format
+- All imports use .js extension for ESM compatibility
+- npm run build passes with no TypeScript errors
+- Files changed: src/db/schema/cron-jobs.ts (new), src/db/schema/index.ts, src/services/cron.service.ts, src/routes/cron.routes.ts
+
+**Learnings for future iterations:**
+- The .returning() method on Drizzle insert queries returns the newly created record, making it easy to get the job ID for subsequent updates
+- Wrapping the processing logic in try/catch allows us to update the job record to 'failed' status even when fatal errors occur
+- Using eq() from drizzle-orm for WHERE clauses: .where(eq(cronJobRuns.id, jobRecord.id))
+- The history endpoint provides valuable monitoring capability for ops dashboard integration
+- Job history tracking creates an audit trail for troubleshooting cron execution issues
+- The failures array in the job record captures ticker-level errors without stopping the entire job
+- JSONB fields in PostgreSQL (via Drizzle) can store null or array data seamlessly
+- Import both desc and eq from drizzle-orm for ordering and WHERE clause operations
+---
+
+## CRON-008: Final verification: build, test, and deploy readiness
+Status: ✅ COMPLETE
+Date: 2026-02-19
+Details:
+- Ran npm run build and verified zero TypeScript errors (clean build)
+- Ran npm run test and verified all 169 tests pass across 11 test files (including 20 new cron integration tests)
+- Verified vercel.json has correct cron configuration:
+  - crons array with path '/v1/cron/refresh-all' and schedule '0 */6 * * *' (every 6 hours)
+  - functions config with maxDuration: 300 seconds (5 minutes) for api/index.ts
+- Verified all 6 cron routes are properly registered and accessible:
+  - GET /v1/cron/scores - refresh VETR scores chunk
+  - GET /v1/cron/red-flags - refresh red flags chunk
+  - GET /v1/cron/refresh-all - primary endpoint for Vercel cron (refreshes both)
+  - GET /v1/cron/status - monitor progress with offsets and percentages
+  - GET /v1/cron/reset - reset cursors to force full re-run
+  - GET /v1/cron/history - view last 50 job execution records
+- Verified cron auth middleware (src/middleware/cron-auth.ts):
+  - Properly validates Authorization: Bearer <CRON_SECRET> header
+  - Throws AuthRequiredError on missing or invalid token
+  - Dev mode bypass when CRON_SECRET is not set
+  - Test suite confirms 401 responses for invalid auth
+- Verified chunked processing (src/services/cron.service.ts):
+  - Correctly reads Redis cursor keys ('cron:scores:offset', 'cron:red-flags:offset') with default 0
+  - Processes chunk of stocks based on current offset
+  - Updates cursor to next offset after processing
+  - Resets cursor to 0 when cycle is complete (is_complete: true)
+  - Redis cursors have 24h TTL (86400 seconds) for auto-reset
+  - Cache busting before each recalculation to ensure fresh data
+  - Batch concurrency of 10 using Promise.allSettled
+- Verified no TODO comments or placeholder implementations in cron-related files:
+  - src/middleware/cron-auth.ts - clean
+  - src/services/cron.service.ts - clean
+  - src/routes/cron.routes.ts - clean
+  - src/db/schema/cron-jobs.ts - clean
+- All code follows established patterns and is production-ready
+- Files changed: scripts/ralph/prd-cron.json (marked CRON-008 passes: true), scripts/ralph/progress-cron.txt (this entry)
+
+**Learnings for future iterations:**
+- Final verification stories are critical for ensuring production readiness
+- Systematic verification checklist ensures no gaps in implementation
+- All 8 cron job stories now complete and passing tests
+- The cron system is fully functional and ready for Vercel deployment
+- Production deployment checklist:
+  1. Set CRON_SECRET environment variable in Vercel project settings
+  2. Deploy to Vercel (vercel.json crons will be automatically configured)
+  3. Vercel will automatically add Authorization: Bearer <CRON_SECRET> header to cron requests
+  4. Monitor cron execution via Vercel function logs and GET /v1/cron/history endpoint
+  5. Track progress via GET /v1/cron/status endpoint
+  6. Use GET /v1/cron/reset if manual cursor reset is needed
+- The cron system handles 1300+ stocks across ~13 invocations (every 6 hours)
+- Full refresh cycle completes in approximately 78 hours (3.25 days)
+- Each invocation processes ~100 tickers with 10 concurrent operations
+- Job history tracking provides audit trail in cron_job_runs table
+- All endpoints protected by CRON_SECRET Bearer token authentication
+---
+
