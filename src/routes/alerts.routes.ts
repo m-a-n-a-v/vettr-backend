@@ -81,7 +81,7 @@ function toAlertRuleDto(rule: any) {
 const createAlertRuleSchema = z.object({
   stock_ticker: z.string().min(1).max(10),
   rule_type: z.string().min(1).max(50),
-  trigger_conditions: z.record(z.any()),
+  trigger_conditions: z.record(z.any()).optional().default({}),
   condition_operator: z.enum(['AND', 'OR']).optional(),
   frequency: z.enum(['instant', 'daily', 'weekly']).optional(),
   threshold: z.number().optional(),
