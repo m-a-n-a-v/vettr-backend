@@ -6,6 +6,7 @@ import { detectRedFlags } from './red-flag.service.js';
 import { refreshMarketData } from './market-data.service.js';
 import { InternalError } from '../utils/errors.js';
 import * as cache from './cache.service.js';
+import { upsertSnapshotsBatch } from './snapshot.service.js';
 
 // --- Types ---
 
@@ -254,6 +255,13 @@ export async function refreshScoresChunk(chunkSize: number = 2000): Promise<Cron
   );
 
   try {
+    // Collect snapshot data for successful score calculations
+    const snapshotData: Array<{
+      ticker: string;
+      scores: { overall: number; p1: number; p2: number; p3: number; p4: number };
+      price: number | null;
+    }> = [];
+
     // Process the chunk with controlled concurrency
     // Bust the Redis cache before each calculation to ensure fresh data
     const { succeeded, failed, failures } = await processBatch(
@@ -262,10 +270,52 @@ export async function refreshScoresChunk(chunkSize: number = 2000): Promise<Cron
         console.log(`  [${jobName}] Processing ${ticker}...`);
         // Invalidate cached score so calculateVetrScore recomputes from DB
         await cache.del(`vetr_score:${ticker.toUpperCase()}`);
-        await calculateVetrScore(ticker);
+        const scoreResult = await calculateVetrScore(ticker);
+
+        // Query stock price for this ticker
+        if (!db) {
+          throw new InternalError('Database not available');
+        }
+        const stockPriceResult = await db
+          .select({ price: stocks.price })
+          .from(stocks)
+          .where(eq(stocks.ticker, ticker.toUpperCase()))
+          .limit(1);
+
+        const stockPrice = stockPriceResult.length > 0 ? stockPriceResult[0].price : null;
+
+        // Collect snapshot data for this successful calculation
+        snapshotData.push({
+          ticker: ticker.toUpperCase(),
+          scores: {
+            overall: scoreResult.overall_score,
+            p1: scoreResult.components.financial_survival.score,
+            p2: scoreResult.components.operational_efficiency.score,
+            p3: scoreResult.components.shareholder_structure.score,
+            p4: scoreResult.components.market_sentiment.score,
+          },
+          price: stockPrice,
+        });
+
         console.log(`  [${jobName}] ✓ ${ticker}`);
       }
     );
+
+    // Upsert snapshots in batch (do this BEFORE updating Redis cursor)
+    if (snapshotData.length > 0) {
+      try {
+        const snapshotResult = await upsertSnapshotsBatch(snapshotData);
+        console.log(
+          `Cron ${jobName}: upserted ${snapshotResult.succeeded} snapshots (${snapshotResult.failed} failed)`
+        );
+      } catch (snapshotError) {
+        // Log but don't fail the whole job if snapshot upsert fails
+        console.error(
+          `Cron ${jobName}: snapshot upsert error:`,
+          snapshotError instanceof Error ? snapshotError.message : String(snapshotError)
+        );
+      }
+    }
 
     // Calculate next offset
     const nextOffset = currentOffset + chunk.length;
