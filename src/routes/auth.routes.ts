@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { validateBody } from '../middleware/validator.js';
-import { authMiddleware } from '../middleware/auth.js';
+import { authMiddleware, type AuthUser } from '../middleware/auth.js';
 import { authRateLimitMiddleware } from '../middleware/rate-limit.js';
 import {
   createUser,
@@ -10,13 +10,16 @@ import {
   storeRefreshToken,
   findAndVerifyRefreshToken,
   revokeRefreshToken,
+  revokeAllRefreshTokens,
+  updatePasswordHash,
   verifyGoogleToken,
   verifyAppleToken,
   upsertOAuthUser,
 } from '../services/auth.service.js';
 import { hashPassword, comparePassword, validatePasswordStrength } from '../utils/password.js';
-import { signAccessToken } from '../utils/jwt.js';
-import { AuthInvalidCredentialsError, ValidationError } from '../utils/errors.js';
+import { signAccessToken, signResetToken, verifyResetToken } from '../utils/jwt.js';
+import { sendPasswordResetEmail } from '../services/email.service.js';
+import { AuthInvalidCredentialsError, ValidationError, NotFoundError } from '../utils/errors.js';
 import { success } from '../utils/response.js';
 
 const authRoutes = new Hono();
@@ -344,6 +347,139 @@ authRoutes.post('/logout', authMiddleware, validateBody(logoutSchema), async (c)
   // Return success regardless of whether the token was found
   // (prevents token enumeration attacks)
   return c.json(success(null), 200);
+});
+
+// --- Password Reset & Change ---
+
+// Zod schema for forgot password request body
+const forgotPasswordSchema = z.object({
+  email: z.string().email('Invalid email address'),
+});
+
+// POST /auth/forgot-password - Send a password reset email
+authRoutes.post('/forgot-password', validateBody(forgotPasswordSchema), async (c) => {
+  const body = await c.req.json();
+  const { email } = body;
+
+  // Always return success to prevent email enumeration
+  const user = await findByEmail(email);
+
+  if (user && user.passwordHash) {
+    // Only send reset email for users who have a password (not OAuth-only)
+    const resetToken = signResetToken({ sub: user.id, email: user.email });
+
+    try {
+      await sendPasswordResetEmail(user.email, resetToken);
+    } catch (err) {
+      console.error('Failed to send reset email:', err);
+      // Don't expose email delivery failures to the client
+    }
+  }
+
+  return c.json(
+    success({ message: 'If an account with that email exists, a password reset link has been sent.' }),
+    200
+  );
+});
+
+// Zod schema for reset password request body
+const resetPasswordSchema = z.object({
+  token: z.string().min(1, 'Reset token is required'),
+  password: z.string().min(1, 'New password is required'),
+});
+
+// POST /auth/reset-password - Reset password using a token from the email link
+authRoutes.post('/reset-password', validateBody(resetPasswordSchema), async (c) => {
+  const body = await c.req.json();
+  const { token, password } = body;
+
+  // Verify the reset token
+  let payload;
+  try {
+    payload = verifyResetToken(token);
+  } catch {
+    throw new AuthInvalidCredentialsError('Invalid or expired reset link. Please request a new one.');
+  }
+
+  // Validate new password strength
+  const passwordCheck = validatePasswordStrength(password);
+  if (!passwordCheck.valid) {
+    throw new ValidationError('Password does not meet requirements', {
+      issues: passwordCheck.errors,
+    });
+  }
+
+  // Verify user still exists
+  const user = await findById(payload.sub);
+  if (!user) {
+    throw new AuthInvalidCredentialsError('Invalid or expired reset link.');
+  }
+
+  // Update the password
+  const newHash = await hashPassword(password);
+  await updatePasswordHash(user.id, newHash);
+
+  // Revoke all existing refresh tokens (force re-login everywhere)
+  await revokeAllRefreshTokens(user.id);
+
+  return c.json(
+    success({ message: 'Password has been reset successfully. Please sign in with your new password.' }),
+    200
+  );
+});
+
+// Zod schema for change password request body
+const changePasswordSchema = z.object({
+  current_password: z.string().min(1, 'Current password is required'),
+  new_password: z.string().min(1, 'New password is required'),
+});
+
+// POST /auth/change-password - Change password for an authenticated user
+authRoutes.post('/change-password', authMiddleware, validateBody(changePasswordSchema), async (c) => {
+  const body = await c.req.json();
+  const { current_password, new_password } = body;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const authUser = (c as any).get('user') as AuthUser;
+
+  // Get full user record
+  const user = await findById(authUser.id);
+  if (!user) {
+    throw new NotFoundError('User not found');
+  }
+
+  // Ensure user has a password (not OAuth-only)
+  if (!user.passwordHash) {
+    throw new ValidationError('Cannot change password for accounts created via Google or Apple sign-in.');
+  }
+
+  // Verify current password
+  const isValid = await comparePassword(current_password, user.passwordHash);
+  if (!isValid) {
+    throw new AuthInvalidCredentialsError('Current password is incorrect');
+  }
+
+  // Validate new password strength
+  const passwordCheck = validatePasswordStrength(new_password);
+  if (!passwordCheck.valid) {
+    throw new ValidationError('New password does not meet requirements', {
+      issues: passwordCheck.errors,
+    });
+  }
+
+  // Prevent reuse of the same password
+  const samePassword = await comparePassword(new_password, user.passwordHash);
+  if (samePassword) {
+    throw new ValidationError('New password must be different from current password');
+  }
+
+  // Update the password
+  const newHash = await hashPassword(new_password);
+  await updatePasswordHash(user.id, newHash);
+
+  return c.json(
+    success({ message: 'Password changed successfully.' }),
+    200
+  );
 });
 
 export { authRoutes };

@@ -62,3 +62,46 @@ export function decodeToken(token: string): jwt.JwtPayload | null {
   }
   return null;
 }
+
+// --- Password Reset Tokens ---
+
+export interface ResetTokenPayload {
+  sub: string;      // user ID
+  email: string;
+  purpose: 'password_reset';
+}
+
+const RESET_TOKEN_TTL = '1h'; // 1 hour expiry
+
+/**
+ * Sign a short-lived JWT for password reset.
+ * Includes `purpose: password_reset` to prevent misuse as an access token.
+ */
+export function signResetToken(payload: { sub: string; email: string }): string {
+  return jwt.sign(
+    { sub: payload.sub, email: payload.email, purpose: 'password_reset' },
+    env.JWT_SECRET,
+    { algorithm: 'HS256', expiresIn: RESET_TOKEN_TTL },
+  );
+}
+
+/**
+ * Verify a password reset token.
+ * Ensures the token has the correct `purpose` claim.
+ * Throws if invalid, expired, or wrong purpose.
+ */
+export function verifyResetToken(token: string): ResetTokenPayload {
+  const decoded = jwt.verify(token, env.JWT_SECRET, {
+    algorithms: ['HS256'],
+  }) as jwt.JwtPayload;
+
+  if (decoded.purpose !== 'password_reset') {
+    throw new Error('Invalid token purpose');
+  }
+
+  return {
+    sub: decoded.sub as string,
+    email: decoded.email as string,
+    purpose: 'password_reset',
+  };
+}

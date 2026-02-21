@@ -131,6 +131,26 @@ export async function updateUser(
 }
 
 /**
+ * Update a user's password hash in the database.
+ */
+export async function updatePasswordHash(
+  userId: string,
+  newPasswordHash: string,
+): Promise<void> {
+  if (!db) {
+    throw new InternalError('Database not available');
+  }
+
+  await db
+    .update(users)
+    .set({
+      passwordHash: newPasswordHash,
+      updatedAt: new Date(),
+    })
+    .where(eq(users.id, userId));
+}
+
+/**
  * Store a hashed refresh token in the database.
  * The raw token is hashed with bcrypt before storage.
  * Returns the raw token (to send to the client) and the expiry date.

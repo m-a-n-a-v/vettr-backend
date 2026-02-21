@@ -32,6 +32,12 @@ const envSchema = z.object({
 
   // Cron Configuration
   CRON_SECRET: z.string().optional(),
+
+  // Email Configuration (Resend)
+  RESEND_API_KEY: z.string().optional(),
+
+  // App URL (for password reset links)
+  APP_URL: z.string().default('https://vettr-web.vercel.app'),
 });
 
 const parseEnv = () => {
