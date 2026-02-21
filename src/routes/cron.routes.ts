@@ -4,9 +4,10 @@ import { refreshMarketDataChunk, refreshScoresChunk, refreshRedFlagsChunk } from
 import { success } from '../utils/response.js';
 import * as cache from '../services/cache.service.js';
 import { db } from '../config/database.js';
-import { stocks, cronJobRuns } from '../db/schema/index.js';
-import { count, desc } from 'drizzle-orm';
+import { stocks, cronJobRuns, vetrScoreSnapshots } from '../db/schema/index.js';
+import { count, desc, sql } from 'drizzle-orm';
 import { InternalError } from '../utils/errors.js';
+import { getSnapshotCount, cleanupOldSnapshots } from '../services/snapshot.service.js';
 
 const cronRoutes = new Hono();
 
@@ -120,6 +121,63 @@ cronRoutes.get('/history', async (c) => {
   return c.json(success({
     runs: history,
     total: history.length,
+  }));
+});
+
+/**
+ * GET /cron/snapshot-stats
+ * Returns statistics about the snapshots table: total count, oldest and newest snapshot.
+ *
+ * Protected by Authorization: Bearer <CRON_SECRET>
+ */
+cronRoutes.get('/snapshot-stats', async (c) => {
+  if (!db) {
+    throw new InternalError('Database not available');
+  }
+
+  const totalSnapshots = await getSnapshotCount();
+
+  const [stats] = await db
+    .select({
+      oldest: sql<Date | null>`min(${vetrScoreSnapshots.recordedAt})`,
+      newest: sql<Date | null>`max(${vetrScoreSnapshots.recordedAt})`,
+    })
+    .from(vetrScoreSnapshots);
+
+  return c.json(success({
+    total_snapshots: totalSnapshots,
+    oldest_snapshot: stats?.oldest ? stats.oldest.toISOString() : null,
+    newest_snapshot: stats?.newest ? stats.newest.toISOString() : null,
+  }));
+});
+
+/**
+ * POST /cron/snapshot-cleanup
+ * Deletes snapshots older than the retention period.
+ * Query param: retention_days (optional, default 90)
+ *
+ * Protected by Authorization: Bearer <CRON_SECRET>
+ */
+cronRoutes.post('/snapshot-cleanup', async (c) => {
+  const retentionDaysParam = c.req.query('retention_days');
+  const retentionDays = retentionDaysParam ? parseInt(retentionDaysParam, 10) : 90;
+
+  // Validate retention_days is a positive number
+  if (isNaN(retentionDays) || retentionDays <= 0) {
+    return c.json(
+      {
+        success: false,
+        error: 'retention_days must be a positive number',
+      },
+      400
+    );
+  }
+
+  const deleted = await cleanupOldSnapshots(retentionDays);
+
+  return c.json(success({
+    deleted,
+    retention_days: retentionDays,
   }));
 });
 
