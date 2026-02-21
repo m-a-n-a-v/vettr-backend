@@ -4,6 +4,7 @@ import { validateQuery } from '../middleware/validator.js';
 import { authMiddleware } from '../middleware/auth.js';
 import type { AuthUser } from '../middleware/auth.js';
 import { calculateVetrScore, getScoreHistory, getScoreTrend, getScoreComparison } from '../services/vetr-score.service.js';
+import { getSnapshotsForTicker } from '../services/snapshot.service.js';
 import { success } from '../utils/response.js';
 
 type Variables = {
@@ -18,6 +19,40 @@ vetrScoreRoutes.use('*', authMiddleware);
 // Zod schema for GET /stocks/:ticker/vetr-score/history query params
 const historyQuerySchema = z.object({
   months: z.string().optional().default('6'),
+});
+
+// Zod schema for GET /stocks/:ticker/vetr-score/chart query params
+const chartQuerySchema = z.object({
+  range: z.string().optional().default('7d'),
+});
+
+// GET /stocks/:ticker/vetr-score/chart - Return score time-series data for charting
+vetrScoreRoutes.get('/:ticker/vetr-score/chart', validateQuery(chartQuerySchema), async (c) => {
+  const ticker = c.req.param('ticker');
+  const query = c.req.query();
+
+  // Validate and normalize range parameter
+  const allowedRanges = ['24h', '7d', '30d', '90d'] as const;
+  type Range = typeof allowedRanges[number];
+  const range: Range = (allowedRanges.includes(query.range as Range) ? query.range : '7d') as Range;
+
+  const upperTicker = ticker.toUpperCase();
+  const snapshots = await getSnapshotsForTicker(upperTicker, range);
+
+  return c.json(success({
+    ticker: upperTicker,
+    range,
+    data_points: snapshots.length,
+    snapshots: snapshots.map(s => ({
+      overall_score: s.overall_score,
+      financial_survival_score: s.financial_survival_score,
+      operational_efficiency_score: s.operational_efficiency_score,
+      shareholder_structure_score: s.shareholder_structure_score,
+      market_sentiment_score: s.market_sentiment_score,
+      price: s.price,
+      recorded_at: s.recorded_at,
+    })),
+  }), 200);
 });
 
 // GET /stocks/:ticker/vetr-score/history - Return score history from DB
