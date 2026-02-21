@@ -139,15 +139,15 @@ cronRoutes.get('/snapshot-stats', async (c) => {
 
   const [stats] = await db
     .select({
-      oldest: sql<Date | null>`min(${vetrScoreSnapshots.recordedAt})`,
-      newest: sql<Date | null>`max(${vetrScoreSnapshots.recordedAt})`,
+      oldest: sql<string | null>`min(${vetrScoreSnapshots.recordedAt})::text`,
+      newest: sql<string | null>`max(${vetrScoreSnapshots.recordedAt})::text`,
     })
     .from(vetrScoreSnapshots);
 
   return c.json(success({
     total_snapshots: totalSnapshots,
-    oldest_snapshot: stats?.oldest ? stats.oldest.toISOString() : null,
-    newest_snapshot: stats?.newest ? stats.newest.toISOString() : null,
+    oldest_snapshot: stats?.oldest ?? null,
+    newest_snapshot: stats?.newest ?? null,
   }));
 });
 
