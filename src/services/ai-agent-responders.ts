@@ -3,7 +3,7 @@
  * Pre-defined template-based responses for stock analysis questions
  */
 
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, sql } from 'drizzle-orm';
 import { db } from '../config/database.js';
 import {
   stocks,
@@ -11,6 +11,9 @@ import {
   valuationMetrics,
   analystConsensus,
   analystActions,
+  majorHoldersBreakdown,
+  institutionalHolders,
+  insiderTransactions,
 } from '../db/schema/index.js';
 import { InternalError, NotFoundError } from '../utils/errors.js';
 
@@ -590,6 +593,361 @@ export async function respondPriceTargets(ticker: string): Promise<AiAgentRespon
       label: 'Implied Upside',
       value: `${upside > 0 ? '+' : ''}${formatNumber(upside, 1)}%`,
       status: (upside > 20 ? 'safe' : upside > 0 ? 'neutral' : upside > -10 ? 'warning' : 'danger') as 'safe' | 'neutral' | 'warning' | 'danger',
+    },
+  ];
+
+  return { summary, details, verdict, verdict_color };
+}
+
+// ─── Insider Activity Responders ─────────────────────────────────────────────
+
+/**
+ * US-090: Insider Activity Overview
+ * Returns ownership breakdown (insider/institutional/public %), net buy/sell ratio, recent transaction summary
+ */
+export async function respondInsiderActivity(ticker: string): Promise<AiAgentResponseData> {
+  if (!db) throw new InternalError('Database not available');
+
+  const stock = await getStockByTicker(ticker);
+
+  // Parallel queries for performance
+  const [breakdown, recentTransactions] = await Promise.all([
+    db.select().from(majorHoldersBreakdown).where(eq(majorHoldersBreakdown.stockId, stock.id)).limit(1),
+    db.select().from(insiderTransactions)
+      .where(eq(insiderTransactions.stockId, stock.id))
+      .orderBy(desc(insiderTransactions.transactionDate))
+      .limit(10),
+  ]);
+
+  const holders = breakdown[0];
+
+  if (!holders) {
+    return {
+      summary: `**${stock.name}** has no insider activity data available.`,
+      details: [],
+      verdict: 'Unknown',
+      verdict_color: 'yellow',
+    };
+  }
+
+  const insidersPercent = n(holders.insidersPercentHeld, 0) * 100;
+  const institutionsPercent = n(holders.institutionsPercentHeld, 0) * 100;
+  const publicPercent = Math.max(0, 100 - insidersPercent - institutionsPercent);
+  const institutionCount = n(holders.institutionsCount, 0);
+
+  // Calculate net buy/sell from recent transactions
+  let buyTransactions = 0;
+  let sellTransactions = 0;
+  let netShares = 0;
+
+  recentTransactions.forEach((txn) => {
+    const shares = n(txn.shares, 0);
+    const text = (txn.transactionText || '').toLowerCase();
+
+    // Identify buy vs sell based on transaction text
+    if (text.includes('purchase') || text.includes('bought') || text.includes('acquired')) {
+      buyTransactions++;
+      netShares += shares;
+    } else if (text.includes('sale') || text.includes('sold') || text.includes('disposed')) {
+      sellTransactions++;
+      netShares -= shares;
+    }
+  });
+
+  // Use net share purchase activity if available
+  if (holders.netBuyCount !== null || holders.netSellCount !== null) {
+    buyTransactions = n(holders.netBuyCount, buyTransactions);
+    sellTransactions = n(holders.netSellCount, sellTransactions);
+    netShares = n(holders.netShares, netShares);
+  }
+
+  const totalTransactions = buyTransactions + sellTransactions;
+  const buyRatio = totalTransactions > 0 ? (buyTransactions / totalTransactions) * 100 : 0;
+
+  // Determine verdict
+  let verdict = 'Neutral';
+  let verdict_color: 'green' | 'yellow' | 'red' = 'yellow';
+  let signal = 'neutral insider activity';
+
+  if (buyRatio > 65 && netShares > 0) {
+    verdict = 'Bullish';
+    verdict_color = 'green';
+    signal = '**positive insider signals**';
+  } else if (buyRatio < 35 && netShares < 0) {
+    verdict = 'Bearish';
+    verdict_color = 'red';
+    signal = 'concerning insider selling';
+  }
+
+  const summary = `**${stock.name}** shows ${signal}. Insiders hold **${formatNumber(insidersPercent, 1)}%** of shares, while institutions control **${formatNumber(institutionsPercent, 1)}%** across **${institutionCount}** holders. ${
+    totalTransactions > 0
+      ? `Recent activity shows **${buyTransactions} buys** vs **${sellTransactions} sells**${
+          netShares > 0
+            ? ` with a net accumulation of **${(netShares / 1000).toFixed(0)}K shares**`
+            : netShares < 0
+            ? ` with a net reduction of **${(Math.abs(netShares) / 1000).toFixed(0)}K shares**`
+            : ''
+        }.`
+      : 'No recent transaction activity on record.'
+  }`;
+
+  const details = [
+    {
+      label: 'Insider Ownership',
+      value: `${formatNumber(insidersPercent, 2)}%`,
+      status: (insidersPercent > 10 ? 'safe' : insidersPercent > 5 ? 'neutral' : 'warning') as 'safe' | 'neutral' | 'warning',
+    },
+    {
+      label: 'Institutional Ownership',
+      value: `${formatNumber(institutionsPercent, 2)}%`,
+      status: (institutionsPercent > 50 ? 'safe' : institutionsPercent > 30 ? 'neutral' : 'warning') as 'safe' | 'neutral' | 'warning',
+    },
+    {
+      label: 'Public Ownership',
+      value: `${formatNumber(publicPercent, 2)}%`,
+      status: 'neutral' as 'neutral',
+    },
+    {
+      label: 'Institution Count',
+      value: institutionCount.toString(),
+      status: (institutionCount > 100 ? 'safe' : institutionCount > 50 ? 'neutral' : 'warning') as 'safe' | 'neutral' | 'warning',
+    },
+    {
+      label: 'Recent Buy/Sell Ratio',
+      value: totalTransactions > 0 ? `${buyTransactions}/${sellTransactions}` : 'N/A',
+      status: (buyRatio > 65 ? 'safe' : buyRatio < 35 ? 'danger' : 'neutral') as 'safe' | 'danger' | 'neutral',
+    },
+  ];
+
+  return { summary, details, verdict, verdict_color };
+}
+
+/**
+ * US-090: Top Holders (Follow-up)
+ * Returns institutional ownership %, insider ownership %, top holders concentration, institution count
+ */
+export async function respondTopHolders(ticker: string): Promise<AiAgentResponseData> {
+  if (!db) throw new InternalError('Database not available');
+
+  const stock = await getStockByTicker(ticker);
+
+  // Parallel queries for performance
+  const [breakdown, topInstitutions] = await Promise.all([
+    db.select().from(majorHoldersBreakdown).where(eq(majorHoldersBreakdown.stockId, stock.id)).limit(1),
+    db.select().from(institutionalHolders)
+      .where(eq(institutionalHolders.stockId, stock.id))
+      .orderBy(desc(institutionalHolders.position))
+      .limit(5),
+  ]);
+
+  const holders = breakdown[0];
+
+  if (!holders) {
+    return {
+      summary: `**${stock.name}** has no ownership data available.`,
+      details: [],
+      verdict: 'Unknown',
+      verdict_color: 'yellow',
+    };
+  }
+
+  const insidersPercent = n(holders.insidersPercentHeld, 0) * 100;
+  const institutionsPercent = n(holders.institutionsPercentHeld, 0) * 100;
+  const institutionsFloatPercent = n(holders.institutionsFloatPercentHeld, 0) * 100;
+  const institutionCount = n(holders.institutionsCount, 0);
+
+  // Calculate top 5 concentration
+  let top5Concentration = 0;
+  topInstitutions.forEach((inst) => {
+    top5Concentration += n(inst.pctHeld, 0) * 100;
+  });
+
+  // Determine verdict
+  let verdict = 'Moderate';
+  let verdict_color: 'green' | 'yellow' | 'red' = 'yellow';
+  let concentration = 'moderate';
+
+  if (institutionsPercent > 70 && institutionCount > 200) {
+    verdict = 'Strong';
+    verdict_color = 'green';
+    concentration = '**strong institutional backing**';
+  } else if (institutionsPercent < 30 || institutionCount < 50) {
+    verdict = 'Light';
+    verdict_color = 'red';
+    concentration = 'limited institutional interest';
+  }
+
+  const topHolderNames = topInstitutions.slice(0, 3).map((h) => h.organization).join(', ');
+
+  const summary = `**${stock.name}** has ${concentration}. Institutions hold **${formatNumber(institutionsPercent, 1)}%** of shares (representing **${formatNumber(institutionsFloatPercent, 1)}%** of the float) across **${institutionCount}** holders. ${
+    topInstitutions.length > 0
+      ? `The top 5 holders control **${formatNumber(top5Concentration, 1)}%** of shares, led by **${topHolderNames}**.`
+      : 'No detailed holder information available.'
+  } ${
+    insidersPercent > 10
+      ? `Insiders maintain a significant **${formatNumber(insidersPercent, 1)}%** stake.`
+      : `Insider ownership is minimal at **${formatNumber(insidersPercent, 1)}%**.`
+  }`;
+
+  const details = [
+    {
+      label: 'Institutional Ownership',
+      value: `${formatNumber(institutionsPercent, 2)}%`,
+      status: (institutionsPercent > 60 ? 'safe' : institutionsPercent > 40 ? 'neutral' : 'warning') as 'safe' | 'neutral' | 'warning',
+    },
+    {
+      label: 'Insider Ownership',
+      value: `${formatNumber(insidersPercent, 2)}%`,
+      status: (insidersPercent > 10 ? 'safe' : insidersPercent > 5 ? 'neutral' : 'warning') as 'safe' | 'neutral' | 'warning',
+    },
+    {
+      label: 'Institution Count',
+      value: institutionCount.toString(),
+      status: (institutionCount > 200 ? 'safe' : institutionCount > 100 ? 'neutral' : 'warning') as 'safe' | 'neutral' | 'warning',
+    },
+    {
+      label: 'Top 5 Concentration',
+      value: `${formatNumber(top5Concentration, 2)}%`,
+      status: (top5Concentration > 40 ? 'warning' : top5Concentration > 20 ? 'neutral' : 'safe') as 'safe' | 'neutral' | 'warning',
+    },
+    {
+      label: 'Float Held by Institutions',
+      value: `${formatNumber(institutionsFloatPercent, 2)}%`,
+      status: (institutionsFloatPercent > 80 ? 'safe' : institutionsFloatPercent > 50 ? 'neutral' : 'warning') as 'safe' | 'neutral' | 'warning',
+    },
+  ];
+
+  return { summary, details, verdict, verdict_color };
+}
+
+/**
+ * US-090: Smart Money (Follow-up)
+ * Returns smart money signal (accumulating/neutral/distributing), institutional change %, insider transaction pattern analysis
+ */
+export async function respondSmartMoney(ticker: string): Promise<AiAgentResponseData> {
+  if (!db) throw new InternalError('Database not available');
+
+  const stock = await getStockByTicker(ticker);
+
+  // Parallel queries for performance
+  const [breakdown, recentInstitutional, recentInsider] = await Promise.all([
+    db.select().from(majorHoldersBreakdown).where(eq(majorHoldersBreakdown.stockId, stock.id)).limit(1),
+    db.select().from(institutionalHolders)
+      .where(eq(institutionalHolders.stockId, stock.id))
+      .orderBy(desc(institutionalHolders.reportDate))
+      .limit(20),
+    db.select().from(insiderTransactions)
+      .where(eq(insiderTransactions.stockId, stock.id))
+      .orderBy(desc(insiderTransactions.transactionDate))
+      .limit(15),
+  ]);
+
+  const holders = breakdown[0];
+
+  if (!holders) {
+    return {
+      summary: `**${stock.name}** has no smart money data available.`,
+      details: [],
+      verdict: 'Unknown',
+      verdict_color: 'yellow',
+    };
+  }
+
+  // Calculate institutional change trend
+  let increasingCount = 0;
+  let decreasingCount = 0;
+
+  recentInstitutional.forEach((inst) => {
+    const pctChange = n(inst.pctChange, 0);
+    if (pctChange > 0) increasingCount++;
+    else if (pctChange < 0) decreasingCount++;
+  });
+
+  const instChangeRatio = (increasingCount + decreasingCount) > 0
+    ? (increasingCount / (increasingCount + decreasingCount)) * 100
+    : 50;
+
+  // Calculate insider buy/sell pattern
+  let insiderBuys = 0;
+  let insiderSells = 0;
+
+  recentInsider.forEach((txn) => {
+    const text = (txn.transactionText || '').toLowerCase();
+    if (text.includes('purchase') || text.includes('bought') || text.includes('acquired')) {
+      insiderBuys++;
+    } else if (text.includes('sale') || text.includes('sold') || text.includes('disposed')) {
+      insiderSells++;
+    }
+  });
+
+  const insiderBuyRatio = (insiderBuys + insiderSells) > 0
+    ? (insiderBuys / (insiderBuys + insiderSells)) * 100
+    : 50;
+
+  // Combined smart money signal
+  const smartMoneyScore = (instChangeRatio * 0.6 + insiderBuyRatio * 0.4);
+
+  // Determine verdict
+  let verdict = 'Neutral';
+  let verdict_color: 'green' | 'yellow' | 'red' = 'yellow';
+  let signal = 'neutral';
+  let description = 'mixed signals';
+
+  if (smartMoneyScore > 65) {
+    verdict = 'Accumulating';
+    verdict_color = 'green';
+    signal = '**accumulating**';
+    description = 'Smart money is flowing in';
+  } else if (smartMoneyScore < 35) {
+    verdict = 'Distributing';
+    verdict_color = 'red';
+    signal = 'distributing';
+    description = 'Insiders are heading for the exits';
+  } else {
+    description = 'Smart money activity is mixed';
+  }
+
+  const netBuyCount = n(holders.netBuyCount, 0);
+  const netSellCount = n(holders.netSellCount, 0);
+  const netShares = n(holders.netShares, 0);
+
+  const summary = `${description} for **${stock.name}**. Institutional activity shows **${increasingCount} positions increasing** vs **${decreasingCount} decreasing** (trend: ${signal}). Insider transactions reveal **${insiderBuys} buys** vs **${insiderSells} sells** in recent activity. ${
+    netShares > 0
+      ? `Net insider purchases total **${(netShares / 1000).toFixed(0)}K shares** across **${netBuyCount}** transactions.`
+      : netShares < 0
+      ? `Net insider sales total **${(Math.abs(netShares) / 1000).toFixed(0)}K shares** across **${netSellCount}** transactions.`
+      : 'Net insider activity is balanced.'
+  } Overall smart money signal: **${signal}**.`;
+
+  const details = [
+    {
+      label: 'Smart Money Signal',
+      value: signal.replace(/\*/g, '').charAt(0).toUpperCase() + signal.replace(/\*/g, '').slice(1),
+      status: (smartMoneyScore > 65 ? 'safe' : smartMoneyScore < 35 ? 'danger' : 'neutral') as 'safe' | 'danger' | 'neutral',
+    },
+    {
+      label: 'Institutional Trend',
+      value: `${increasingCount} up / ${decreasingCount} down`,
+      status: (increasingCount > decreasingCount ? 'safe' : increasingCount < decreasingCount ? 'danger' : 'neutral') as 'safe' | 'danger' | 'neutral',
+    },
+    {
+      label: 'Insider Pattern',
+      value: `${insiderBuys} buys / ${insiderSells} sells`,
+      status: (insiderBuys > insiderSells ? 'safe' : insiderBuys < insiderSells ? 'danger' : 'neutral') as 'safe' | 'danger' | 'neutral',
+    },
+    {
+      label: 'Net Insider Shares',
+      value: netShares > 0
+        ? `+${(netShares / 1000).toFixed(0)}K`
+        : netShares < 0
+        ? `${(netShares / 1000).toFixed(0)}K`
+        : '0',
+      status: (netShares > 0 ? 'safe' : netShares < 0 ? 'danger' : 'neutral') as 'safe' | 'danger' | 'neutral',
+    },
+    {
+      label: 'Smart Money Score',
+      value: `${formatNumber(smartMoneyScore, 0)}/100`,
+      status: (smartMoneyScore > 65 ? 'safe' : smartMoneyScore < 35 ? 'danger' : 'neutral') as 'safe' | 'danger' | 'neutral',
     },
   ];
 
