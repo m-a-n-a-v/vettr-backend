@@ -28,6 +28,7 @@ import {
   waitlistRoutes,
   pulseRoutes,
   cronRoutes,
+  fundamentalsRoutes,
 } from './routes/index.js';
 import type { AuthUser } from './middleware/auth.js';
 
@@ -217,6 +218,7 @@ app.route('/auth', authRoutes);
 app.route('/stocks', stockRoutes);
 app.route('/stocks', vetrScoreRoutes);
 app.route('/stocks', redFlagStockRoutes);
+app.route('/stocks', fundamentalsRoutes);
 app.route('/red-flags', redFlagGlobalRoutes);
 app.route('/filings', filingRoutes);
 app.route('/executives', executiveRoutes);
