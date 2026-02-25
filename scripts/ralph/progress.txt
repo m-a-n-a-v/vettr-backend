@@ -221,3 +221,33 @@ Details:
   - Gotcha: Access user from context with c.get('user'), tier is user.tier.toLowerCase()
   - Gotcha: All response fields must be snake_case per API convention
 ---
+
+## US-095: Add tier-based daily usage tracking and enforcement
+Status: ✅ COMPLETE
+Date: 2026-02-24
+Details:
+- Added TIER_LIMITS constant: FREE = 3, PRO = 15, PREMIUM = Infinity
+- Implemented getUsageStats helper function: queries ai_agent_usage table for current user's daily usage (WHERE userId = ? AND date = CURRENT_DATE), calculates used/limit/remaining, returns resets_at as midnight UTC next day
+- Updated POST /ai-agent/ask route: checks tier limits BEFORE generating response, queries usage count from DB, throws TierLimitError with 403 status if limit exceeded (includes used, limit, upgrade_prompt: true, resets_at in error details), inserts usage record AFTER successful response generation, includes usage object in success response
+- Updated GET /ai-agent/usage route: replaced placeholder with actual getUsageStats call, returns real-time usage data from database
+- TierLimitError uses 403 status (not 429) per acceptance criteria - indicates tier-based restriction vs rate limiting
+- Usage tracking: inserts record with userId, questionId, ticker (uppercase), date (YYYY-MM-DD format) after successful response
+- Premium tier users skip all counting and enforcement (limit = Infinity check)
+- Build passes with zero errors, tests pass (163/169 - same 6 pre-existing admin-analytics failures), typecheck passes
+- Files changed: src/routes/ai-agent.routes.ts (+112 lines, -32 lines)
+- **Learnings for future iterations:**
+  - Pattern: Define tier limits as Record<string, number> constant at module level for reusability
+  - Pattern: Create helper function getUsageStats for shared logic between /ask and /usage endpoints
+  - Pattern: Check limits BEFORE expensive operations (response generation), fail fast
+  - Pattern: Use sql template literal for CURRENT_DATE comparison: sql`${aiAgentUsage.date} = CURRENT_DATE`
+  - Pattern: Insert usage record AFTER successful response to avoid tracking failed requests
+  - Pattern: Use .toISOString().split('T')[0] to get YYYY-MM-DD date format for date column
+  - Pattern: Calculate resets_at as Date.UTC(year, month, date + 1, 0, 0, 0).toISOString() for midnight UTC next day
+  - Pattern: Skip counting entirely for premium tier with early return to avoid unnecessary DB query
+  - Pattern: TierLimitError includes upgrade_prompt: true in details for frontend to show upgrade CTA
+  - Pattern: Add db null check at start of helper functions that use db
+  - Gotcha: TierLimitError uses 403 status (TIER_LIMIT_EXCEEDED) not 429 (RATE_LIMITED) - different concepts
+  - Gotcha: Must count .length on usageRecords array, not use COUNT(*) aggregation for simplicity
+  - Gotcha: Ticker should be uppercased when inserting: ticker.toUpperCase() for consistency
+  - Gotcha: Usage object included in POST /ask success response alongside response and follow_up_questions
+---
