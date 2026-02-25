@@ -164,3 +164,60 @@ Details:
   - Gotcha: Total assets estimation is rough (debt × 3) but sufficient for accruals ratio context
   - Gotcha: Forward estimates may be missing for some stocks, handle null/undefined gracefully with n() helper
 ---
+
+## US-093: Implement red flags response generators
+Status: ✅ COMPLETE
+Date: 2026-02-24
+Details:
+- Implemented respondRedFlags: Uses existing red-flag.service.ts detectRedFlags function, returns overall composite score (0-100), severity level (Low/Moderate/High/Critical), active flag count, top 3 flags sorted by weighted score with opinionated verdicts
+- Implemented respondCriticalFlags: Identifies highest-severity flag by weighted score, returns full explanation with flag name, score, weight, weighted impact, description, plus lists other significant flags
+- Implemented respondFlagTrend: Queries red_flag_history table for last 90 days, calculates average scores across three 30-day periods (last 30d, 30-60d ago, 60-90d ago), analyzes trend direction (increasing/decreasing/stable), determines if trend is accelerating
+- Verdict logic: Score >85 = Critical Risk (red), 60-85 = High Risk (red), 30-60 = Moderate Risk (yellow), <30 = Low Risk (green)
+- Summaries use direct, opinionated language: "Warning signs detected", "The biggest concern for {TICKER} is...", "Red flags are increasing and accelerating"
+- Added imports: gte operator, redFlagHistory table, detectRedFlags from red-flag.service.ts
+- Build passes, tests pass (163/169 - same 6 pre-existing admin-analytics failures unrelated to this story)
+- Files changed: src/services/ai-agent-responders.ts (+355 lines)
+- **Learnings for future iterations:**
+  - Pattern: Reuse existing service functions like detectRedFlags to avoid duplication
+  - Pattern: Sort arrays with .sort((a, b) => b.weighted_score - a.weighted_score) for descending order
+  - Pattern: Filter active flags with .filter(f => f.score > 0) before analysis
+  - Pattern: Query multiple time periods in parallel with Promise.all for trend analysis
+  - Pattern: Calculate averages from array with .reduce((sum, f) => sum + n(f.score, 0), 0) / length
+  - Pattern: Compare recent vs historical changes to determine if trend is accelerating
+  - Pattern: Use sql template literal for date range comparisons: sql`${col} < ${date}`
+  - Pattern: Handle empty history gracefully with early return and "Insufficient data" message
+  - Pattern: Format flag names from snake_case to Title Case: split('_').map(capitalize).join(' ')
+  - Pattern: Use Math.abs() when analyzing trend magnitude regardless of direction
+  - Gotcha: TypeScript requires explicit type annotation for verdict_color: 'green' | 'yellow' | 'red'
+  - Gotcha: DetectedFlagResult from red-flag.service.ts has composite_score (snake_case) not compositeScore
+  - Gotcha: redFlagHistory.score is stored as doublePrecision, use n() helper for null safety
+  - Gotcha: Trend analysis requires at least 2 periods of data to calculate change meaningfully
+---
+
+## US-094: Create AI agent routes with three endpoints
+Status: ✅ COMPLETE
+Date: 2026-02-24
+Details:
+- Created src/routes/ai-agent.routes.ts with Hono router and authMiddleware applied to all routes
+- Implemented GET /ai-agent/questions endpoint: returns initial 6 questions by default, accepts ?parent_id= query param to return follow-up questions for that parent
+- Implemented POST /ai-agent/ask endpoint: validates question_id and ticker, calls appropriate responder function based on question_id (switch statement routing to all 18 responder functions), returns response data + follow-up questions (if initial question) in snake_case format
+- Implemented GET /ai-agent/usage endpoint: placeholder for US-095, returns { used: 0, limit: (tier-based), remaining, resets_at: (ISO 8601 midnight UTC next day) }
+- Added export to src/routes/index.ts barrel file
+- Registered routes in src/app.ts under /v1/ai-agent path
+- All JSON response fields use snake_case (question_id, parent_id, follow_up_questions, verdict_color, resets_at)
+- Build passes with zero errors, tests pass (163/169 - same 6 pre-existing admin-analytics failures), typecheck passes
+- Files changed: src/routes/ai-agent.routes.ts (new, 207 lines), src/routes/index.ts (+1 line), src/app.ts (+2 lines)
+- **Learnings for future iterations:**
+  - Pattern: Use Hono router with authMiddleware applied globally via .use('*', authMiddleware)
+  - Pattern: Type Variables = { requestId: string; user: AuthUser } for context type safety
+  - Pattern: Use c.req.query('param_name') for query parameters, c.req.param('param_name') for path params
+  - Pattern: Use c.req.json() to parse request body, validate input early with ValidationError
+  - Pattern: Use switch statement for question_id routing to call appropriate responder function
+  - Pattern: Calculate resets_at as Date.UTC(year, month, date + 1, 0, 0, 0) for midnight UTC next day
+  - Pattern: Tier limits defined as Record<string, number> with free/pro/premium keys
+  - Pattern: Return follow_up_questions array only for initial questions (parent_id === null)
+  - Gotcha: GET /usage is a placeholder for US-095 - actual tracking/enforcement will be implemented there
+  - Gotcha: Use getQuestionById to validate question exists, throw NotFoundError if undefined
+  - Gotcha: Access user from context with c.get('user'), tier is user.tier.toLowerCase()
+  - Gotcha: All response fields must be snake_case per API convention
+---
