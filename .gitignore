@@ -14,3 +14,4 @@ drizzle/meta/
 scripts/ingest/data/
 scripts/ingest/venv/
 .env.vercel
+.env*.local

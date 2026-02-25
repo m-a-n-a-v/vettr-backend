@@ -4,15 +4,15 @@ You are an autonomous coding agent adding the VETTR AI Agent feature to the exis
 
 ## Your Task
 
-1. Read the PRD at `scripts/ralph/prd.json`
-2. Read the progress log at `scripts/ralph/progress.txt` (create if doesn't exist)
+1. Read the PRD at `scripts/ralph/prd-ai-agent.json`
+2. Read the progress log at `scripts/ralph/progress-ai-agent.txt` (create if doesn't exist)
 3. Check you're on the correct branch from PRD `branchName`. If not, create from main.
 4. Pick the **highest priority** user story where `passes: false`
 5. Implement that single user story
 6. Run quality checks (see Quality Commands below)
 7. If checks pass, commit ALL changes with message: `feat: [Story ID] - [Story Title]`
 8. Update the PRD to set `passes: true` for the completed story
-9. Append your progress to `scripts/ralph/progress.txt`
+9. Append your progress to `scripts/ralph/progress-ai-agent.txt`
 
 ---
 
@@ -159,7 +159,7 @@ Summaries should be conversational and direct. Use **bold** for key numbers. Inc
 
 ## Progress Report Format
 
-APPEND to scripts/ralph/progress.txt:
+APPEND to scripts/ralph/progress-ai-agent.txt:
 
 ```
 ## [Story ID]: [Story Title]

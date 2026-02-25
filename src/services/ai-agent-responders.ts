@@ -3,12 +3,14 @@
  * Pre-defined template-based responses for stock analysis questions
  */
 
-import { eq } from 'drizzle-orm';
+import { eq, desc } from 'drizzle-orm';
 import { db } from '../config/database.js';
 import {
   stocks,
   financialSummary,
   valuationMetrics,
+  analystConsensus,
+  analystActions,
 } from '../db/schema/index.js';
 import { InternalError, NotFoundError } from '../utils/errors.js';
 
@@ -329,6 +331,265 @@ export async function respondCashPosition(ticker: string): Promise<AiAgentRespon
       label: 'FCF Yield',
       value: `${formatNumber(fcfYieldPercent, 2)}%`,
       status: (fcfYieldPercent > 5 ? 'safe' : fcfYieldPercent > 0 ? 'neutral' : 'warning') as 'safe' | 'neutral' | 'warning',
+    },
+  ];
+
+  return { summary, details, verdict, verdict_color };
+}
+
+// ─── Analyst Consensus Responders ────────────────────────────────────────────
+
+/**
+ * US-089: Analyst View Overview
+ * Returns consensus rating, total analysts, buy/hold/sell breakdown, price target, upside/downside %
+ */
+export async function respondAnalystView(ticker: string): Promise<AiAgentResponseData> {
+  if (!db) throw new InternalError('Database not available');
+
+  const stock = await getStockByTicker(ticker);
+
+  const [consensus] = await db
+    .select()
+    .from(analystConsensus)
+    .where(eq(analystConsensus.stockId, stock.id))
+    .limit(1);
+
+  if (!consensus) {
+    return {
+      summary: `**${stock.name}** currently has no analyst coverage available.`,
+      details: [],
+      verdict: 'Unknown',
+      verdict_color: 'yellow',
+    };
+  }
+
+  const totalAnalysts = n(consensus.totalAnalysts, 0);
+  const buyCount = n(consensus.buyCount, 0);
+  const holdCount = n(consensus.holdCount, 0);
+  const sellCount = n(consensus.sellCount, 0);
+  const priceTarget = n(consensus.priceTarget, 0);
+  const currentPrice = n(stock.price, 0);
+  const upside = currentPrice > 0 && priceTarget > 0
+    ? ((priceTarget - currentPrice) / currentPrice) * 100
+    : 0;
+
+  // Determine verdict based on consensus and upside
+  let verdict = 'Hold';
+  let verdict_color: 'green' | 'yellow' | 'red' = 'yellow';
+  let sentiment = 'cautiously optimistic';
+
+  if (consensus.consensus === 'Buy' && upside > 20) {
+    verdict = 'Strong Buy';
+    verdict_color = 'green';
+    sentiment = '**bullish**';
+  } else if (consensus.consensus === 'Buy' && upside > 0) {
+    verdict = 'Buy';
+    verdict_color = 'green';
+    sentiment = 'optimistic';
+  } else if (consensus.consensus === 'Sell' || upside < -10) {
+    verdict = 'Sell';
+    verdict_color = 'red';
+    sentiment = 'bearish';
+  } else if (consensus.consensus === 'Hold') {
+    sentiment = 'mixed';
+  }
+
+  const summary = `Analysts are ${sentiment} on **${stock.name}**. Of **${totalAnalysts} analysts**, the split is **${buyCount} Buy / ${holdCount} Hold / ${sellCount} Sell** with a consensus of **${consensus.consensus || 'N/A'}**. The average price target of **$${formatNumber(priceTarget, 2)}** represents **${upside > 0 ? '+' : ''}${formatNumber(upside, 1)}% ${upside > 0 ? 'upside' : 'downside'}** from the current price of **$${formatNumber(currentPrice, 2)}**.`;
+
+  const details = [
+    {
+      label: 'Consensus',
+      value: consensus.consensus || 'N/A',
+      status: (consensus.consensus === 'Buy' ? 'safe' : consensus.consensus === 'Sell' ? 'danger' : 'neutral') as 'safe' | 'danger' | 'neutral',
+    },
+    {
+      label: 'Total Analysts',
+      value: totalAnalysts.toString(),
+      status: 'neutral' as 'neutral',
+    },
+    {
+      label: 'Buy / Hold / Sell',
+      value: `${buyCount} / ${holdCount} / ${sellCount}`,
+      status: (buyCount > holdCount + sellCount ? 'safe' : sellCount > buyCount ? 'danger' : 'neutral') as 'safe' | 'danger' | 'neutral',
+    },
+    {
+      label: 'Price Target',
+      value: `$${formatNumber(priceTarget, 2)}`,
+      status: 'neutral' as 'neutral',
+    },
+    {
+      label: 'Upside/Downside',
+      value: `${upside > 0 ? '+' : ''}${formatNumber(upside, 1)}%`,
+      status: (upside > 20 ? 'safe' : upside > 0 ? 'neutral' : upside > -10 ? 'warning' : 'danger') as 'safe' | 'neutral' | 'warning' | 'danger',
+    },
+  ];
+
+  return { summary, details, verdict, verdict_color };
+}
+
+/**
+ * US-089: Recent Analyst Actions (Follow-up)
+ * Returns last 5 analyst actions with firm names, action type, grade changes, dates
+ */
+export async function respondRecentActions(ticker: string): Promise<AiAgentResponseData> {
+  if (!db) throw new InternalError('Database not available');
+
+  const stock = await getStockByTicker(ticker);
+
+  const actions = await db
+    .select()
+    .from(analystActions)
+    .where(eq(analystActions.stockId, stock.id))
+    .orderBy(desc(analystActions.actionDate))
+    .limit(5);
+
+  if (actions.length === 0) {
+    return {
+      summary: `**${stock.name}** has no recent analyst actions on record.`,
+      details: [],
+      verdict: 'Unknown',
+      verdict_color: 'yellow',
+    };
+  }
+
+  // Count upgrades vs downgrades
+  let upgradeCount = 0;
+  let downgradeCount = 0;
+  let initiateCount = 0;
+
+  actions.forEach((action) => {
+    if (action.action === 'up') upgradeCount++;
+    else if (action.action === 'down') downgradeCount++;
+    else if (action.action === 'init') initiateCount++;
+  });
+
+  // Determine verdict
+  let verdict = 'Mixed';
+  let verdict_color: 'green' | 'yellow' | 'red' = 'yellow';
+  let sentiment = 'mixed signals';
+
+  if (upgradeCount > downgradeCount && upgradeCount >= 2) {
+    verdict = 'Positive';
+    verdict_color = 'green';
+    sentiment = '**positive momentum**';
+  } else if (downgradeCount > upgradeCount && downgradeCount >= 2) {
+    verdict = 'Negative';
+    verdict_color = 'red';
+    sentiment = 'negative sentiment';
+  }
+
+  const mostRecentAction = actions[0];
+  const mostRecentDate = new Date(mostRecentAction.actionDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const mostRecentFirm = mostRecentAction.firm;
+  const mostRecentType = mostRecentAction.action === 'up' ? 'upgraded' : mostRecentAction.action === 'down' ? 'downgraded' : 'initiated coverage on';
+
+  const summary = `Recent analyst activity shows ${sentiment} for **${stock.name}**. In the last 5 actions, there were **${upgradeCount} upgrades**, **${downgradeCount} downgrades**, and **${initiateCount} initiations**. Most recently, **${mostRecentFirm}** ${mostRecentType} the stock on **${mostRecentDate}**${mostRecentAction.toGrade ? ` to **${mostRecentAction.toGrade}**` : ''}.`;
+
+  const details = actions.map((action) => {
+    const date = new Date(action.actionDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const actionType = action.action === 'up' ? 'Upgrade' : action.action === 'down' ? 'Downgrade' : action.action === 'init' ? 'Initiate' : 'Maintain';
+    const gradeChange = action.fromGrade && action.toGrade
+      ? `${action.fromGrade} → ${action.toGrade}`
+      : action.toGrade || 'N/A';
+
+    return {
+      label: `${action.firm} (${date})`,
+      value: `${actionType}: ${gradeChange}`,
+      status: (action.action === 'up' ? 'safe' : action.action === 'down' ? 'danger' : 'neutral') as 'safe' | 'danger' | 'neutral',
+    };
+  });
+
+  return { summary, details, verdict, verdict_color };
+}
+
+/**
+ * US-089: Price Targets (Follow-up)
+ * Returns price target mean/high/low, current price, upside %, consensus vs current price
+ */
+export async function respondPriceTargets(ticker: string): Promise<AiAgentResponseData> {
+  if (!db) throw new InternalError('Database not available');
+
+  const stock = await getStockByTicker(ticker);
+
+  const [consensus] = await db
+    .select()
+    .from(analystConsensus)
+    .where(eq(analystConsensus.stockId, stock.id))
+    .limit(1);
+
+  if (!consensus || !consensus.priceTarget) {
+    return {
+      summary: `**${stock.name}** has no price target data available.`,
+      details: [],
+      verdict: 'Unknown',
+      verdict_color: 'yellow',
+    };
+  }
+
+  const priceTarget = n(consensus.priceTarget, 0);
+  const priceTargetHigh = n(consensus.priceTargetHigh, 0);
+  const priceTargetLow = n(consensus.priceTargetLow, 0);
+  const currentPrice = n(stock.price, 0);
+  const upside = currentPrice > 0 && priceTarget > 0
+    ? ((priceTarget - currentPrice) / currentPrice) * 100
+    : 0;
+  const highUpside = currentPrice > 0 && priceTargetHigh > 0
+    ? ((priceTargetHigh - currentPrice) / currentPrice) * 100
+    : 0;
+  const lowUpside = currentPrice > 0 && priceTargetLow > 0
+    ? ((priceTargetLow - currentPrice) / currentPrice) * 100
+    : 0;
+
+  // Determine verdict
+  let verdict = 'Neutral';
+  let verdict_color: 'green' | 'yellow' | 'red' = 'yellow';
+  let assessment = 'fairly valued';
+
+  if (upside > 20) {
+    verdict = 'Undervalued';
+    verdict_color = 'green';
+    assessment = '**undervalued**';
+  } else if (upside > 10) {
+    verdict = 'Slight Upside';
+    verdict_color = 'green';
+    assessment = 'trading below target';
+  } else if (upside < -10) {
+    verdict = 'Overvalued';
+    verdict_color = 'red';
+    assessment = '**overvalued**';
+  } else if (upside < 0) {
+    verdict = 'At Target';
+    verdict_color = 'yellow';
+    assessment = 'near or above target';
+  }
+
+  const summary = `Analysts see **${stock.name}** as ${assessment}. The consensus price target of **$${formatNumber(priceTarget, 2)}** implies **${upside > 0 ? '+' : ''}${formatNumber(upside, 1)}% ${upside > 0 ? 'upside' : 'downside'}** from the current price of **$${formatNumber(currentPrice, 2)}**. Price targets range from a low of **$${formatNumber(priceTargetLow, 2)}** (${lowUpside > 0 ? '+' : ''}${formatNumber(lowUpside, 1)}%) to a high of **$${formatNumber(priceTargetHigh, 2)}** (${highUpside > 0 ? '+' : ''}${formatNumber(highUpside, 1)}%).`;
+
+  const details = [
+    {
+      label: 'Current Price',
+      value: `$${formatNumber(currentPrice, 2)}`,
+      status: 'neutral' as 'neutral',
+    },
+    {
+      label: 'Target Price (Mean)',
+      value: `$${formatNumber(priceTarget, 2)}`,
+      status: 'neutral' as 'neutral',
+    },
+    {
+      label: 'Target High',
+      value: `$${formatNumber(priceTargetHigh, 2)}`,
+      status: 'neutral' as 'neutral',
+    },
+    {
+      label: 'Target Low',
+      value: `$${formatNumber(priceTargetLow, 2)}`,
+      status: 'neutral' as 'neutral',
+    },
+    {
+      label: 'Implied Upside',
+      value: `${upside > 0 ? '+' : ''}${formatNumber(upside, 1)}%`,
+      status: (upside > 20 ? 'safe' : upside > 0 ? 'neutral' : upside > -10 ? 'warning' : 'danger') as 'safe' | 'neutral' | 'warning' | 'danger',
     },
   ];
 
