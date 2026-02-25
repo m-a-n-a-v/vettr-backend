@@ -3,7 +3,7 @@
  * Pre-defined template-based responses for stock analysis questions
  */
 
-import { eq, desc, sql, and, ne } from 'drizzle-orm';
+import { eq, desc, sql, and, ne, gte } from 'drizzle-orm';
 import { db } from '../config/database.js';
 import {
   stocks,
@@ -17,8 +17,10 @@ import {
   dividendInfo,
   earningsHistory,
   earningsEstimates,
+  redFlagHistory,
 } from '../db/schema/index.js';
 import { InternalError, NotFoundError } from '../utils/errors.js';
+import { detectRedFlags } from './red-flag.service.js';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -1700,6 +1702,358 @@ export async function respondEarningsOutlook(ticker: string): Promise<AiAgentRes
       label: 'Analyst Count',
       value: n(y0?.numberOfAnalystsEps, 0).toString(),
       status: 'neutral' as 'neutral',
+    },
+  ];
+
+  return { summary, details, verdict, verdict_color };
+}
+
+// ─── Red Flags Responders ────────────────────────────────────────────────────
+
+/**
+ * US-093: Red Flags Overview
+ * Returns overall red flag score, severity level, active flag count, top flag names and explanations
+ */
+export async function respondRedFlags(ticker: string): Promise<AiAgentResponseData> {
+  if (!db) throw new InternalError('Database not available');
+
+  const stock = await getStockByTicker(ticker);
+
+  // Use existing red-flag.service.ts detectRedFlags function
+  const redFlagResult = await detectRedFlags(ticker);
+
+  const compositeScore = redFlagResult.composite_score;
+  const severity = redFlagResult.severity;
+  const activeFlags = redFlagResult.flags.filter(f => f.score > 0);
+  const activeFlagCount = activeFlags.length;
+
+  // Sort flags by weighted score descending to identify top concerns
+  const sortedFlags = [...activeFlags].sort((a, b) => b.weighted_score - a.weighted_score);
+  const topFlags = sortedFlags.slice(0, 3);
+
+  // Determine verdict
+  let verdict = 'Low Risk';
+  let verdict_color: 'green' | 'yellow' | 'red' = 'green';
+  let riskLevel = 'a low risk profile';
+
+  if (compositeScore > 85) {
+    verdict = 'Critical Risk';
+    verdict_color = 'red';
+    riskLevel = '**critical risk level**';
+  } else if (compositeScore >= 60) {
+    verdict = 'High Risk';
+    verdict_color = 'red';
+    riskLevel = '**elevated risk**';
+  } else if (compositeScore >= 30) {
+    verdict = 'Moderate Risk';
+    verdict_color = 'yellow';
+    riskLevel = 'moderate risk';
+  }
+
+  // Build summary
+  let summary = '';
+  if (compositeScore > 85) {
+    summary = `**Warning signs detected** for **${stock.name}**. The red flag score of **${compositeScore}/100** (${severity}) flags **${activeFlagCount} active concern${activeFlagCount !== 1 ? 's' : ''}**`;
+  } else if (compositeScore >= 60) {
+    summary = `**${stock.name}** shows ${riskLevel}. With a red flag score of **${compositeScore}/100** (${severity}), there are **${activeFlagCount} active concern${activeFlagCount !== 1 ? 's' : ''}**`;
+  } else if (compositeScore >= 30) {
+    summary = `**${stock.name}** has ${riskLevel}. The red flag score of **${compositeScore}/100** (${severity}) indicates **${activeFlagCount} area${activeFlagCount !== 1 ? 's' : ''}** worth monitoring`;
+  } else {
+    summary = `**${stock.name}** shows ${riskLevel}. The red flag score of **${compositeScore}/100** (${severity}) suggests minimal concerns`;
+  }
+
+  // Add top flag details if any
+  if (topFlags.length > 0) {
+    const topFlagNames = topFlags.map(f => {
+      const name = f.flag_type.replace(/_/g, ' ');
+      return name.charAt(0).toUpperCase() + name.slice(1);
+    }).join(', ');
+    summary += `: ${topFlagNames}.`;
+  } else {
+    summary += '.';
+  }
+
+  // Build details array
+  const details = [
+    {
+      label: 'Overall Score',
+      value: `${compositeScore}/100`,
+      status: (compositeScore > 85 ? 'danger' : compositeScore >= 60 ? 'danger' : compositeScore >= 30 ? 'warning' : 'safe') as 'safe' | 'warning' | 'danger',
+    },
+    {
+      label: 'Severity Level',
+      value: severity,
+      status: (severity === 'Critical' || severity === 'High' ? 'danger' : severity === 'Moderate' ? 'warning' : 'safe') as 'safe' | 'warning' | 'danger',
+    },
+    {
+      label: 'Active Flags',
+      value: `${activeFlagCount} of 5`,
+      status: (activeFlagCount >= 4 ? 'danger' : activeFlagCount >= 2 ? 'warning' : 'safe') as 'safe' | 'warning' | 'danger',
+    },
+  ];
+
+  // Add top 3 flags with scores
+  for (const flag of topFlags) {
+    const flagLabel = flag.flag_type
+      .split('_')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+
+    details.push({
+      label: flagLabel,
+      value: `${flag.score}/100`,
+      status: (flag.score > 75 ? 'danger' : flag.score > 40 ? 'warning' : 'safe') as 'safe' | 'warning' | 'danger',
+    });
+  }
+
+  return { summary, details, verdict, verdict_color };
+}
+
+/**
+ * US-093: Critical Flags (Follow-up)
+ * Identifies the highest-severity flag, returns its full explanation, detection date, and what it means
+ */
+export async function respondCriticalFlags(ticker: string): Promise<AiAgentResponseData> {
+  if (!db) throw new InternalError('Database not available');
+
+  const stock = await getStockByTicker(ticker);
+
+  // Use existing red-flag.service.ts detectRedFlags function
+  const redFlagResult = await detectRedFlags(ticker);
+
+  const activeFlags = redFlagResult.flags.filter(f => f.score > 0);
+
+  if (activeFlags.length === 0) {
+    return {
+      summary: `**${stock.name}** has no active red flags. The company shows a clean risk profile with no significant concerns detected.`,
+      details: [
+        {
+          label: 'Status',
+          value: 'No critical concerns',
+          status: 'safe',
+        },
+      ],
+      verdict: 'Clear',
+      verdict_color: 'green',
+    };
+  }
+
+  // Sort by weighted score to find the most critical flag
+  const sortedFlags = [...activeFlags].sort((a, b) => b.weighted_score - a.weighted_score);
+  const criticalFlag = sortedFlags[0];
+
+  const flagName = criticalFlag.flag_type
+    .split('_')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+
+  // Determine verdict
+  let verdict = 'Monitor';
+  let verdict_color: 'green' | 'yellow' | 'red' = 'yellow';
+
+  if (criticalFlag.score > 75) {
+    verdict = 'Critical';
+    verdict_color = 'red';
+  } else if (criticalFlag.score > 40) {
+    verdict = 'Caution';
+    verdict_color = 'yellow';
+  } else {
+    verdict = 'Minor';
+    verdict_color = 'green';
+  }
+
+  // Build summary with context
+  const summary = `The biggest concern for **${stock.name}** is **${flagName}**: ${criticalFlag.description}. This flag scored **${criticalFlag.score}/100** with a weight of **${Math.round(criticalFlag.weight * 100)}%** in the overall risk assessment.`;
+
+  // Build details array
+  const details = [
+    {
+      label: 'Critical Flag',
+      value: flagName,
+      status: (criticalFlag.score > 75 ? 'danger' : criticalFlag.score > 40 ? 'warning' : 'safe') as 'safe' | 'warning' | 'danger',
+    },
+    {
+      label: 'Flag Score',
+      value: `${criticalFlag.score}/100`,
+      status: (criticalFlag.score > 75 ? 'danger' : criticalFlag.score > 40 ? 'warning' : 'safe') as 'safe' | 'warning' | 'danger',
+    },
+    {
+      label: 'Weight',
+      value: `${Math.round(criticalFlag.weight * 100)}%`,
+      status: 'neutral' as 'neutral',
+    },
+    {
+      label: 'Weighted Impact',
+      value: `${criticalFlag.weighted_score}/100`,
+      status: (criticalFlag.weighted_score > 25 ? 'danger' : criticalFlag.weighted_score > 10 ? 'warning' : 'safe') as 'safe' | 'warning' | 'danger',
+    },
+    {
+      label: 'Description',
+      value: criticalFlag.description,
+      status: 'neutral' as 'neutral',
+    },
+  ];
+
+  // Add other significant flags
+  const otherFlags = sortedFlags.slice(1, 3);
+  if (otherFlags.length > 0) {
+    for (const flag of otherFlags) {
+      const otherFlagName = flag.flag_type
+        .split('_')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ');
+
+      details.push({
+        label: `Also: ${otherFlagName}`,
+        value: `${flag.score}/100`,
+        status: (flag.score > 75 ? 'danger' : flag.score > 40 ? 'warning' : 'safe') as 'safe' | 'warning' | 'danger',
+      });
+    }
+  }
+
+  return { summary, details, verdict, verdict_color };
+}
+
+/**
+ * US-093: Flag Trend (Follow-up)
+ * Queries red_flag_history table, analyzes whether flags are increasing/decreasing, returns trend direction
+ */
+export async function respondFlagTrend(ticker: string): Promise<AiAgentResponseData> {
+  if (!db) throw new InternalError('Database not available');
+
+  const stock = await getStockByTicker(ticker);
+
+  const upperTicker = ticker.toUpperCase();
+
+  // Query red_flag_history for the last 90 days
+  const now = new Date();
+  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
+  const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+
+  // Get flags from different time periods
+  const [last30dFlags, prev30dFlags, prev60dFlags] = await Promise.all([
+    db
+      .select()
+      .from(redFlagHistory)
+      .where(
+        and(
+          eq(redFlagHistory.stockTicker, upperTicker),
+          gte(redFlagHistory.detectedAt, thirtyDaysAgo)
+        )
+      ),
+    db
+      .select()
+      .from(redFlagHistory)
+      .where(
+        and(
+          eq(redFlagHistory.stockTicker, upperTicker),
+          gte(redFlagHistory.detectedAt, sixtyDaysAgo),
+          sql`${redFlagHistory.detectedAt} < ${thirtyDaysAgo}`
+        )
+      ),
+    db
+      .select()
+      .from(redFlagHistory)
+      .where(
+        and(
+          eq(redFlagHistory.stockTicker, upperTicker),
+          gte(redFlagHistory.detectedAt, ninetyDaysAgo),
+          sql`${redFlagHistory.detectedAt} < ${sixtyDaysAgo}`
+        )
+      ),
+  ]);
+
+  // Calculate average scores per period
+  const last30dAvg = last30dFlags.length > 0
+    ? last30dFlags.reduce((sum, f) => sum + n(f.score, 0), 0) / last30dFlags.length
+    : 0;
+  const prev30dAvg = prev30dFlags.length > 0
+    ? prev30dFlags.reduce((sum, f) => sum + n(f.score, 0), 0) / prev30dFlags.length
+    : 0;
+  const prev60dAvg = prev60dFlags.length > 0
+    ? prev60dFlags.reduce((sum, f) => sum + n(f.score, 0), 0) / prev60dFlags.length
+    : 0;
+
+  // Calculate trend
+  const recentChange = last30dAvg - prev30dAvg;
+  const historicalChange = prev30dAvg - prev60dAvg;
+
+  let trendDirection = 'stable';
+  let verdict = 'Stable';
+  let verdict_color: 'green' | 'yellow' | 'red' = 'yellow';
+
+  if (recentChange > 10) {
+    trendDirection = 'increasing';
+    verdict = 'Worsening';
+    verdict_color = 'red';
+  } else if (recentChange < -10) {
+    trendDirection = 'decreasing';
+    verdict = 'Improving';
+    verdict_color = 'green';
+  } else if (recentChange > 5) {
+    trendDirection = 'slightly increasing';
+    verdict = 'Rising';
+    verdict_color = 'yellow';
+  } else if (recentChange < -5) {
+    trendDirection = 'slightly decreasing';
+    verdict = 'Declining';
+    verdict_color = 'green';
+  }
+
+  // Determine if trend is accelerating
+  const isAccelerating = Math.abs(recentChange) > Math.abs(historicalChange);
+
+  // Build summary
+  let summary = '';
+  if (last30dFlags.length === 0 && prev30dFlags.length === 0) {
+    summary = `Insufficient historical data for **${stock.name}** to analyze red flag trends. This could indicate a new listing or limited monitoring history.`;
+  } else if (trendDirection === 'increasing' || trendDirection === 'slightly increasing') {
+    const acceleration = isAccelerating ? ' and **accelerating**' : '';
+    summary = `Red flags for **${stock.name}** are **${trendDirection}**${acceleration}. The average flag score has risen from **${formatNumber(prev30dAvg, 1)}** (30-60 days ago) to **${formatNumber(last30dAvg, 1)}** (last 30 days), a change of **+${formatNumber(recentChange, 1)} points**. This upward trend suggests growing risk concerns.`;
+  } else if (trendDirection === 'decreasing' || trendDirection === 'slightly decreasing') {
+    const acceleration = isAccelerating ? ' and **accelerating**' : '';
+    summary = `Red flags for **${stock.name}** are **${trendDirection}**${acceleration}. The average flag score has declined from **${formatNumber(prev30dAvg, 1)}** (30-60 days ago) to **${formatNumber(last30dAvg, 1)}** (last 30 days), a change of **${formatNumber(recentChange, 1)} points**. This downward trend is a positive signal.`;
+  } else {
+    summary = `Red flags for **${stock.name}** are **stable**. The average flag score has remained relatively constant at around **${formatNumber(last30dAvg, 1)}** over the past 90 days, with minimal change of **${formatNumber(Math.abs(recentChange), 1)} points**.`;
+  }
+
+  // Build details array
+  const details = [
+    {
+      label: 'Trend Direction',
+      value: trendDirection.charAt(0).toUpperCase() + trendDirection.slice(1),
+      status: (trendDirection.includes('increasing') ? 'danger' : trendDirection.includes('decreasing') ? 'safe' : 'warning') as 'safe' | 'warning' | 'danger',
+    },
+    {
+      label: 'Last 30 Days Avg',
+      value: formatNumber(last30dAvg, 1),
+      status: (last30dAvg > 60 ? 'danger' : last30dAvg > 30 ? 'warning' : 'safe') as 'safe' | 'warning' | 'danger',
+    },
+    {
+      label: '30-60 Days Ago Avg',
+      value: formatNumber(prev30dAvg, 1),
+      status: (prev30dAvg > 60 ? 'danger' : prev30dAvg > 30 ? 'warning' : 'safe') as 'safe' | 'warning' | 'danger',
+    },
+    {
+      label: '60-90 Days Ago Avg',
+      value: formatNumber(prev60dAvg, 1),
+      status: (prev60dAvg > 60 ? 'danger' : prev60dAvg > 30 ? 'warning' : 'safe') as 'safe' | 'warning' | 'danger',
+    },
+    {
+      label: 'Recent Change',
+      value: `${recentChange > 0 ? '+' : ''}${formatNumber(recentChange, 1)} pts`,
+      status: (recentChange > 10 ? 'danger' : recentChange < -10 ? 'safe' : 'warning') as 'safe' | 'warning' | 'danger',
+    },
+    {
+      label: 'Flag Count (Last 30d)',
+      value: last30dFlags.length.toString(),
+      status: 'neutral' as 'neutral',
+    },
+    {
+      label: 'Trend Momentum',
+      value: isAccelerating ? 'Accelerating' : 'Decelerating',
+      status: (isAccelerating && recentChange > 0 ? 'danger' : isAccelerating && recentChange < 0 ? 'safe' : 'neutral') as 'safe' | 'neutral' | 'danger',
     },
   ];
 
