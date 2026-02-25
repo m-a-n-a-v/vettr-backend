@@ -15,6 +15,8 @@ import {
   institutionalHolders,
   insiderTransactions,
   dividendInfo,
+  earningsHistory,
+  earningsEstimates,
 } from '../db/schema/index.js';
 import { InternalError, NotFoundError } from '../utils/errors.js';
 
@@ -1366,6 +1368,337 @@ export async function respondDividendCheck(ticker: string): Promise<AiAgentRespo
     {
       label: 'Ex-Dividend Date',
       value: exDivDate,
+      status: 'neutral' as 'neutral',
+    },
+  ];
+
+  return { summary, details, verdict, verdict_color };
+}
+
+// ─── Earnings Quality Responders ─────────────────────────────────────────────
+
+/**
+ * US-092: Earnings Overview
+ * Returns overall EQ score (0-100), cash conversion ratio, accruals ratio, consecutive beats count
+ */
+export async function respondEarnings(ticker: string): Promise<AiAgentResponseData> {
+  if (!db) throw new InternalError('Database not available');
+
+  const stock = await getStockByTicker(ticker);
+
+  // Parallel queries for performance
+  const [earningsHist, finSummary] = await Promise.all([
+    db.select().from(earningsHistory).where(eq(earningsHistory.stockId, stock.id)).orderBy(desc(earningsHistory.quarter)).limit(6),
+    db.select().from(financialSummary).where(eq(financialSummary.stockId, stock.id)).limit(1),
+  ]);
+
+  const fin = finSummary[0];
+
+  // Calculate consecutive beats
+  let consecutiveBeats = 0;
+  for (let i = 0; i < earningsHist.length; i++) {
+    const earn = earningsHist[i];
+    if (n(earn.surprisePercent, -100) > 0) {
+      consecutiveBeats++;
+    } else {
+      break;
+    }
+  }
+
+  // Calculate beat rate (last 6 quarters)
+  const totalQuarters = earningsHist.length;
+  const beatsCount = earningsHist.filter(e => n(e.surprisePercent, -100) > 0).length;
+  const beatRate = totalQuarters > 0 ? (beatsCount / totalQuarters) * 100 : 0;
+
+  // Calculate average surprise percentage
+  const avgSurprise = totalQuarters > 0
+    ? earningsHist.reduce((sum, e) => sum + n(e.surprisePercent, 0), 0) / totalQuarters
+    : 0;
+
+  // Cash conversion ratio: Operating Cash Flow / Net Income
+  const cashConversionRatio = fin?.operatingCashFlow && fin?.netIncome && fin.netIncome > 0
+    ? (n(fin.operatingCashFlow) / n(fin.netIncome)) * 100
+    : 0;
+
+  // Accruals ratio: (Net Income - Operating Cash Flow) / Total Assets
+  // Lower is better (means earnings are backed by cash)
+  const accruals = fin?.netIncome && fin?.operatingCashFlow
+    ? n(fin.netIncome) - n(fin.operatingCashFlow)
+    : 0;
+  // Estimate total assets from debt/equity and total debt
+  const totalAssets = fin?.totalDebt && fin?.totalDebt > 0
+    ? n(fin.totalDebt) * 3  // rough estimate
+    : n(stock.marketCap, 0);
+  const accrualsRatio = totalAssets > 0 ? Math.abs((accruals / totalAssets) * 100) : 0;
+
+  // Calculate Earnings Quality (EQ) Score (0-100)
+  // Factors: beat rate (40%), cash conversion (30%), accruals (20%), surprise magnitude (10%)
+  let eqScore = 0;
+  eqScore += beatRate * 0.4;  // 0-40 points from beat rate
+  eqScore += Math.min(cashConversionRatio, 100) * 0.3;  // 0-30 points from cash conversion (cap at 100%)
+  eqScore += Math.max(0, 100 - accrualsRatio * 5) * 0.2;  // 0-20 points from low accruals
+  eqScore += Math.min(Math.max(avgSurprise, 0) * 2, 10);  // 0-10 points from positive surprise
+
+  // Determine verdict
+  let verdict = 'Moderate';
+  let verdict_color: 'green' | 'yellow' | 'red' = 'yellow';
+  let qualityAssessment = 'moderate earnings quality';
+
+  if (eqScore > 70) {
+    verdict = 'Exceptional';
+    verdict_color = 'green';
+    qualityAssessment = '**exceptional earnings quality**';
+  } else if (eqScore < 40) {
+    verdict = 'Questionable';
+    verdict_color = 'red';
+    qualityAssessment = 'questionable earnings quality';
+  }
+
+  // Build summary
+  const summary = `**${stock.name}** shows ${qualityAssessment}. With an EQ score of **${formatNumber(eqScore, 0)}/100** and a cash conversion ratio of **${formatNumber(cashConversionRatio, 0)}%**, the company ${
+    cashConversionRatio > 100 ? 'generates more cash than reported earnings' : cashConversionRatio > 80 ? 'backs earnings with solid cash flow' : 'has lower cash generation relative to earnings'
+  }. The company ${
+    consecutiveBeats >= 3 ? `has beaten estimates **${consecutiveBeats} consecutive quarters**` : `beat estimates **${beatsCount} of the last ${totalQuarters} quarters**`
+  }${avgSurprise > 5 ? `, with an average surprise of **+${formatNumber(avgSurprise, 1)}%**` : avgSurprise > 0 ? ', meeting expectations' : ', with earnings misses'}.`;
+
+  // Build details
+  const details = [
+    {
+      label: 'EQ Score',
+      value: `${formatNumber(eqScore, 0)}/100`,
+      status: (eqScore > 70 ? 'safe' : eqScore > 40 ? 'warning' : 'danger') as 'safe' | 'warning' | 'danger',
+    },
+    {
+      label: 'Beat Rate (6Q)',
+      value: `${formatNumber(beatRate, 0)}% (${beatsCount}/${totalQuarters})`,
+      status: (beatRate > 66 ? 'safe' : beatRate > 33 ? 'warning' : 'danger') as 'safe' | 'warning' | 'danger',
+    },
+    {
+      label: 'Consecutive Beats',
+      value: consecutiveBeats.toString(),
+      status: (consecutiveBeats >= 3 ? 'safe' : consecutiveBeats >= 1 ? 'neutral' : 'danger') as 'safe' | 'neutral' | 'danger',
+    },
+    {
+      label: 'Avg Surprise',
+      value: `${avgSurprise >= 0 ? '+' : ''}${formatNumber(avgSurprise, 1)}%`,
+      status: (avgSurprise > 5 ? 'safe' : avgSurprise > 0 ? 'neutral' : 'danger') as 'safe' | 'neutral' | 'danger',
+    },
+    {
+      label: 'Cash Conversion',
+      value: `${formatNumber(cashConversionRatio, 0)}%`,
+      status: (cashConversionRatio > 100 ? 'safe' : cashConversionRatio > 80 ? 'neutral' : 'warning') as 'safe' | 'neutral' | 'warning',
+    },
+    {
+      label: 'Accruals Ratio',
+      value: `${formatNumber(accrualsRatio, 1)}%`,
+      status: (accrualsRatio < 5 ? 'safe' : accrualsRatio < 10 ? 'neutral' : 'warning') as 'safe' | 'neutral' | 'warning',
+    },
+  ];
+
+  return { summary, details, verdict, verdict_color };
+}
+
+/**
+ * US-092: Earnings Beats History (Follow-up)
+ * Last 6 quarters of earnings history with beat/miss pattern and surprise percentages
+ */
+export async function respondEarningsBeats(ticker: string): Promise<AiAgentResponseData> {
+  if (!db) throw new InternalError('Database not available');
+
+  const stock = await getStockByTicker(ticker);
+
+  // Query last 6 quarters
+  const earningsHist = await db
+    .select()
+    .from(earningsHistory)
+    .where(eq(earningsHistory.stockId, stock.id))
+    .orderBy(desc(earningsHistory.quarter))
+    .limit(6);
+
+  if (earningsHist.length === 0) {
+    return {
+      summary: `No earnings history available for **${stock.name}**.`,
+      details: [],
+      verdict: 'Unknown',
+      verdict_color: 'yellow',
+    };
+  }
+
+  // Calculate beat/miss counts
+  const beatsCount = earningsHist.filter(e => n(e.surprisePercent, -100) > 0).length;
+  const missesCount = earningsHist.filter(e => n(e.surprisePercent, -100) < 0).length;
+  const meetsCount = earningsHist.length - beatsCount - missesCount;
+
+  // Calculate average surprise
+  const avgSurprise = earningsHist.reduce((sum, e) => sum + n(e.surprisePercent, 0), 0) / earningsHist.length;
+
+  // Check for streak
+  let currentStreak = 0;
+  let streakType: 'beats' | 'misses' | 'none' = 'none';
+  for (const earn of earningsHist) {
+    const surprise = n(earn.surprisePercent, -100);
+    if (currentStreak === 0) {
+      if (surprise > 0) {
+        streakType = 'beats';
+        currentStreak = 1;
+      } else if (surprise < 0) {
+        streakType = 'misses';
+        currentStreak = 1;
+      }
+    } else {
+      if ((streakType === 'beats' && surprise > 0) || (streakType === 'misses' && surprise < 0)) {
+        currentStreak++;
+      } else {
+        break;
+      }
+    }
+  }
+
+  // Determine verdict
+  let verdict = 'Mixed';
+  let verdict_color: 'green' | 'yellow' | 'red' = 'yellow';
+  let patternAssessment = 'mixed beat/miss pattern';
+
+  if (beatsCount >= 4) {
+    verdict = 'Strong';
+    verdict_color = 'green';
+    patternAssessment = 'strong earnings execution';
+  } else if (missesCount >= 4) {
+    verdict = 'Weak';
+    verdict_color = 'red';
+    patternAssessment = 'concerning earnings misses';
+  }
+
+  // Build summary
+  const summary = `**${stock.name}** shows ${patternAssessment}. The company beat estimates **${beatsCount} of the last ${earningsHist.length} quarters**${
+    currentStreak >= 2 ? `, with a **${currentStreak}-quarter ${streakType === 'beats' ? 'beating' : 'missing'} streak**` : ''
+  }. The average surprise is **${avgSurprise >= 0 ? '+' : ''}${formatNumber(avgSurprise, 1)}%**${
+    avgSurprise > 5 ? ', indicating consistent outperformance' : avgSurprise < -5 ? ', reflecting execution challenges' : ''
+  }.`;
+
+  // Build details from each quarter
+  const details: Array<{
+    label: string;
+    value: string;
+    status: 'safe' | 'warning' | 'danger' | 'neutral';
+  }> = earningsHist.map((earn, idx) => {
+    const surprise = n(earn.surprisePercent, 0);
+    const quarterDate = new Date(earn.quarter).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+    return {
+      label: `Q${idx + 1}: ${quarterDate}`,
+      value: `${surprise >= 0 ? '+' : ''}${formatNumber(surprise, 1)}% (${formatNumber(n(earn.epsActual, 0), 2)} vs ${formatNumber(n(earn.epsEstimate, 0), 2)})`,
+      status: (surprise > 2 ? 'safe' : surprise > -2 ? 'neutral' : 'danger') as 'safe' | 'neutral' | 'danger',
+    };
+  });
+
+  // Add summary detail at the top
+  details.unshift({
+    label: 'Beat Rate',
+    value: `${beatsCount}/${earningsHist.length} (${formatNumber((beatsCount / earningsHist.length) * 100, 0)}%)`,
+    status: beatsCount >= 4 ? 'safe' : beatsCount >= 2 ? 'warning' : 'danger',
+  });
+
+  return { summary, details, verdict, verdict_color };
+}
+
+/**
+ * US-092: Earnings Outlook (Follow-up)
+ * Forward EPS estimates, expected growth vs current, revenue growth trend
+ */
+export async function respondEarningsOutlook(ticker: string): Promise<AiAgentResponseData> {
+  if (!db) throw new InternalError('Database not available');
+
+  const stock = await getStockByTicker(ticker);
+
+  // Query forward estimates (0q, +1q, 0y, +1y)
+  const [currentQtr, nextQtr, currentYear, nextYear, finSummary] = await Promise.all([
+    db.select().from(earningsEstimates).where(and(eq(earningsEstimates.stockId, stock.id), eq(earningsEstimates.period, '0q'))).limit(1),
+    db.select().from(earningsEstimates).where(and(eq(earningsEstimates.stockId, stock.id), eq(earningsEstimates.period, '+1q'))).limit(1),
+    db.select().from(earningsEstimates).where(and(eq(earningsEstimates.stockId, stock.id), eq(earningsEstimates.period, '0y'))).limit(1),
+    db.select().from(earningsEstimates).where(and(eq(earningsEstimates.stockId, stock.id), eq(earningsEstimates.period, '+1y'))).limit(1),
+    db.select().from(financialSummary).where(eq(financialSummary.stockId, stock.id)).limit(1),
+  ]);
+
+  const q0 = currentQtr[0];
+  const q1 = nextQtr[0];
+  const y0 = currentYear[0];
+  const y1 = nextYear[0];
+  const fin = finSummary[0];
+
+  // Extract key metrics
+  const currentYearEps = n(y0?.epsAvg, 0);
+  const nextYearEps = n(y1?.epsAvg, 0);
+  const epsGrowthYoY = currentYearEps > 0 && nextYearEps > 0
+    ? ((nextYearEps - currentYearEps) / currentYearEps) * 100
+    : n(y1?.epsGrowth, 0);
+
+  const currentYearRevenue = n(y0?.revenueAvg, 0);
+  const nextYearRevenue = n(y1?.revenueAvg, 0);
+  const revenueGrowthYoY = currentYearRevenue > 0 && nextYearRevenue > 0
+    ? ((nextYearRevenue - currentYearRevenue) / currentYearRevenue) * 100
+    : n(y1?.revenueGrowth, 0);
+
+  // Check for estimate revisions trend
+  const revisionsUp30d = n(y0?.revisionsUpLast30d, 0) + n(y1?.revisionsUpLast30d, 0);
+  const revisionsDown30d = n(y0?.revisionsDownLast30d, 0) + n(y1?.revisionsDownLast30d, 0);
+  const revisionsMomentum = revisionsUp30d - revisionsDown30d;
+
+  // Determine verdict
+  let verdict = 'Neutral';
+  let verdict_color: 'green' | 'yellow' | 'red' = 'yellow';
+  let outlookAssessment = 'neutral growth outlook';
+
+  if (epsGrowthYoY > 15 && revenueGrowthYoY > 10 && revisionsMomentum > 0) {
+    verdict = 'Strong Growth';
+    verdict_color = 'green';
+    outlookAssessment = '**strong growth trajectory**';
+  } else if (epsGrowthYoY < 0 || revenueGrowthYoY < 0 || revisionsMomentum < -5) {
+    verdict = 'Slowing';
+    verdict_color = 'red';
+    outlookAssessment = 'slowing growth or contraction';
+  } else if (epsGrowthYoY > 5 || revenueGrowthYoY > 5) {
+    verdict = 'Modest Growth';
+    verdict_color = 'green';
+    outlookAssessment = 'modest growth expected';
+  }
+
+  // Build summary
+  const summary = `**${stock.name}** has ${outlookAssessment}. Analysts expect EPS growth of **${epsGrowthYoY >= 0 ? '+' : ''}${formatNumber(epsGrowthYoY, 1)}%** next year (from **$${formatNumber(currentYearEps, 2)}** to **$${formatNumber(nextYearEps, 2)}**) with revenue growth of **${revenueGrowthYoY >= 0 ? '+' : ''}${formatNumber(revenueGrowthYoY, 1)}%**. ${
+    revisionsMomentum > 5 ? `Analyst revisions are trending **upward** (${revisionsUp30d} upgrades vs ${revisionsDown30d} downgrades in 30d)` :
+    revisionsMomentum < -5 ? `Analyst revisions are trending **downward** (${revisionsDown30d} downgrades vs ${revisionsUp30d} upgrades in 30d)` :
+    'Analyst estimates are relatively stable'
+  }.`;
+
+  // Build details
+  const details = [
+    {
+      label: 'Current Year EPS',
+      value: `$${formatNumber(currentYearEps, 2)}`,
+      status: 'neutral' as 'neutral',
+    },
+    {
+      label: 'Next Year EPS',
+      value: `$${formatNumber(nextYearEps, 2)}`,
+      status: 'neutral' as 'neutral',
+    },
+    {
+      label: 'EPS Growth',
+      value: `${epsGrowthYoY >= 0 ? '+' : ''}${formatNumber(epsGrowthYoY, 1)}%`,
+      status: (epsGrowthYoY > 15 ? 'safe' : epsGrowthYoY > 0 ? 'neutral' : 'danger') as 'safe' | 'neutral' | 'danger',
+    },
+    {
+      label: 'Revenue Growth',
+      value: `${revenueGrowthYoY >= 0 ? '+' : ''}${formatNumber(revenueGrowthYoY, 1)}%`,
+      status: (revenueGrowthYoY > 10 ? 'safe' : revenueGrowthYoY > 0 ? 'neutral' : 'danger') as 'safe' | 'neutral' | 'danger',
+    },
+    {
+      label: '30d Revisions',
+      value: `${revisionsUp30d} up / ${revisionsDown30d} down`,
+      status: (revisionsMomentum > 5 ? 'safe' : revisionsMomentum < -5 ? 'danger' : 'neutral') as 'safe' | 'neutral' | 'danger',
+    },
+    {
+      label: 'Analyst Count',
+      value: n(y0?.numberOfAnalystsEps, 0).toString(),
       status: 'neutral' as 'neutral',
     },
   ];
