@@ -1,0 +1,99 @@
+{
+  "project": "VETTR Score Snapshots",
+  "phase": "Phase 1",
+  "branchName": "ralph/vettr-snapshots",
+  "description": "Hourly VETR Score snapshots optimized for chart rendering and trend analysis. Creates a lean time-series table with one row per ticker per hour, upserted by the existing cron pipeline. Includes a chart-optimized API endpoint with configurable time ranges and data aggregation for longer periods.",
+  "totalStories": 5,
+  "userStories": [
+    {
+      "id": "SNAP-001",
+      "title": "Create vetr_score_snapshots schema with composite index",
+      "description": "As a developer, I want a lean time-series table optimized for charting so that we can efficiently store and query hourly VETR score data for all 1,845 tickers.",
+      "acceptanceCriteria": [
+        "Create src/db/schema/vetr-score-snapshots.ts with a vetr_score_snapshots pgTable",
+        "Columns: id (uuid PK defaultRandom), stock_ticker (varchar 20 not null), overall_score (integer not null), financial_survival_score (integer not null default 0), operational_efficiency_score (integer not null default 0), shareholder_structure_score (integer not null default 0), market_sentiment_score (integer not null default 0), price (doublePrecision nullable — snapshot of stock price at that hour), recorded_at (timestamp not null defaultNow)",
+        "Add a UNIQUE composite constraint on (stock_ticker, recorded_at) to enable upsert — use unique() on the table definition. Name it 'vetr_score_snapshots_ticker_time_unique'",
+        "Add a composite index on (stock_ticker, recorded_at DESC) named 'vetr_score_snapshots_ticker_time_idx' for fast time-series queries per ticker",
+        "Add an index on recorded_at named 'vetr_score_snapshots_recorded_at_idx' for retention cleanup queries",
+        "Export vetrScoreSnapshots from the module",
+        "Add export * from './vetr-score-snapshots.js' to src/db/schema/index.ts barrel file",
+        "All local imports use .js extension (ESM requirement)",
+        "npm run build passes with no TypeScript errors"
+      ],
+      "priority": 1,
+      "passes": true
+    },
+    {
+      "id": "SNAP-002",
+      "title": "Create snapshot service with upsert and query functions",
+      "description": "As a developer, I want a snapshot service that can upsert hourly snapshots and query time-series data efficiently so that the cron job and API can use it.",
+      "acceptanceCriteria": [
+        "Create src/services/snapshot.service.ts",
+        "Export async function upsertSnapshot(ticker: string, scores: { overall: number, p1: number, p2: number, p3: number, p4: number }, price: number | null): Promise<void> that inserts a row into vetr_score_snapshots with recorded_at truncated to the current hour (use SQL date_trunc('hour', now())). On conflict of (stock_ticker, recorded_at), update all score columns and price. This ensures exactly one row per ticker per hour",
+        "Export async function upsertSnapshotsBatch(snapshots: Array<{ ticker: string, scores: { overall: number, p1: number, p2: number, p3: number, p4: number }, price: number | null }>): Promise<{ succeeded: number, failed: number }> that processes an array of snapshots using Promise.allSettled with concurrency of 20. Returns count of succeeded and failed upserts",
+        "Export async function getSnapshotsForTicker(ticker: string, range: '24h' | '7d' | '30d' | '90d'): Promise<Array<{ overall_score: number, financial_survival_score: number, operational_efficiency_score: number, shareholder_structure_score: number, market_sentiment_score: number, price: number | null, recorded_at: string }>> that queries vetr_score_snapshots for the given ticker within the time range, ordered by recorded_at ASC. For '24h' return all hourly points. For '7d' return all hourly points. For '30d' return all hourly points (up to ~720 points). For '90d' return all hourly points (up to ~2160 points — the frontend can downsample if needed)",
+        "Export async function getSnapshotCount(): Promise<number> that returns total row count (for monitoring)",
+        "Import db from '../config/database.js', vetrScoreSnapshots from '../db/schema/index.js', and use eq, and, gte, desc, sql from 'drizzle-orm'",
+        "For the hour truncation in upserts, use sql`date_trunc('hour', now())` as the recorded_at value",
+        "All local imports use .js extension",
+        "npm run build passes with no TypeScript errors"
+      ],
+      "priority": 2,
+      "passes": true
+    },
+    {
+      "id": "SNAP-003",
+      "title": "Integrate snapshot upserts into the scores cron job",
+      "description": "As a developer, I want the scores cron job to automatically upsert snapshots after recalculating scores so that we get one snapshot per ticker per hour without a separate cron job.",
+      "acceptanceCriteria": [
+        "Modify src/services/cron.service.ts refreshScoresChunk function",
+        "After the existing processBatch loop that calls calculateVetrScore, collect the results into an array of snapshot data. For each successfully calculated ticker, read the result from calculateVetrScore (it returns VetrScoreResult) and also query the stock price from the stocks table",
+        "Import upsertSnapshotsBatch from './snapshot.service.js'",
+        "After the main score processing loop completes, call upsertSnapshotsBatch with all the successfully calculated scores. This should happen BEFORE updating the Redis cursor",
+        "To collect the score results, modify the processBatch call to return the scores. Change the processor callback to: (1) bust cache, (2) call calculateVetrScore, (3) push the result into a collected array. Use a closure variable `const snapshotData: Array<{...}> = []` declared before the processBatch call",
+        "For each successful score calculation, also query the stocks table to get the current price for that ticker (use db.select({ price: stocks.price }).from(stocks).where(eq(stocks.ticker, ticker)).limit(1))",
+        "Log the snapshot upsert result: 'Cron refresh-scores: upserted N snapshots (M failed)'",
+        "The snapshot upsert should NOT affect the success/failure counts of the main score refresh — if a snapshot upsert fails, just log it",
+        "All local imports use .js extension",
+        "npm run build passes with no TypeScript errors"
+      ],
+      "priority": 3,
+      "passes": true
+    },
+    {
+      "id": "SNAP-004",
+      "title": "Create chart API endpoint for score time-series data",
+      "description": "As a developer, I want a chart-optimized API endpoint that returns VETR score time-series data for a ticker so that the frontend can render score trend charts.",
+      "acceptanceCriteria": [
+        "Add a new GET endpoint to src/routes/vetr-score.routes.ts at path /stocks/:ticker/vetr-score/chart",
+        "Accept query parameter 'range' with allowed values: '24h', '7d', '30d', '90d'. Default to '7d' if not provided or invalid",
+        "Call getSnapshotsForTicker(ticker, range) from snapshot.service.ts",
+        "Return response in format: c.json(success({ ticker: upperTicker, range, data_points: snapshots.length, snapshots: snapshots.map(s => ({ overall_score: s.overall_score, financial_survival_score: s.financial_survival_score, operational_efficiency_score: s.operational_efficiency_score, shareholder_structure_score: s.shareholder_structure_score, market_sentiment_score: s.market_sentiment_score, price: s.price, recorded_at: s.recorded_at })) }))",
+        "The endpoint requires authentication (it is already within the vetrScoreRoutes group which has authMiddleware applied)",
+        "Validate the ticker exists by checking if any snapshots are returned. If no snapshots found, still return empty array (not 404) since the stock may be new with no hourly data yet",
+        "Import getSnapshotsForTicker from '../services/snapshot.service.js'",
+        "All local imports use .js extension",
+        "npm run build passes with no TypeScript errors"
+      ],
+      "priority": 4,
+      "passes": true
+    },
+    {
+      "id": "SNAP-005",
+      "title": "Add snapshot retention cleanup and monitoring endpoint",
+      "description": "As a developer, I want a retention cleanup function and monitoring so that the snapshots table doesn't grow unbounded and we can track its health.",
+      "acceptanceCriteria": [
+        "Add to src/services/snapshot.service.ts: export async function cleanupOldSnapshots(retentionDays: number = 90): Promise<number> that deletes all rows from vetr_score_snapshots where recorded_at is older than retentionDays days ago. Returns the count of deleted rows. Use sql`now() - interval '${retentionDays} days'` — but since retentionDays is a parameter, use sql.raw or sql`now() - make_interval(days => ${retentionDays})` for safe interpolation. Actually, the simplest safe approach is: compute the cutoff date in JavaScript (new Date(Date.now() - retentionDays * 86400000)) and use lt(vetrScoreSnapshots.recordedAt, cutoffDate)",
+        "Add a GET /v1/cron/snapshot-stats endpoint in src/routes/cron.routes.ts (protected by cronAuthMiddleware) that returns: { total_snapshots: number (from getSnapshotCount), oldest_snapshot: string | null (earliest recorded_at), newest_snapshot: string | null (latest recorded_at) }. Query oldest and newest using sql`min(recorded_at)` and sql`max(recorded_at)` from vetr_score_snapshots",
+        "Add a POST /v1/cron/snapshot-cleanup endpoint in cron.routes.ts (protected by cronAuthMiddleware) that accepts optional query param 'retention_days' (default 90), calls cleanupOldSnapshots(retentionDays), and returns { deleted: number, retention_days: retentionDays }",
+        "The cleanup is manual/on-demand for now (triggered via the POST endpoint). It can be added to a scheduled cron later if needed",
+        "Import getSnapshotCount and cleanupOldSnapshots from '../services/snapshot.service.js'",
+        "All local imports use .js extension",
+        "npm run build passes with no TypeScript errors",
+        "Run npm run build one final time and confirm zero errors"
+      ],
+      "priority": 5,
+      "passes": true
+    }
+  ]
+}

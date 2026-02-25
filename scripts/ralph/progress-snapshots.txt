@@ -1,0 +1,105 @@
+# Ralph Progress Log - VETTR Score Snapshots
+Started: Fri Feb 20 19:52:54 EST 2026
+Project: VETTR Score Snapshots
+Backend: /Users/manav/Space/code/vettr-backend
+---
+## SNAP-001: Create vetr_score_snapshots schema with composite index
+Status: ✅ COMPLETE
+Date: 2026-02-20
+Details:
+- Created src/db/schema/vetr-score-snapshots.ts with vetrScoreSnapshots table
+- Added columns: id (uuid PK), stock_ticker, overall_score, 4 pillar scores, price (nullable), recorded_at
+- Added composite unique constraint on (stock_ticker, recorded_at) named 'vetr_score_snapshots_ticker_time_unique' for upsert support
+- Added composite index on (stock_ticker, recorded_at DESC) named 'vetr_score_snapshots_ticker_time_idx' for time-series queries
+- Added index on recorded_at named 'vetr_score_snapshots_recorded_at_idx' for retention cleanup
+- Exported vetrScoreSnapshots from module
+- Added export to src/db/schema/index.ts barrel file
+- Build passes with no TypeScript errors
+- **Learnings for future iterations:**
+  - The index() helper in Drizzle supports .desc() chaining for descending order on specific columns
+  - Composite unique constraints are defined using unique() helper in the table's second argument
+  - All imports use .js extension per ESM requirements
+  - Pattern matches existing vetr-scores.ts schema structure perfectly
+---
+## SNAP-002: Create snapshot service with upsert and query functions
+Status: ✅ COMPLETE
+Date: 2026-02-20
+Details:
+- Created src/services/snapshot.service.ts with all required functions
+- Implemented upsertSnapshot() with date_trunc('hour', now()) for hourly deduplication
+- Implemented upsertSnapshotsBatch() with Promise.allSettled and concurrency of 20
+- Implemented getSnapshotsForTicker() with time range filtering (24h, 7d, 30d, 90d)
+- Implemented getSnapshotCount() for monitoring total snapshots
+- Implemented cleanupOldSnapshots() with configurable retention period
+- Added database null checks with InternalError pattern matching codebase conventions
+- Build passes with no TypeScript errors
+- **Learnings for future iterations:**
+  - The onConflictDoUpdate target must reference the columns in the unique constraint (stockTicker, recordedAt)
+  - Using sql`date_trunc('hour', now())` as the recordedAt value ensures hourly deduplication
+  - Promise.allSettled with chunking provides concurrency control for batch operations
+  - Database null checks are required in all service functions that use db
+  - Time range calculations use JavaScript Date arithmetic (Date.now() - hours * 60 * 60 * 1000)
+  - The SnapshotRow interface ensures consistent snake_case JSON API response format
+---
+## SNAP-003: Integrate snapshot upserts into the scores cron job
+Status: ✅ COMPLETE
+Date: 2026-02-20
+Details:
+- Modified src/services/cron.service.ts refreshScoresChunk function
+- Added import for upsertSnapshotsBatch from snapshot.service.js
+- Declared snapshotData array before processBatch call to collect results
+- Modified processor callback to: (1) bust cache, (2) call calculateVetrScore and capture result, (3) query stock price, (4) push to snapshotData array
+- Added snapshot batch upsert after processing loop completes (BEFORE updating Redis cursor)
+- Wrapped upsertSnapshotsBatch in try-catch to ensure snapshot failures don't affect main job
+- Added logging: "Cron refresh-scores: upserted N snapshots (M failed)"
+- Added database null check for stock price query
+- Build passes with no TypeScript errors
+- **Learnings for future iterations:**
+  - The processor callback can both perform async operations AND collect results into a closure variable
+  - Database null checks are needed even within nested async callbacks inside processBatch
+  - Snapshot upserts are wrapped in try-catch so they don't affect the main score refresh success/failure counts
+  - The snapshotData collection happens during successful score calculations, so only successful tickers get snapshots
+  - Stock price is queried separately from the calculateVetrScore call (score service doesn't return price)
+---
+## SNAP-004: Create chart API endpoint for score time-series data
+Status: ✅ COMPLETE
+Date: 2026-02-20
+Details:
+- Added GET /stocks/:ticker/vetr-score/chart endpoint to src/routes/vetr-score.routes.ts
+- Imported getSnapshotsForTicker from snapshot.service.js
+- Added chartQuerySchema with Zod validation for query parameter 'range'
+- Validated range parameter against allowed values: '24h', '7d', '30d', '90d' with default '7d'
+- Returns JSON with ticker, range, data_points count, and snapshots array with all score fields
+- Endpoint is protected by authMiddleware (applied at route group level)
+- Placed chart endpoint BEFORE history endpoint to ensure proper route matching
+- Build passes with no TypeScript errors
+- **Learnings for future iterations:**
+  - Route ordering matters in Hono - more specific routes (/chart) should come before less specific ones (/history)
+  - Type narrowing with 'as const' and type assertions ensures TypeScript type safety for validated enum values
+  - The validateQuery middleware from Hono provides Zod schema validation for query parameters
+  - Response format uses snake_case for all JSON fields per codebase conventions
+  - The endpoint returns empty array if no snapshots exist (not 404) since the stock may be new
+---
+## SNAP-005: Add snapshot retention cleanup and monitoring endpoint
+Status: ✅ COMPLETE
+Date: 2026-02-20
+Details:
+- cleanupOldSnapshots function already existed in src/services/snapshot.service.ts from SNAP-002
+- Modified src/routes/cron.routes.ts to add two new endpoints
+- Added imports: getSnapshotCount, cleanupOldSnapshots from snapshot.service.js
+- Added import: vetrScoreSnapshots from schema and sql from drizzle-orm
+- Added GET /v1/cron/snapshot-stats endpoint that returns total_snapshots, oldest_snapshot, newest_snapshot
+- Used sql aggregation functions min() and max() on recorded_at to get oldest/newest timestamps
+- Added POST /v1/cron/snapshot-cleanup endpoint with optional retention_days query param (default 90)
+- Added validation for retention_days parameter (must be positive number)
+- Returns deleted count and retention_days in response
+- Both endpoints protected by cronAuthMiddleware (Bearer token auth)
+- Build passes with no TypeScript errors
+- **Learnings for future iterations:**
+  - The cleanupOldSnapshots function was already implemented in SNAP-002, so only the API endpoints were needed
+  - sql\`min(...)\` and sql\`max(...)\` require proper type annotation with sql<Date | null> for TypeScript
+  - Query params in Hono are accessed via c.req.query('param_name') and need manual parsing/validation
+  - The snapshot-stats endpoint uses two separate queries: one for count (via service), one for min/max timestamps
+  - Error responses in Hono use c.json({ success: false, error: '...' }, statusCode) format
+  - POST endpoints are appropriate for operations that modify data (cleanup), GET for read-only stats
+---

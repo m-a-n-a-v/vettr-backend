@@ -24,7 +24,7 @@ import yfinance as yf
 
 
 # Config
-MARKET_CAP_MIN = 10_000_000       # $10M
+MARKET_CAP_MIN = 0                # No minimum — include all micro/nano caps
 MARKET_CAP_MAX = 10_000_000_000   # $10B
 BATCH_SIZE = 20
 BATCH_SLEEP_SECONDS = 2
@@ -164,7 +164,7 @@ def fetch_ticker_data(yf_ticker, symbol, exchange):
         if market_cap is None:
             return None, "skipped", "No market cap data"
         if market_cap < MARKET_CAP_MIN:
-            return None, "skipped", f"Market cap ${market_cap:,.0f} below $10M minimum"
+            return None, "skipped", f"Market cap ${market_cap:,.0f} below minimum"
         if market_cap > MARKET_CAP_MAX:
             return None, "skipped", f"Market cap ${market_cap:,.0f} above $10B maximum"
 
