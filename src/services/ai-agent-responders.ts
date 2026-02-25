@@ -3,7 +3,7 @@
  * Pre-defined template-based responses for stock analysis questions
  */
 
-import { eq, desc, sql } from 'drizzle-orm';
+import { eq, desc, sql, and, ne } from 'drizzle-orm';
 import { db } from '../config/database.js';
 import {
   stocks,
@@ -14,6 +14,7 @@ import {
   majorHoldersBreakdown,
   institutionalHolders,
   insiderTransactions,
+  dividendInfo,
 } from '../db/schema/index.js';
 import { InternalError, NotFoundError } from '../utils/errors.js';
 
@@ -948,6 +949,424 @@ export async function respondSmartMoney(ticker: string): Promise<AiAgentResponse
       label: 'Smart Money Score',
       value: `${formatNumber(smartMoneyScore, 0)}/100`,
       status: (smartMoneyScore > 65 ? 'safe' : smartMoneyScore < 35 ? 'danger' : 'neutral') as 'safe' | 'danger' | 'neutral',
+    },
+  ];
+
+  return { summary, details, verdict, verdict_color };
+}
+
+// ─── Valuation Responders ────────────────────────────────────────────────────
+
+/**
+ * US-091: Valuation Overview
+ * Returns P/E trailing vs forward comparison, EV/EBITDA, FCF yield, sector average context
+ */
+export async function respondValuation(ticker: string): Promise<AiAgentResponseData> {
+  if (!db) throw new InternalError('Database not available');
+
+  const stock = await getStockByTicker(ticker);
+
+  // Parallel queries for performance
+  const [valMetrics, finSummary] = await Promise.all([
+    db.select().from(valuationMetrics).where(eq(valuationMetrics.stockId, stock.id)).limit(1),
+    db.select().from(financialSummary).where(eq(financialSummary.stockId, stock.id)).limit(1),
+  ]);
+
+  const val = valMetrics[0];
+  const fin = finSummary[0];
+
+  const peRatio = n(val?.peRatio, 0);
+  const forwardPE = n(val?.forwardPE, 0);
+  const evToEbitda = n(val?.enterpriseToEbitda, 0);
+  const freeCF = n(fin?.freeCashFlow, 0);
+  const marketCap = n(stock.marketCap, 0);
+  const fcfYieldPercent = marketCap > 0 && freeCF > 0
+    ? (freeCF / marketCap) * 100
+    : 0;
+
+  // Get sector peers for average comparison
+  const sectorPeers = await db
+    .select()
+    .from(stocks)
+    .innerJoin(valuationMetrics, eq(stocks.id, valuationMetrics.stockId))
+    .where(and(
+      eq(stocks.sector, stock.sector),
+      ne(stocks.id, stock.id)
+    ))
+    .limit(10);
+
+  // Calculate sector average P/E
+  let sectorPESum = 0;
+  let sectorPECount = 0;
+  sectorPeers.forEach((peer) => {
+    const peerPE = n(peer.valuation_metrics.peRatio, 0);
+    if (peerPE > 0 && peerPE < 100) { // Filter out extreme outliers
+      sectorPESum += peerPE;
+      sectorPECount++;
+    }
+  });
+  const sectorAvgPE = sectorPECount > 0 ? sectorPESum / sectorPECount : 0;
+
+  // Determine verdict
+  let verdict = 'Fair Value';
+  let verdict_color: 'green' | 'yellow' | 'red' = 'yellow';
+  let assessment = 'fairly valued';
+
+  if (forwardPE > 0 && peRatio > 0 && forwardPE < peRatio && fcfYieldPercent > 5) {
+    verdict = 'Undervalued';
+    verdict_color = 'green';
+    assessment = '**looks undervalued**';
+  } else if (forwardPE > 0 && peRatio > 0 && forwardPE < peRatio) {
+    verdict = 'Attractive';
+    verdict_color = 'green';
+    assessment = 'trading at an attractive valuation';
+  } else if (sectorAvgPE > 0 && peRatio > sectorAvgPE * 1.5) {
+    verdict = 'Premium';
+    verdict_color = 'red';
+    assessment = 'trading at a **premium valuation**';
+  } else if (peRatio > 50 || evToEbitda > 30) {
+    verdict = 'Expensive';
+    verdict_color = 'red';
+    assessment = 'appears expensive';
+  }
+
+  const summary = `**${stock.name}** ${assessment}. With a trailing P/E of **${peRatio > 0 ? formatNumber(peRatio, 1) : 'N/A'}** ${
+    forwardPE > 0 && peRatio > 0
+      ? forwardPE < peRatio
+        ? `improving to a forward P/E of **${formatNumber(forwardPE, 1)}** (indicating expected earnings growth)`
+        : `vs forward P/E of **${formatNumber(forwardPE, 1)}**`
+      : ''
+  }, the stock ${
+    sectorAvgPE > 0
+      ? peRatio < sectorAvgPE
+        ? `trades at a **discount** to the ${stock.sector} sector average of **${formatNumber(sectorAvgPE, 1)}x**`
+        : `trades **above** the ${stock.sector} sector average of **${formatNumber(sectorAvgPE, 1)}x**`
+      : 'valuation should be evaluated in context'
+  }. ${
+    evToEbitda > 0
+      ? `The EV/EBITDA ratio of **${formatNumber(evToEbitda, 1)}x** ${evToEbitda < 10 ? 'suggests reasonable value' : evToEbitda < 15 ? 'is within normal range' : 'indicates a premium multiple'}.`
+      : ''
+  }`;
+
+  const details = [
+    {
+      label: 'P/E Ratio (Trailing)',
+      value: peRatio > 0 ? `${formatNumber(peRatio, 2)}x` : 'N/A',
+      status: (peRatio > 0 && peRatio < 20 ? 'safe' : peRatio < 35 ? 'neutral' : peRatio > 0 ? 'warning' : 'neutral') as 'safe' | 'neutral' | 'warning',
+    },
+    {
+      label: 'P/E Ratio (Forward)',
+      value: forwardPE > 0 ? `${formatNumber(forwardPE, 2)}x` : 'N/A',
+      status: (forwardPE > 0 && forwardPE < 18 ? 'safe' : forwardPE < 30 ? 'neutral' : forwardPE > 0 ? 'warning' : 'neutral') as 'safe' | 'neutral' | 'warning',
+    },
+    {
+      label: 'Sector Avg P/E',
+      value: sectorAvgPE > 0 ? `${formatNumber(sectorAvgPE, 2)}x` : 'N/A',
+      status: 'neutral' as 'neutral',
+    },
+    {
+      label: 'EV/EBITDA',
+      value: evToEbitda > 0 ? `${formatNumber(evToEbitda, 2)}x` : 'N/A',
+      status: (evToEbitda > 0 && evToEbitda < 10 ? 'safe' : evToEbitda < 15 ? 'neutral' : evToEbitda > 0 ? 'warning' : 'neutral') as 'safe' | 'neutral' | 'warning',
+    },
+    {
+      label: 'FCF Yield',
+      value: fcfYieldPercent > 0 ? `${formatNumber(fcfYieldPercent, 2)}%` : 'N/A',
+      status: (fcfYieldPercent > 8 ? 'safe' : fcfYieldPercent > 4 ? 'neutral' : fcfYieldPercent > 0 ? 'warning' : 'neutral') as 'safe' | 'neutral' | 'warning',
+    },
+  ];
+
+  return { summary, details, verdict, verdict_color };
+}
+
+/**
+ * US-091: Peer Valuation (Follow-up)
+ * Compares P/E, gross margin, revenue growth, debt-to-equity across sector peers
+ */
+export async function respondPeerValuation(ticker: string): Promise<AiAgentResponseData> {
+  if (!db) throw new InternalError('Database not available');
+
+  const stock = await getStockByTicker(ticker);
+
+  // Get target stock metrics
+  const [targetVal, targetFin] = await Promise.all([
+    db.select().from(valuationMetrics).where(eq(valuationMetrics.stockId, stock.id)).limit(1),
+    db.select().from(financialSummary).where(eq(financialSummary.stockId, stock.id)).limit(1),
+  ]);
+
+  const targetPE = n(targetVal[0]?.peRatio, 0);
+  const targetGrossMargin = n(targetFin[0]?.grossMargins, 0) * 100;
+  const targetRevenueGrowth = n(targetFin[0]?.revenueGrowth, 0) * 100;
+  const targetDebtToEquity = n(targetVal[0]?.totalDebtToEquity, 0);
+
+  // Get up to 5 sector peers
+  const peerData = await db
+    .select({
+      ticker: stocks.ticker,
+      name: stocks.name,
+      marketCap: stocks.marketCap,
+      peRatio: valuationMetrics.peRatio,
+      grossMargins: financialSummary.grossMargins,
+      revenueGrowth: financialSummary.revenueGrowth,
+      debtToEquity: valuationMetrics.totalDebtToEquity,
+    })
+    .from(stocks)
+    .innerJoin(valuationMetrics, eq(stocks.id, valuationMetrics.stockId))
+    .innerJoin(financialSummary, eq(stocks.id, financialSummary.stockId))
+    .where(and(
+      eq(stocks.sector, stock.sector),
+      ne(stocks.id, stock.id)
+    ))
+    .orderBy(desc(stocks.marketCap))
+    .limit(5);
+
+  if (peerData.length === 0) {
+    return {
+      summary: `**${stock.name}** has no comparable peers in the ${stock.sector} sector for valuation comparison.`,
+      details: [],
+      verdict: 'Unknown',
+      verdict_color: 'yellow',
+    };
+  }
+
+  // Calculate peer averages
+  let peerPESum = 0;
+  let peerPECount = 0;
+  let peerMarginSum = 0;
+  let peerMarginCount = 0;
+  let peerGrowthSum = 0;
+  let peerGrowthCount = 0;
+
+  peerData.forEach((peer) => {
+    const pe = n(peer.peRatio, 0);
+    const margin = n(peer.grossMargins, 0) * 100;
+    const growth = n(peer.revenueGrowth, 0) * 100;
+
+    if (pe > 0 && pe < 100) {
+      peerPESum += pe;
+      peerPECount++;
+    }
+    if (margin > 0) {
+      peerMarginSum += margin;
+      peerMarginCount++;
+    }
+    if (growth !== 0) {
+      peerGrowthSum += growth;
+      peerGrowthCount++;
+    }
+  });
+
+  const avgPeerPE = peerPECount > 0 ? peerPESum / peerPECount : 0;
+  const avgPeerMargin = peerMarginCount > 0 ? peerMarginSum / peerMarginCount : 0;
+  const avgPeerGrowth = peerGrowthCount > 0 ? peerGrowthSum / peerGrowthCount : 0;
+
+  // Determine verdict
+  let verdict = 'In-Line';
+  let verdict_color: 'green' | 'yellow' | 'red' = 'yellow';
+  let assessment = 'in-line with peers';
+
+  const peDiscount = avgPeerPE > 0 ? ((targetPE - avgPeerPE) / avgPeerPE) * 100 : 0;
+  const betterMargins = targetGrossMargin > avgPeerMargin;
+  const betterGrowth = targetRevenueGrowth > avgPeerGrowth;
+
+  if (peDiscount < -15 && (betterMargins || betterGrowth)) {
+    verdict = 'Attractive';
+    verdict_color = 'green';
+    assessment = 'trading at an **attractive discount** to peers';
+  } else if (peDiscount < -10) {
+    verdict = 'Cheap';
+    verdict_color = 'green';
+    assessment = '**cheaper** than peers';
+  } else if (peDiscount > 20 && !betterMargins && !betterGrowth) {
+    verdict = 'Expensive';
+    verdict_color = 'red';
+    assessment = 'trading at a **premium** without justification';
+  } else if (peDiscount > 15) {
+    verdict = 'Premium';
+    verdict_color = 'yellow';
+    assessment = 'more expensive than peers';
+  }
+
+  // Identify specific peers for comparison
+  const topPeerNames = peerData.slice(0, 2).map((p) => p.name).join(' and ');
+  const cheaperPeers = peerData.filter((p) => n(p.peRatio, 0) > 0 && n(p.peRatio, 0) < targetPE).slice(0, 2);
+  const expensivePeers = peerData.filter((p) => n(p.peRatio, 0) > targetPE).slice(0, 2);
+
+  const summary = `**${stock.name}** is ${assessment}. ${
+    avgPeerPE > 0
+      ? `With a P/E of **${targetPE > 0 ? formatNumber(targetPE, 1) : 'N/A'}x** vs the peer average of **${formatNumber(avgPeerPE, 1)}x**, the stock trades at a **${peDiscount > 0 ? '+' : ''}${formatNumber(peDiscount, 1)}%** ${peDiscount > 0 ? 'premium' : 'discount'}.`
+      : ''
+  } Compared to ${topPeerNames}, ${stock.name} has ${
+    targetGrossMargin > avgPeerMargin ? 'better' : targetGrossMargin > avgPeerMargin - 5 ? 'similar' : 'lower'
+  } gross margins (**${formatNumber(targetGrossMargin, 1)}%** vs **${formatNumber(avgPeerMargin, 1)}%**) and ${
+    targetRevenueGrowth > avgPeerGrowth ? 'stronger' : targetRevenueGrowth > avgPeerGrowth - 5 ? 'comparable' : 'weaker'
+  } revenue growth (**${formatNumber(targetRevenueGrowth, 1)}%** vs **${formatNumber(avgPeerGrowth, 1)}%**). ${
+    cheaperPeers.length > 0 && peDiscount > 0
+      ? `${cheaperPeers.map((p) => p.name).join(' and ')} trade${cheaperPeers.length === 1 ? 's' : ''} at lower multiples.`
+      : expensivePeers.length > 0 && peDiscount < 0
+      ? `${expensivePeers.map((p) => p.name).join(' and ')} trade${expensivePeers.length === 1 ? 's' : ''} at higher multiples.`
+      : ''
+  }`;
+
+  const details = [
+    {
+      label: 'P/E vs Peer Avg',
+      value: targetPE > 0 && avgPeerPE > 0 ? `${formatNumber(targetPE, 1)}x vs ${formatNumber(avgPeerPE, 1)}x` : 'N/A',
+      status: (peDiscount < -10 ? 'safe' : peDiscount > 15 ? 'warning' : 'neutral') as 'safe' | 'warning' | 'neutral',
+    },
+    {
+      label: 'Valuation Premium/Discount',
+      value: avgPeerPE > 0 ? `${peDiscount > 0 ? '+' : ''}${formatNumber(peDiscount, 1)}%` : 'N/A',
+      status: (peDiscount < -10 ? 'safe' : peDiscount > 15 ? 'danger' : 'neutral') as 'safe' | 'danger' | 'neutral',
+    },
+    {
+      label: 'Gross Margin vs Peers',
+      value: `${formatNumber(targetGrossMargin, 1)}% vs ${formatNumber(avgPeerMargin, 1)}%`,
+      status: (targetGrossMargin > avgPeerMargin + 5 ? 'safe' : targetGrossMargin < avgPeerMargin - 5 ? 'warning' : 'neutral') as 'safe' | 'warning' | 'neutral',
+    },
+    {
+      label: 'Revenue Growth vs Peers',
+      value: `${formatNumber(targetRevenueGrowth, 1)}% vs ${formatNumber(avgPeerGrowth, 1)}%`,
+      status: (targetRevenueGrowth > avgPeerGrowth + 5 ? 'safe' : targetRevenueGrowth < avgPeerGrowth - 5 ? 'warning' : 'neutral') as 'safe' | 'warning' | 'neutral',
+    },
+    {
+      label: 'Debt-to-Equity',
+      value: targetDebtToEquity > 0 ? `${formatNumber(targetDebtToEquity, 1)}%` : 'N/A',
+      status: (targetDebtToEquity < 50 ? 'safe' : targetDebtToEquity < 100 ? 'neutral' : 'warning') as 'safe' | 'neutral' | 'warning',
+    },
+  ];
+
+  return { summary, details, verdict, verdict_color };
+}
+
+/**
+ * US-091: Dividend Check (Follow-up)
+ * Returns dividend yield, payout sustainability from FCF, ex-dividend date context
+ */
+export async function respondDividendCheck(ticker: string): Promise<AiAgentResponseData> {
+  if (!db) throw new InternalError('Database not available');
+
+  const stock = await getStockByTicker(ticker);
+
+  // Parallel queries for performance
+  const [divInfo, finSummary] = await Promise.all([
+    db.select().from(dividendInfo).where(eq(dividendInfo.stockId, stock.id)).limit(1),
+    db.select().from(financialSummary).where(eq(financialSummary.stockId, stock.id)).limit(1),
+  ]);
+
+  const div = divInfo[0];
+  const fin = finSummary[0];
+
+  if (!div || !div.dividendYield || div.dividendYield <= 0) {
+    return {
+      summary: `**${stock.name}** does not currently pay a dividend. The company may be reinvesting earnings for growth instead of distributing cash to shareholders.`,
+      details: [
+        {
+          label: 'Dividend Status',
+          value: 'No dividend',
+          status: 'neutral' as 'neutral',
+        },
+      ],
+      verdict: 'No Dividend',
+      verdict_color: 'yellow',
+    };
+  }
+
+  const dividendYield = n(div.dividendYield, 0) * 100;
+  const payoutRatio = n(div.payoutRatio, 0) * 100;
+  const trailingAnnualRate = n(div.trailingAnnualDividendRate, 0);
+  const freeCF = n(fin?.freeCashFlow, 0);
+  const netIncome = n(fin?.netIncome, 0);
+
+  // Calculate FCF payout ratio if available
+  const annualDividendPayout = stock.marketCap && dividendYield > 0
+    ? (n(stock.marketCap) * (dividendYield / 100))
+    : 0;
+  const fcfPayoutRatio = freeCF > 0 && annualDividendPayout > 0
+    ? (annualDividendPayout / freeCF) * 100
+    : 0;
+
+  // Determine sustainability
+  const isSustainable = (payoutRatio > 0 && payoutRatio < 80) || (fcfPayoutRatio > 0 && fcfPayoutRatio < 80);
+  const isAtRisk = payoutRatio > 100 || fcfPayoutRatio > 100;
+
+  // Determine verdict
+  let verdict = 'Moderate';
+  let verdict_color: 'green' | 'yellow' | 'red' = 'yellow';
+  let assessment = 'moderate';
+
+  if (dividendYield > 4 && isSustainable) {
+    verdict = 'Attractive';
+    verdict_color = 'green';
+    assessment = '**attractive**';
+  } else if (dividendYield > 2 && isSustainable) {
+    verdict = 'Healthy';
+    verdict_color = 'green';
+    assessment = 'healthy';
+  } else if (isAtRisk) {
+    verdict = 'At Risk';
+    verdict_color = 'red';
+    assessment = '**at risk**';
+  } else if (dividendYield < 1) {
+    verdict = 'Low Yield';
+    verdict_color = 'yellow';
+    assessment = 'low';
+  }
+
+  // Format ex-dividend date
+  const exDivDate = div.exDividendDate
+    ? new Date(div.exDividendDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    : 'N/A';
+
+  const summary = `**${stock.name}** offers an ${assessment} dividend yield of **${formatNumber(dividendYield, 2)}%** with a trailing annual rate of **$${formatNumber(trailingAnnualRate, 2)}** per share. ${
+    payoutRatio > 0
+      ? `The payout ratio of **${formatNumber(payoutRatio, 1)}%** ${
+          payoutRatio < 60 ? 'suggests the dividend is **well-covered** by earnings' :
+          payoutRatio < 80 ? 'indicates a sustainable payout' :
+          payoutRatio < 100 ? 'is elevated but manageable' :
+          'raises **sustainability concerns**'
+        }.`
+      : fcfPayoutRatio > 0
+      ? `Based on free cash flow, the dividend consumes **${formatNumber(fcfPayoutRatio, 1)}%** of FCF, ${
+          fcfPayoutRatio < 60 ? 'leaving ample room for growth investments' :
+          fcfPayoutRatio < 80 ? 'which is sustainable' :
+          'which limits reinvestment flexibility'
+        }.`
+      : 'Payout sustainability should be evaluated against cash flow.'
+  } ${
+    div.dividendFrequency ? `Dividends are paid **${div.dividendFrequency.toLowerCase()}**` : ''
+  }${div.exDividendDate ? ` with the next ex-dividend date on **${exDivDate}**` : ''}.`;
+
+  const details = [
+    {
+      label: 'Dividend Yield',
+      value: `${formatNumber(dividendYield, 2)}%`,
+      status: (dividendYield > 4 ? 'safe' : dividendYield > 2 ? 'neutral' : 'warning') as 'safe' | 'neutral' | 'warning',
+    },
+    {
+      label: 'Annual Dividend Rate',
+      value: `$${formatNumber(trailingAnnualRate, 2)}`,
+      status: 'neutral' as 'neutral',
+    },
+    {
+      label: 'Payout Ratio',
+      value: payoutRatio > 0 ? `${formatNumber(payoutRatio, 1)}%` : 'N/A',
+      status: (payoutRatio > 0 && payoutRatio < 60 ? 'safe' : payoutRatio < 80 ? 'neutral' : payoutRatio < 100 ? 'warning' : 'danger') as 'safe' | 'neutral' | 'warning' | 'danger',
+    },
+    {
+      label: 'FCF Payout Ratio',
+      value: fcfPayoutRatio > 0 ? `${formatNumber(fcfPayoutRatio, 1)}%` : 'N/A',
+      status: (fcfPayoutRatio > 0 && fcfPayoutRatio < 60 ? 'safe' : fcfPayoutRatio < 80 ? 'neutral' : fcfPayoutRatio < 100 ? 'warning' : 'danger') as 'safe' | 'neutral' | 'warning' | 'danger',
+    },
+    {
+      label: 'Dividend Frequency',
+      value: div.dividendFrequency || 'N/A',
+      status: 'neutral' as 'neutral',
+    },
+    {
+      label: 'Ex-Dividend Date',
+      value: exDivDate,
+      status: 'neutral' as 'neutral',
     },
   ];
 
