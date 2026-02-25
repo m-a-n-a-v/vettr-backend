@@ -1,7 +1,10 @@
 import { Hono } from 'hono';
 import { authMiddleware } from '../middleware/auth.js';
 import { success } from '../utils/response.js';
-import { NotFoundError, ValidationError } from '../utils/errors.js';
+import { NotFoundError, ValidationError, TierLimitError, InternalError } from '../utils/errors.js';
+import { db } from '../config/database.js';
+import { aiAgentUsage } from '../db/schema/index.js';
+import { eq, and, sql } from 'drizzle-orm';
 import {
   getInitialQuestions,
   getFollowUpQuestions,
@@ -40,6 +43,66 @@ const aiAgentRoutes = new Hono<{ Variables: Variables }>();
 // Apply auth middleware to all routes
 aiAgentRoutes.use('*', authMiddleware);
 
+// ─── Tier Limits ─────────────────────────────────────────────────────────────
+const TIER_LIMITS: Record<string, number> = {
+  free: 3,
+  pro: 15,
+  premium: Infinity,
+};
+
+/**
+ * Get usage stats for a user on the current date
+ */
+async function getUsageStats(userId: string, tier: string) {
+  if (!db) throw new InternalError('Database not available');
+
+  const limit = TIER_LIMITS[tier.toLowerCase()] ?? 3;
+
+  // For premium tier, skip counting (unlimited)
+  if (limit === Infinity) {
+    const resetDate = new Date(
+      Date.UTC(
+        new Date().getUTCFullYear(),
+        new Date().getUTCMonth(),
+        new Date().getUTCDate() + 1,
+        0,
+        0,
+        0
+      )
+    );
+    return {
+      used: 0,
+      limit: Infinity,
+      remaining: Infinity,
+      resets_at: resetDate.toISOString(),
+    };
+  }
+
+  // Count today's usage for free/pro tiers
+  const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+
+  const usageRecords = await db
+    .select()
+    .from(aiAgentUsage)
+    .where(and(eq(aiAgentUsage.userId, userId), sql`${aiAgentUsage.date} = CURRENT_DATE`));
+
+  const used = usageRecords.length;
+  const remaining = Math.max(0, limit - used);
+
+  // Calculate resets_at (midnight UTC next day)
+  const now = new Date();
+  const resetDate = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0)
+  );
+
+  return {
+    used,
+    limit,
+    remaining,
+    resets_at: resetDate.toISOString(),
+  };
+}
+
 /**
  * GET /ai-agent/questions
  * Returns available questions - either initial questions or follow-ups for a parent
@@ -68,6 +131,7 @@ aiAgentRoutes.get('/questions', async (c) => {
 aiAgentRoutes.post('/ask', async (c) => {
   const body = await c.req.json();
   const { question_id, ticker } = body;
+  const user = c.get('user');
 
   // Validate request body
   if (!question_id || typeof question_id !== 'string') {
@@ -84,7 +148,37 @@ aiAgentRoutes.post('/ask', async (c) => {
     throw new NotFoundError(`Question '${question_id}' not found`);
   }
 
-  // Call the appropriate responder function based on question_id
+  // ─── Check tier limits BEFORE generating response ─────────────────────────
+  if (!db) throw new InternalError('Database not available');
+
+  const limit = TIER_LIMITS[user.tier.toLowerCase()] ?? 3;
+
+  // For non-premium users, enforce daily limits
+  if (limit !== Infinity) {
+    const usageRecords = await db
+      .select()
+      .from(aiAgentUsage)
+      .where(and(eq(aiAgentUsage.userId, user.id), sql`${aiAgentUsage.date} = CURRENT_DATE`));
+
+    const used = usageRecords.length;
+
+    if (used >= limit) {
+      // Calculate resets_at for error response
+      const now = new Date();
+      const resetDate = new Date(
+        Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0)
+      );
+
+      throw new TierLimitError('Daily question limit reached', {
+        used,
+        limit,
+        upgrade_prompt: true,
+        resets_at: resetDate.toISOString(),
+      });
+    }
+  }
+
+  // ─── Generate response ─────────────────────────────────────────────────────
   let response: AiAgentResponseData;
 
   switch (question_id) {
@@ -146,15 +240,28 @@ aiAgentRoutes.post('/ask', async (c) => {
       throw new NotFoundError(`No responder found for question '${question_id}'`);
   }
 
+  // ─── Track usage after successful response ────────────────────────────────
+  const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+  await db.insert(aiAgentUsage).values({
+    userId: user.id,
+    questionId: question_id,
+    ticker: ticker.toUpperCase(),
+    date: today,
+  });
+
   // Get follow-up questions if this is an initial question
   const follow_up_questions =
     question.parent_id === null ? getFollowUpQuestions(question_id) : [];
 
-  // Return response with follow-ups
+  // Get updated usage stats
+  const usage = await getUsageStats(user.id, user.tier);
+
+  // Return response with follow-ups and usage
   return c.json(
     success({
       response,
       follow_up_questions,
+      usage,
     }),
     200
   );
@@ -163,39 +270,12 @@ aiAgentRoutes.post('/ask', async (c) => {
 /**
  * GET /ai-agent/usage
  * Returns current user's daily usage stats
- * Note: This is a placeholder for US-095 which will implement actual tracking
  */
 aiAgentRoutes.get('/usage', async (c) => {
   const user = c.get('user');
+  const usage = await getUsageStats(user.id, user.tier);
 
-  // Tier limits
-  const tierLimits: Record<string, number> = {
-    free: 3,
-    pro: 15,
-    premium: Infinity,
-  };
-
-  const limit = tierLimits[user.tier.toLowerCase()] ?? 3;
-
-  // Placeholder response - will be implemented in US-095
-  const used = 0;
-  const remaining = limit === Infinity ? Infinity : limit - used;
-
-  // Calculate resets_at (midnight UTC next day)
-  const now = new Date();
-  const resetDate = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0)
-  );
-
-  return c.json(
-    success({
-      used,
-      limit,
-      remaining,
-      resets_at: resetDate.toISOString(),
-    }),
-    200
-  );
+  return c.json(success(usage), 200);
 });
 
 export { aiAgentRoutes };
