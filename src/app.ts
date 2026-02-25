@@ -29,6 +29,7 @@ import {
   pulseRoutes,
   cronRoutes,
   fundamentalsRoutes,
+  aiAgentRoutes,
 } from './routes/index.js';
 import type { AuthUser } from './middleware/auth.js';
 
@@ -232,6 +233,7 @@ app.route('/admin', adminRoutes);
 app.route('/waitlist', waitlistRoutes);
 app.route('/pulse', pulseRoutes);
 app.route('/cron', cronRoutes);
+app.route('/ai-agent', aiAgentRoutes);
 
 export { app };
 export default app;
