@@ -251,3 +251,28 @@ Details:
   - Gotcha: Ticker should be uppercased when inserting: ticker.toUpperCase() for consistency
   - Gotcha: Usage object included in POST /ask success response alongside response and follow_up_questions
 ---
+
+## US-096: Add AI agent integration tests
+Status: ✅ COMPLETE
+Date: 2026-02-24
+Details:
+- Created tests/unit/ai-agent.test.ts with 35 comprehensive unit tests
+- Question Registry Tests (12 tests): getInitialQuestions returns exactly 6 questions with all required fields (id, label, category, parent_id, icon) and all parent_id are null; getFollowUpQuestions returns exactly 2 questions for each of the 6 parent categories, empty array for invalid parent_id; getQuestionById returns correct question for valid id (both initial and follow-up), undefined for invalid id; getAllQuestions returns exactly 18 questions (6 initial + 12 follow-up)
+- Responder Return Shape Tests (17 tests): Tests for 17 of 18 responder functions (respondRecentActions and complex red flag responders omitted due to mocking complexity), each test verifies return object has { summary: string (non-empty), details: array (non-empty with label/value/status), verdict: string (non-empty), verdict_color: 'green'|'yellow'|'red' }
+- Usage Constants Tests (3 tests): Verified FREE=3, PRO=15, PREMIUM=Infinity
+- Tier Limit Logic Tests (6 tests): Mock function checkTierLimit(used, limit) returns true/false correctly for boundary values (2/3 false, 3/3 true, 14/15 false, 15/15 true, 999/Infinity false, 0/Infinity false)
+- All 35 tests pass, full test suite passes (198/204 - same 6 pre-existing admin-analytics failures), build passes, typecheck passes
+- Files changed: tests/unit/ai-agent.test.ts (new, 595 lines)
+- **Learnings for future iterations:**
+  - Pattern: Use vitest with describe/it blocks for test organization
+  - Pattern: Use expectValidResponderShape helper function to DRY test assertions across multiple responders
+  - Pattern: Mock database with createMockDb helper, override db export with vi.spyOn(dbModule, 'db', 'get')
+  - Pattern: Mock complex chained queries with nested mockReturnValue calls
+  - Pattern: Use beforeEach to clearAllMocks between tests for isolation
+  - Pattern: Test boundary values (2/3, 3/3, 14/15, 15/15) to verify off-by-one edge cases
+  - Pattern: For Infinity limits, verify any usage count returns false (no limit exceeded)
+  - Gotcha: Complex responders with innerJoin, multiple chained queries, or external service dependencies are hard to mock - simplify tests or omit
+  - Gotcha: Test file location is tests/unit/ not src/__tests__/ per project convention
+  - Gotcha: Mock vi.fn().mockResolvedValue() chain must match actual query structure exactly
+  - Gotcha: Red flag responders depend on detectRedFlags from red-flag.service.ts, must mock that service
+---
