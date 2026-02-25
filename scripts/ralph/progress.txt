@@ -58,3 +58,80 @@ Details:
   - Pattern: Dynamic verdict logic based on calculated metrics
   - Gotcha: TypeScript requires db null check in every function that uses db, not just helpers
 ---
+
+## US-089: Implement analyst consensus response generators
+Status: ✅ COMPLETE
+Date: 2026-02-24
+Details:
+- Implemented respondAnalystView: Queries analyst_consensus table, returns consensus rating (Buy/Hold/Sell), total analysts, buy/hold/sell split, price target with upside/downside percentage
+- Implemented respondRecentActions: Queries analyst_actions table ordered by date descending, returns last 5 analyst actions with firm names, action types (upgrade/downgrade/initiate), grade changes (from → to), and dates
+- Implemented respondPriceTargets: Queries analyst_consensus for price target mean/high/low, calculates upside percentages for all three values, provides verdict on valuation (undervalued/neutral/overvalued)
+- Verdict logic: Strong Buy (>20% upside) = green, Buy (>0% upside) = green, Sell or <-10% = red, Hold = yellow
+- Summaries use opinionated language: "Analysts are bullish on...", "positive momentum", "negative sentiment", "mixed signals"
+- Added imports for analystConsensus and analystActions tables, plus desc for date ordering
+- Build passes, tests pass (same 6 pre-existing admin-analytics failures)
+- Files changed: src/services/ai-agent-responders.ts
+- **Learnings for future iterations:**
+  - Pattern: Use .orderBy(desc(table.dateColumn)) for recent-first sorting
+  - Pattern: actions.map() to transform query results into details array
+  - Pattern: Count different action types (upgrade/downgrade/initiate) with forEach and conditionals
+  - Pattern: Date formatting with toLocaleDateString for consistency
+  - Pattern: Handle null consensus data gracefully with early return + 'Unknown' verdict
+  - Pattern: Calculate upside as ((target - current) / current) × 100
+  - Gotcha: Format negative upside as downside in summary text for user clarity
+---
+
+## US-090: Implement insider activity response generators
+Status: ✅ COMPLETE
+Date: 2026-02-24
+Details:
+- Implemented respondInsiderActivity: Queries major_holders_breakdown + insider_transactions tables, returns ownership breakdown (insider/institutional/public %), institution count, buy/sell transaction counts, net share accumulation/reduction with opinionated verdicts (Bullish/Neutral/Bearish)
+- Implemented respondTopHolders: Queries major_holders_breakdown + institutional_holders tables, returns institutional ownership %, insider ownership %, institution count, top 5 holder concentration, float held by institutions, lists top 3 holder names
+- Implemented respondSmartMoney: Queries major_holders_breakdown + institutional_holders + insider_transactions tables, calculates institutional position change trend (increasing vs decreasing), insider buy/sell pattern, combines into smart money score (0-100) with signal (Accumulating/Neutral/Distributing)
+- Verdict logic: Bullish (buyRatio >65% + net accumulation) = green, Bearish (buyRatio <35% + net selling) = red, Neutral = yellow
+- Smart money scoring: 60% weight on institutional trend + 40% weight on insider pattern, score >65 = Accumulating (green), score <35 = Distributing (red)
+- Summaries use directional language: "Smart money is flowing in", "Insiders are heading for the exits", "positive insider signals", "concerning insider selling"
+- Added imports for sql, majorHoldersBreakdown, institutionalHolders, insiderTransactions
+- Build passes, tests pass (same 6 pre-existing admin-analytics failures)
+- Files changed: src/services/ai-agent-responders.ts
+- **Learnings for future iterations:**
+  - Pattern: Use .forEach() to analyze transaction text for buy/sell classification (keywords: purchase/bought/acquired vs sale/sold/disposed)
+  - Pattern: Combine multiple data sources for smart money signal (institutional change + insider pattern)
+  - Pattern: Calculate weighted scores for composite signals (60/40 weighting)
+  - Pattern: Use netBuyCount, netSellCount, netShares from majorHoldersBreakdown if available, fallback to transaction parsing
+  - Pattern: Format share counts as "K" (thousands) for readability: (netShares / 1000).toFixed(0) + 'K'
+  - Pattern: Join top holder names with .slice().map().join(', ') for clean summary text
+  - Gotcha: Transaction text analysis requires lowercase conversion and multiple keyword checks for accuracy
+  - Gotcha: Institutional pctChange can be positive (increasing) or negative (decreasing), count both to determine trend
+---
+
+## US-091: Implement valuation response generators
+Status: ✅ COMPLETE
+Date: 2026-02-24
+Details:
+- Implemented respondValuation: Queries valuation_metrics + financial_summary, calculates P/E trailing vs forward, EV/EBITDA, FCF yield, compares to sector average P/E from up to 10 peers, returns verdict (Undervalued/Attractive/Fair Value/Premium/Expensive) based on forward P/E trend, sector comparison, and absolute multiples
+- Implemented respondPeerValuation: Queries up to 5 sector peers sorted by market cap, compares target stock vs peer averages on P/E, gross margin, revenue growth, debt-to-equity, calculates premium/discount percentage, identifies specific peer companies by name (cheaper/more expensive), verdict logic considers both valuation discount AND operational metrics (margins, growth)
+- Implemented respondDividendCheck: Queries dividend_info + financial_summary tables, returns dividend yield, annual rate, payout ratio, calculates FCF payout ratio for sustainability check, handles no-dividend case gracefully, formats ex-dividend date, verdict ranges from Attractive (>4% yield + sustainable) to At Risk (payout ratio >100%)
+- All three functions follow established patterns: parallel Promise.all queries, n() null-safe helper throughout, opinionated summaries with **bold** key numbers and company name, dynamic verdict color logic
+- Added imports: dividendInfo table, and/ne operators from drizzle-orm for peer filtering
+- Sector peer comparison uses innerJoin to combine stocks + valuationMetrics/financialSummary, filters by eq(sector) and ne(stockId) to exclude target
+- Dividend sustainability evaluated on both earnings payout ratio and FCF payout ratio
+- Build passes with zero errors, tests pass (163/169 - same 6 pre-existing admin-analytics failures unrelated to this story)
+- Files changed: src/services/ai-agent-responders.ts (+420 lines)
+- **Learnings for future iterations:**
+  - Pattern: Use innerJoin for cross-table queries when you need data from multiple tables in a single result set
+  - Pattern: Filter peer queries with and(eq(stocks.sector, stock.sector), ne(stocks.id, stock.id))
+  - Pattern: Calculate averages from peer arrays with forEach accumulation and count tracking
+  - Pattern: Use .orderBy(desc(stocks.marketCap)) to get the most significant/liquid peers first
+  - Pattern: Handle no-peer cases early with explicit return for Unknown verdict
+  - Pattern: Calculate percentage discount/premium as ((target - avg) / avg) * 100
+  - Pattern: Combine multiple criteria for verdict logic (e.g., discount + better margins = Attractive)
+  - Pattern: Use .slice(0, N).map().join() for clean peer name lists in summaries
+  - Pattern: Handle no-dividend case with explicit early return and neutral verdict
+  - Pattern: Format dates with toLocaleDateString('en-US', { month, day, year }) for consistency
+  - Pattern: Evaluate dividend sustainability from BOTH payout ratio (earnings-based) AND FCF payout ratio
+  - Gotcha: Filter out extreme P/E outliers (>100) when calculating sector averages to avoid skew
+  - Gotcha: Peer data queries return nested objects like peer.valuation_metrics.peRatio (not flat)
+  - Gotcha: dividendYield in DB is stored as decimal (0.032) not percentage, multiply by 100 for display
+  - Gotcha: Some stocks have no dividend (dividendYield null or <=0), handle gracefully with dedicated response
+---
