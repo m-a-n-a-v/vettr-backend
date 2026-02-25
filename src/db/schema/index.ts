@@ -18,3 +18,22 @@ export * from './sync.js';
 export * from './user-settings.js';
 export * from './waitlist.js';
 export * from './cron-jobs.js';
+
+// Fundamentals data tables
+export * from './valuation-metrics.js';
+export * from './earnings-history.js';
+export * from './earnings-estimates.js';
+export * from './analyst-consensus.js';
+export * from './analyst-actions.js';
+export * from './short-interest.js';
+export * from './institutional-holders.js';
+export * from './insider-data.js';
+export * from './dividends.js';
+export * from './corporate-events.js';
+export * from './news.js';
+export * from './company-profiles.js';
+export * from './financial-statements.js';
+export * from './financial-summary.js';
+
+// AI Agent
+export * from './ai-agent-usage.js';
