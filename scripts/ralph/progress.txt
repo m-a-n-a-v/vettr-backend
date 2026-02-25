@@ -135,3 +135,32 @@ Details:
   - Gotcha: dividendYield in DB is stored as decimal (0.032) not percentage, multiply by 100 for display
   - Gotcha: Some stocks have no dividend (dividendYield null or <=0), handle gracefully with dedicated response
 ---
+## US-092: Implement earnings quality response generators
+Status: ✅ COMPLETE
+Date: 2026-02-24
+Details:
+- Implemented respondEarnings: Queries earnings_history + financial_summary tables, calculates EQ score (0-100) based on beat rate (40%), cash conversion (30%), accruals ratio (20%), and surprise magnitude (10%), returns consecutive beats count, cash conversion ratio, accruals ratio with opinionated verdicts
+- Implemented respondEarningsBeats: Queries last 6 quarters of earnings history, returns beat/miss pattern (beatsCount, missesCount, meetsCount), calculates average surprise percentage, identifies streak patterns (consecutive beats or misses), displays each quarter with surprise % and actual vs estimate EPS
+- Implemented respondEarningsOutlook: Queries earnings_estimates table for periods 0q, +1q, 0y, +1y, calculates EPS growth YoY and revenue growth YoY, tracks analyst estimate revisions (up vs down in last 30d), provides forward-looking verdict based on growth expectations and revision momentum
+- Verdict logic implemented: EQ score >70 = green ('Exceptional'), EQ <40 = red ('Questionable'), moderate = yellow; Beats: ≥4 of 6 = green ('Strong'), ≥4 misses = red ('Weak'), mixed = yellow; Outlook: EPS >15% + revenue >10% + positive revisions = green ('Strong Growth'), negative growth or revisions <-5 = red ('Slowing'), modest growth = green
+- Summaries include opinionated language with **bold** key numbers: "exceptional earnings quality", "strong earnings execution", "strong growth trajectory", specific quarter counts and surprise percentages
+- Added imports for earningsHistory and earningsEstimates tables
+- Build passes, tests pass (163/169 - same 6 pre-existing admin-analytics failures unrelated to this story)
+- Files changed: src/services/ai-agent-responders.ts (+333 lines)
+- **Learnings for future iterations:**
+  - Pattern: Use .filter() to calculate beat/miss counts from earnings history array
+  - Pattern: Use .reduce() to calculate average surprise percentage across quarters
+  - Pattern: Check for consecutive streaks with for loop, track streakType ('beats' | 'misses' | 'none')
+  - Pattern: Calculate EQ score as weighted combination of multiple factors (beat rate, cash conversion, accruals, surprise)
+  - Pattern: Query multiple estimate periods in parallel with Promise.all (0q, +1q, 0y, +1y)
+  - Pattern: Calculate YoY growth as ((next - current) / current) × 100, fallback to DB epsGrowth/revenueGrowth field
+  - Pattern: Track analyst revisions momentum as (revisionsUp30d - revisionsDown30d)
+  - Pattern: Use .map() to transform earnings history into details array with formatted dates and values
+  - Pattern: Use .toLocaleDateString with month/year format for quarter dates
+  - Pattern: Type arrays explicitly when using .unshift() to avoid type inference issues
+  - Gotcha: TypeScript infers array type from .map() return type, so if you need mixed status types later (like 'warning'), declare array type explicitly before map
+  - Gotcha: Cash conversion ratio >100% is actually a good sign (more cash than earnings)
+  - Gotcha: Accruals ratio should be low - high accruals means earnings not backed by cash
+  - Gotcha: Total assets estimation is rough (debt × 3) but sufficient for accruals ratio context
+  - Gotcha: Forward estimates may be missing for some stocks, handle null/undefined gracefully with n() helper
+---
