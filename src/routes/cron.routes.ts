@@ -181,4 +181,56 @@ cronRoutes.post('/snapshot-cleanup', async (c) => {
   }));
 });
 
+/**
+ * GET /cron/news
+ * Placeholder for news aggregation cron job.
+ * In production, scrapes/fetches from BNN, SEDAR+, TSX market maker, etc.
+ * Currently returns a stub response.
+ *
+ * Protected by Authorization: Bearer <CRON_SECRET>
+ */
+cronRoutes.get('/news', async (c) => {
+  return c.json(success({
+    message: 'News cron placeholder - connect real news sources',
+    sources_checked: ['bnn', 'sedar', 'tsx_market_maker', 'press_release'],
+    articles_added: 0,
+    filings_added: 0,
+  }));
+});
+
+/**
+ * GET /cron/portfolio-insights
+ * Generates portfolio insights for all active portfolios.
+ * Runs after market data and scores are updated.
+ *
+ * Protected by Authorization: Bearer <CRON_SECRET>
+ */
+cronRoutes.get('/portfolio-insights', async (c) => {
+  if (!db) throw new InternalError('Database not available');
+
+  const { portfolios: portfoliosTable } = await import('../db/schema/index.js');
+  const { generateInsights } = await import('../services/portfolio-insights.service.js');
+
+  const allPortfolios = await db
+    .select({ id: portfoliosTable.id })
+    .from(portfoliosTable)
+    .limit(500);
+
+  let totalInsights = 0;
+
+  for (const portfolio of allPortfolios) {
+    try {
+      const insightCount = await generateInsights(portfolio.id);
+      totalInsights += insightCount;
+    } catch (err) {
+      console.error(`Insight generation failed for portfolio ${portfolio.id}:`, err);
+    }
+  }
+
+  return c.json(success({
+    portfolios_processed: allPortfolios.length,
+    insights_created: totalInsights,
+  }));
+});
+
 export { cronRoutes };

@@ -4,7 +4,7 @@ import { adminService } from '../services/admin.service.js';
 import { getCollections } from '../services/discovery.service.js';
 import { success } from '../utils/response.js';
 import { createAdminCrudRoutes } from './admin-crud.factory.js';
-import { users, stocks, executives, filings, alertRules, alerts, vetrScoreHistory, redFlagHistory, syncHistory, userSettings, refreshTokens, waitlist } from '../db/schema/index.js';
+import { users, stocks, executives, filings, alertRules, alerts, vetrScoreHistory, redFlagHistory, syncHistory, userSettings, refreshTokens, waitlist, portfolios, portfolioHoldings, portfolioSnapshots, portfolioInsights, portfolioAlerts, newsArticles, filingCalendar } from '../db/schema/index.js';
 import { watchlistItemsRoutes, filingReadsRoutes, redFlagAcknowledgmentsRoutes } from './admin-composite-pk.routes.js';
 import { db } from '../config/database.js';
 import { eq, sql } from 'drizzle-orm';
@@ -696,5 +696,77 @@ adminRoutes.get('/discovery/collections', async (c) => {
   const result = await getCollections();
   return c.json(success(result));
 });
+
+// ─── Portfolio Pivot Admin CRUD Routes ──────────────────────────────────────
+
+const portfoliosAdminRoutes = createAdminCrudRoutes({
+  tableName: 'portfolios',
+  table: portfolios,
+  primaryKey: 'id',
+  searchableColumns: ['institutionName'],
+  filterableColumns: ['userId', 'connectionType', 'connectionStatus'],
+  sortableColumns: ['connectionType', 'connectionStatus', 'createdAt', 'lastSyncedAt'],
+});
+adminRoutes.route('/portfolios', portfoliosAdminRoutes);
+
+const portfolioHoldingsAdminRoutes = createAdminCrudRoutes({
+  tableName: 'portfolio-holdings',
+  table: portfolioHoldings,
+  primaryKey: 'id',
+  searchableColumns: ['ticker', 'companyName'],
+  filterableColumns: ['portfolioId', 'stockId', 'assetCategory'],
+  sortableColumns: ['ticker', 'marketValue', 'pnl', 'assetCategory', 'createdAt'],
+});
+adminRoutes.route('/portfolio-holdings', portfolioHoldingsAdminRoutes);
+
+const portfolioSnapshotsAdminRoutes = createAdminCrudRoutes({
+  tableName: 'portfolio-snapshots',
+  table: portfolioSnapshots,
+  primaryKey: 'id',
+  searchableColumns: [],
+  filterableColumns: ['portfolioId'],
+  sortableColumns: ['totalValue', 'totalPnl', 'recordedAt'],
+});
+adminRoutes.route('/portfolio-snapshots', portfolioSnapshotsAdminRoutes);
+
+const portfolioInsightsAdminRoutes = createAdminCrudRoutes({
+  tableName: 'portfolio-insights',
+  table: portfolioInsights,
+  primaryKey: 'id',
+  searchableColumns: ['title', 'summary'],
+  filterableColumns: ['portfolioId', 'holdingId', 'insightType', 'severity', 'isDismissed'],
+  sortableColumns: ['insightType', 'severity', 'createdAt'],
+});
+adminRoutes.route('/portfolio-insights', portfolioInsightsAdminRoutes);
+
+const portfolioAlertsAdminRoutes = createAdminCrudRoutes({
+  tableName: 'portfolio-alerts',
+  table: portfolioAlerts,
+  primaryKey: 'id',
+  searchableColumns: ['title', 'message'],
+  filterableColumns: ['userId', 'portfolioId', 'alertType', 'severity', 'isRead'],
+  sortableColumns: ['alertType', 'severity', 'triggeredAt', 'isRead'],
+});
+adminRoutes.route('/portfolio-alerts', portfolioAlertsAdminRoutes);
+
+const newsArticlesAdminRoutes = createAdminCrudRoutes({
+  tableName: 'news-articles',
+  table: newsArticles,
+  primaryKey: 'id',
+  searchableColumns: ['title', 'summary'],
+  filterableColumns: ['source', 'isMaterial'],
+  sortableColumns: ['source', 'publishedAt', 'isMaterial', 'createdAt'],
+});
+adminRoutes.route('/news-articles', newsArticlesAdminRoutes);
+
+const filingCalendarAdminRoutes = createAdminCrudRoutes({
+  tableName: 'filing-calendar',
+  table: filingCalendar,
+  primaryKey: 'id',
+  searchableColumns: ['ticker', 'companyName'],
+  filterableColumns: ['stockId', 'filingType', 'status'],
+  sortableColumns: ['ticker', 'filingType', 'expectedDate', 'status', 'createdAt'],
+});
+adminRoutes.route('/filing-calendar', filingCalendarAdminRoutes);
 
 export { adminRoutes };

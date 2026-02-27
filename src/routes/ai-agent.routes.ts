@@ -278,4 +278,33 @@ aiAgentRoutes.get('/usage', async (c) => {
   return c.json(success(usage), 200);
 });
 
+/**
+ * GET /ai-agent/portfolio-context
+ * Returns a summary of the user's portfolio for AI-assisted analysis.
+ * Includes holdings, insights, and alerts to provide portfolio-aware AI responses.
+ */
+aiAgentRoutes.get('/portfolio-context', async (c) => {
+  const user = c.get('user');
+
+  // Dynamically import to avoid circular dependencies
+  const { getPortfolioSummary, getAllUserHoldings } = await import('../services/portfolio.service.js');
+  const { getAllUserInsights } = await import('../services/portfolio-insights.service.js');
+  const { getUserAlerts } = await import('../services/portfolio-alerts.service.js');
+
+  const [summary, holdings, insights, alerts] = await Promise.all([
+    getPortfolioSummary(user.id).catch(() => []),
+    getAllUserHoldings(user.id).catch(() => []),
+    getAllUserInsights(user.id).catch(() => []),
+    getUserAlerts(user.id, { unreadOnly: true, limit: 5 }).catch(() => ({ items: [], total: 0 })),
+  ]);
+
+  return c.json(success({
+    portfolio_summary: summary,
+    top_holdings: holdings.slice(0, 10),
+    active_insights: insights.slice(0, 5),
+    recent_alerts: alerts.items,
+    unread_alert_count: alerts.total,
+  }), 200);
+});
+
 export { aiAgentRoutes };

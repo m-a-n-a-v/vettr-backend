@@ -30,6 +30,11 @@ import {
   cronRoutes,
   fundamentalsRoutes,
   aiAgentRoutes,
+  portfolioRoutes,
+  newsRoutes,
+  portfolioAlertsRoutes,
+  portfolioInsightsRoutes,
+  publicRoutes,
 } from './routes/index.js';
 import type { AuthUser } from './middleware/auth.js';
 
@@ -234,6 +239,13 @@ app.route('/waitlist', waitlistRoutes);
 app.route('/pulse', pulseRoutes);
 app.route('/cron', cronRoutes);
 app.route('/ai-agent', aiAgentRoutes);
+
+// Portfolio pivot routes
+app.route('/portfolio', portfolioRoutes);
+app.route('/news', newsRoutes);
+app.route('/portfolio-alerts', portfolioAlertsRoutes);
+app.route('/portfolio-insights', portfolioInsightsRoutes);
+app.route('/public', publicRoutes);
 
 export { app };
 export default app;

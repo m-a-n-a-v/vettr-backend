@@ -17,3 +17,10 @@ export { pulseRoutes } from './pulse.routes.js';
 export { cronRoutes } from './cron.routes.js';
 export { fundamentalsRoutes } from './fundamentals.routes.js';
 export { aiAgentRoutes } from './ai-agent.routes.js';
+
+// Portfolio pivot routes
+export { portfolioRoutes } from './portfolio.routes.js';
+export { newsRoutes } from './news.routes.js';
+export { portfolioAlertsRoutes } from './portfolio-alerts.routes.js';
+export { portfolioInsightsRoutes } from './portfolio-insights.routes.js';
+export { publicRoutes } from './public.routes.js';

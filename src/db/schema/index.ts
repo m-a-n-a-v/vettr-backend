@@ -37,3 +37,12 @@ export * from './financial-summary.js';
 
 // AI Agent
 export * from './ai-agent-usage.js';
+
+// Portfolio pivot tables
+export * from './portfolios.js';
+export * from './portfolio-holdings.js';
+export * from './portfolio-snapshots.js';
+export * from './portfolio-insights.js';
+export * from './portfolio-alerts.js';
+export * from './news-articles.js';
+export * from './filing-calendar.js';
