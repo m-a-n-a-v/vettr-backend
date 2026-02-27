@@ -16,12 +16,22 @@ type Variables = {
 
 const newsRoutes = new Hono<{ Variables: Variables }>();
 
-// Apply auth middleware to all news routes
-newsRoutes.use('*', authMiddleware);
+// Public routes - no auth required for reading news/filings
+// Only /news/portfolio requires auth (uses user's portfolio tickers)
+newsRoutes.get('/portfolio', authMiddleware, async (c) => {
+  const tickersParam = c.req.query('tickers') ?? '';
+  const tickers = tickersParam
+    .split(',')
+    .map((t) => t.trim())
+    .filter((t) => t.length > 0);
+
+  const items = await getNewsForTickers(tickers);
+  return c.json(success(items), 200);
+});
 
 /**
  * GET /news
- * List news articles with optional filters
+ * List news articles with optional filters (PUBLIC)
  * Query params: source, ticker, limit, offset
  */
 newsRoutes.get('/', async (c) => {
@@ -47,22 +57,6 @@ newsRoutes.get('/', async (c) => {
 newsRoutes.get('/material', async (c) => {
   const limit = parseInt(c.req.query('limit') ?? '10', 10);
   const items = await getMaterialNews(limit);
-  return c.json(success(items), 200);
-});
-
-/**
- * GET /news/portfolio
- * Get news relevant to the user's portfolio tickers
- * Query params: tickers (comma-separated)
- */
-newsRoutes.get('/portfolio', async (c) => {
-  const tickersParam = c.req.query('tickers') ?? '';
-  const tickers = tickersParam
-    .split(',')
-    .map((t) => t.trim())
-    .filter((t) => t.length > 0);
-
-  const items = await getNewsForTickers(tickers);
   return c.json(success(items), 200);
 });
 

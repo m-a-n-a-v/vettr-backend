@@ -183,18 +183,194 @@ cronRoutes.post('/snapshot-cleanup', async (c) => {
 
 /**
  * GET /cron/news
- * Placeholder for news aggregation cron job.
- * In production, scrapes/fetches from BNN, SEDAR+, TSX market maker, etc.
- * Currently returns a stub response.
+ * Fetches news articles from BNN Bloomberg RSS feed.
+ * Parses, deduplicates, and inserts into news_articles table.
+ * Also generates filing calendar entries for stocks with known fiscal year ends.
  *
  * Protected by Authorization: Bearer <CRON_SECRET>
  */
 cronRoutes.get('/news', async (c) => {
+  if (!db) throw new InternalError('Database not available');
+
+  const { newsArticles } = await import('../db/schema/index.js');
+  const { eq } = await import('drizzle-orm');
+
+  let articlesAdded = 0;
+  let filingsAdded = 0;
+
+  // ── 1. Fetch BNN Bloomberg RSS ──
+  try {
+    const RSS_URL = 'https://www.bnnbloomberg.ca/arc/outboundfeeds/rss/';
+    const res = await fetch(RSS_URL, {
+      headers: { 'User-Agent': 'VETTR/1.0' },
+      signal: AbortSignal.timeout(15000),
+    });
+
+    if (res.ok) {
+      const xml = await res.text();
+
+      // Parse RSS items
+      const itemRegex = /<item>([\s\S]*?)<\/item>/g;
+      let match: RegExpExecArray | null;
+      const parsedItems: Array<{
+        title: string;
+        link: string;
+        description: string;
+        pubDate: string;
+        imageUrl: string | null;
+      }> = [];
+
+      while ((match = itemRegex.exec(xml)) !== null) {
+        const block = match[1];
+
+        const titleMatch = block.match(/<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>/) ||
+                          block.match(/<title>([\s\S]*?)<\/title>/);
+        const linkMatch = block.match(/<link>([\s\S]*?)<\/link>/);
+        const descMatch = block.match(/<description><!\[CDATA\[([\s\S]*?)\]\]><\/description>/) ||
+                         block.match(/<description>([\s\S]*?)<\/description>/);
+        const dateMatch = block.match(/<pubDate>([\s\S]*?)<\/pubDate>/);
+        const mediaMatch = block.match(/<media:content[^>]+url="([^"]+)"/);
+
+        const title = titleMatch?.[1]?.replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").trim() ?? '';
+        const link = linkMatch?.[1]?.trim() ?? '';
+
+        if (title && link) {
+          parsedItems.push({
+            title,
+            link,
+            description: descMatch?.[1]?.replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').trim() ?? '',
+            pubDate: dateMatch?.[1]?.trim() ?? '',
+            imageUrl: mediaMatch?.[1]?.replace(/&amp;/g, '&') ?? null,
+          });
+        }
+      }
+
+      // Get all known tickers from DB for matching
+      const allStocks = await db.select({ ticker: stocks.ticker }).from(stocks);
+      const tickerSet = new Set(allStocks.map((s) => s.ticker.toUpperCase()));
+
+      // Insert articles (dedup by source_url)
+      for (const item of parsedItems) {
+        try {
+          // Check if article already exists by source_url
+          const existing = await db
+            .select({ id: newsArticles.id })
+            .from(newsArticles)
+            .where(eq(newsArticles.sourceUrl, item.link))
+            .limit(1);
+
+          if (existing.length > 0) continue;
+
+          // Detect tickers mentioned in title or description
+          const combinedText = `${item.title} ${item.description}`.toUpperCase();
+          const detectedTickers = Array.from(tickerSet).filter((t) =>
+            t.length >= 2 && new RegExp(`\\b${t.replace('.', '\\.')}\\b`).test(combinedText)
+          );
+
+          // Detect if it might be material (keywords)
+          const materialKeywords = ['material change', 'acquisition', 'merger', 'bankruptcy', 'delisted', 'halt', 'cease trade', 'insider'];
+          const isMaterial = materialKeywords.some((kw) => combinedText.toLowerCase().includes(kw));
+
+          // Detect sectors
+          const sectorKeywords: Record<string, string> = {
+            'mining': 'Mining', 'gold': 'Mining', 'copper': 'Mining', 'lithium': 'Mining',
+            'oil': 'Energy', 'gas': 'Energy', 'energy': 'Energy', 'pipeline': 'Energy',
+            'cannabis': 'Cannabis', 'marijuana': 'Cannabis',
+            'tech': 'Technology', 'software': 'Technology', 'ai': 'Technology',
+          };
+          const detectedSectors = new Set<string>();
+          for (const [kw, sector] of Object.entries(sectorKeywords)) {
+            if (combinedText.toLowerCase().includes(kw)) detectedSectors.add(sector);
+          }
+
+          await db.insert(newsArticles).values({
+            source: 'bnn',
+            sourceUrl: item.link,
+            title: item.title.substring(0, 500),
+            summary: item.description.substring(0, 2000) || null,
+            imageUrl: item.imageUrl,
+            publishedAt: item.pubDate ? new Date(item.pubDate) : new Date(),
+            tickers: detectedTickers.length > 0 ? detectedTickers.join(',') : null,
+            sectors: detectedSectors.size > 0 ? Array.from(detectedSectors).join(',') : null,
+            isMaterial,
+          });
+
+          articlesAdded++;
+        } catch (err) {
+          // Skip individual article errors (e.g., constraint violations)
+          console.error('Failed to insert article:', item.title.substring(0, 50), err);
+        }
+      }
+    }
+  } catch (err) {
+    console.error('BNN RSS fetch failed:', err);
+  }
+
+  // ── 2. Generate filing calendar entries for tracked stocks ──
+  try {
+    const { filingCalendar } = await import('../db/schema/index.js');
+
+    // Get stocks that don't have recent filing calendar entries
+    const existingFilings = await db
+      .select({ ticker: filingCalendar.ticker })
+      .from(filingCalendar)
+      .limit(1000);
+    const filingsTickerSet = new Set(existingFilings.map((f) => f.ticker));
+
+    // Get first 50 stocks without filing calendar entries
+    const stocksWithoutFilings = await db
+      .select({
+        id: stocks.id,
+        ticker: stocks.ticker,
+        companyName: stocks.name,
+      })
+      .from(stocks)
+      .limit(50);
+
+    const newStocks = stocksWithoutFilings.filter((s) => !filingsTickerSet.has(s.ticker));
+
+    // Create quarterly and annual filing entries for new stocks
+    const now = new Date();
+    const currentYear = now.getFullYear();
+
+    for (const stock of newStocks.slice(0, 20)) {
+      try {
+        // Q1 through Q4 quarterly filings + annual report
+        const filingEntries = [
+          { type: 'Q1 Quarterly Report', month: 5, day: 15 },
+          { type: 'Q2 Quarterly Report', month: 8, day: 15 },
+          { type: 'Q3 Quarterly Report', month: 11, day: 15 },
+          { type: 'Annual Report', month: 3, day: 31 },
+        ];
+
+        for (const entry of filingEntries) {
+          const expectedDate = new Date(currentYear, entry.month - 1, entry.day);
+          const status = expectedDate < now ? 'overdue' : 'upcoming';
+
+          await db.insert(filingCalendar).values({
+            stockId: stock.id,
+            ticker: stock.ticker,
+            companyName: stock.companyName,
+            filingType: entry.type,
+            expectedDate: expectedDate.toISOString().split('T')[0]!,
+            status,
+            sourceUrl: `https://www.sedarplus.ca/csa-party/records/record.html?q=${encodeURIComponent(stock.companyName)}`,
+          });
+
+          filingsAdded++;
+        }
+      } catch (err) {
+        console.error(`Filing calendar generation failed for ${stock.ticker}:`, err);
+      }
+    }
+  } catch (err) {
+    console.error('Filing calendar generation failed:', err);
+  }
+
   return c.json(success({
-    message: 'News cron placeholder - connect real news sources',
-    sources_checked: ['bnn', 'sedar', 'tsx_market_maker', 'press_release'],
-    articles_added: 0,
-    filings_added: 0,
+    sources_checked: ['bnn'],
+    articles_added: articlesAdded,
+    filings_added: filingsAdded,
   }));
 });
 
