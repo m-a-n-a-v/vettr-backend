@@ -18,8 +18,9 @@ type Variables = {
 
 const stockRoutes = new Hono<{ Variables: Variables }>();
 
-// Apply auth middleware to all stock routes
-stockRoutes.use('*', authMiddleware);
+// NOTE: Auth middleware is applied per-route, not globally.
+// GET /stocks and GET /stocks/search are public (guest browsing).
+// Other routes require authentication.
 
 // Zod schema for GET /stocks query params
 const getStocksQuerySchema = z.object({
@@ -104,8 +105,8 @@ const getStockFilingsQuerySchema = z.object({
   type: z.string().optional(),
 });
 
-// GET /stocks/:ticker/filings - Get filings for a specific stock
-stockRoutes.get('/:ticker/filings', validateQuery(getStockFilingsQuerySchema), async (c) => {
+// GET /stocks/:ticker/filings - Get filings for a specific stock (auth required)
+stockRoutes.get('/:ticker/filings', authMiddleware, validateQuery(getStockFilingsQuerySchema), async (c) => {
   if (!db) {
     throw new InternalError('Database not available');
   }
@@ -148,9 +149,9 @@ stockRoutes.get('/:ticker/filings', validateQuery(getStockFilingsQuerySchema), a
   return c.json(paginated(filingDtos, result.pagination), 200);
 });
 
-// GET /stocks/:ticker/executives - Get all executives for a stock
+// GET /stocks/:ticker/executives - Get all executives for a stock (auth required)
 // Returns paginated response matching frontend Executive type
-stockRoutes.get('/:ticker/executives', async (c) => {
+stockRoutes.get('/:ticker/executives', authMiddleware, async (c) => {
   if (!db) {
     throw new InternalError('Database not available');
   }
@@ -215,8 +216,8 @@ stockRoutes.get('/:ticker/executives', async (c) => {
   }), 200);
 });
 
-// GET /stocks/:ticker - Get stock detail with executives summary, recent filings, and watchlist status
-stockRoutes.get('/:ticker', async (c) => {
+// GET /stocks/:ticker - Get stock detail with executives summary, recent filings, and watchlist status (auth required)
+stockRoutes.get('/:ticker', authMiddleware, async (c) => {
   const ticker = c.req.param('ticker');
   const user = c.get('user');
 
