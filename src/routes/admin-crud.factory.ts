@@ -175,7 +175,7 @@ export function createAdminCrudRoutes(config: CrudRouteConfig): Hono {
       params
     );
 
-    const sanitized = result.items.map(stripSensitiveFields);
+    const sanitized = (result.items as Record<string, unknown>[]).map(stripSensitiveFields);
     return c.json(paginated(sanitized, result.pagination));
   });
 
@@ -351,7 +351,7 @@ export function createAdminCrudRoutes(config: CrudRouteConfig): Hono {
       params
     );
 
-    const records = result.items.map(stripSensitiveFields);
+    const records = (result.items as Record<string, unknown>[]).map(stripSensitiveFields);
 
     // Generate appropriate format
     if (format === 'csv') {

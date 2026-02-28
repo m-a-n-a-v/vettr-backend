@@ -80,7 +80,8 @@ export async function refreshMarketData(ticker: string, exchange: string): Promi
   try {
     // Fetch quote (price/volume/cap) and quoteSummary (financials) in parallel
     // Both calls use retry with exponential backoff to handle transient Yahoo Finance errors
-    const [quoteResult, summaryResult] = await Promise.all([
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const [quoteResult, summaryResult]: [any, any] = await Promise.all([
       withRetry(() => yf.quote(yfTicker)).catch(() => null),
       withRetry(() => yf.quoteSummary(yfTicker, {
         modules: ['financialData', 'defaultKeyStatistics'],
