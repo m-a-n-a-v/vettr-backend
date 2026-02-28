@@ -38,6 +38,11 @@ const envSchema = z.object({
 
   // App URL (for password reset links)
   APP_URL: z.string().default('https://vettr-web.vercel.app'),
+
+  // Firebase Configuration (for push notifications)
+  FIREBASE_PROJECT_ID: z.string().optional(),
+  FIREBASE_CLIENT_EMAIL: z.string().optional(),
+  FIREBASE_PRIVATE_KEY: z.string().optional(),
 });
 
 const parseEnv = () => {

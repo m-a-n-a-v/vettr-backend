@@ -3,6 +3,7 @@ import { db } from '../config/database.js';
 import { portfolioAlerts, portfolios } from '../db/schema/index.js';
 import * as cache from './cache.service.js';
 import { InternalError, NotFoundError } from '../utils/errors.js';
+import { sendToUser } from './push-notification.service.js';
 
 // --- Types ---
 
@@ -161,6 +162,21 @@ export async function createAlert(input: {
     .returning();
 
   await invalidateUserAlertCache(input.userId);
+
+  // Send push notification (non-blocking — failure doesn't break alert creation)
+  try {
+    await sendToUser(input.userId, {
+      title: input.title,
+      body: input.message,
+      data: {
+        alert_id: result[0]!.id,
+        alert_type: input.alertType,
+        deep_link: input.deepLink ?? '',
+      },
+    });
+  } catch (err) {
+    console.error('Push notification failed:', err);
+  }
 
   return result[0]!;
 }

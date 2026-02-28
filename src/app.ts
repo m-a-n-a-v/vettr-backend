@@ -35,6 +35,8 @@ import {
   portfolioAlertsRoutes,
   portfolioInsightsRoutes,
   publicRoutes,
+  samplePortfolioRoutes,
+  deviceRoutes,
 } from './routes/index.js';
 import type { AuthUser } from './middleware/auth.js';
 
@@ -246,6 +248,8 @@ app.route('/news', newsRoutes);
 app.route('/portfolio-alerts', portfolioAlertsRoutes);
 app.route('/portfolio-insights', portfolioInsightsRoutes);
 app.route('/public', publicRoutes);
+app.route('/sample-portfolios', samplePortfolioRoutes);
+app.route('/devices', deviceRoutes);
 
 export { app };
 export default app;

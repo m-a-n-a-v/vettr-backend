@@ -24,3 +24,5 @@ export { newsRoutes } from './news.routes.js';
 export { portfolioAlertsRoutes } from './portfolio-alerts.routes.js';
 export { portfolioInsightsRoutes } from './portfolio-insights.routes.js';
 export { publicRoutes } from './public.routes.js';
+export { samplePortfolioRoutes } from './sample-portfolios.routes.js';
+export { deviceRoutes } from './devices.routes.js';

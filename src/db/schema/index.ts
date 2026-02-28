@@ -44,5 +44,6 @@ export * from './portfolio-holdings.js';
 export * from './portfolio-snapshots.js';
 export * from './portfolio-insights.js';
 export * from './portfolio-alerts.js';
+export * from './device-tokens.js';
 export * from './news-articles.js';
 export * from './filing-calendar.js';

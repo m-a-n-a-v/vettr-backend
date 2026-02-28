@@ -6,6 +6,7 @@ import type { AuthUser } from '../middleware/auth.js';
 import { getStocks, getStockByTicker, searchStocks } from '../services/stock.service.js';
 import { getFilingsByStock } from '../services/filing.service.js';
 import { getExecutivesForStock } from '../services/executive.service.js';
+import { calculateVetrScore } from '../services/vetr-score.service.js';
 import { paginated, success } from '../utils/response.js';
 import { NotFoundError, InternalError } from '../utils/errors.js';
 import { eq } from 'drizzle-orm';
@@ -18,9 +19,34 @@ type Variables = {
 
 const stockRoutes = new Hono<{ Variables: Variables }>();
 
-// NOTE: Auth middleware is applied per-route, not globally.
-// GET /stocks and GET /stocks/search are public (guest browsing).
-// Other routes require authentication.
+// NOTE: Auth middleware is applied per-route.
+// /stocks/autocomplete and /stocks/:ticker/preview are public (guest landing page).
+// All other routes require authentication.
+
+// Zod schema for GET /stocks/autocomplete query params
+const autocompleteQuerySchema = z.object({
+  q: z.string().min(1),
+  limit: z.string().optional().default('8'),
+});
+
+// GET /stocks/autocomplete - Public ticker/name autocomplete for landing page (no scores exposed)
+stockRoutes.get('/autocomplete', validateQuery(autocompleteQuerySchema), async (c) => {
+  const query = c.req.query();
+  const q = query.q!;
+  const limit = Math.min(Math.max(parseInt(query.limit || '8', 10) || 8, 1), 20);
+
+  const results = await searchStocks(q, limit);
+
+  // Return only ticker, name, exchange, sector — no scores, no prices
+  const autocompleteDtos = results.map((stock) => ({
+    ticker: stock.ticker,
+    company_name: stock.name,
+    exchange: stock.exchange,
+    sector: stock.sector,
+  }));
+
+  return c.json(success(autocompleteDtos), 200);
+});
 
 // Zod schema for GET /stocks query params
 const getStocksQuerySchema = z.object({
@@ -33,8 +59,8 @@ const getStocksQuerySchema = z.object({
   search: z.string().optional(),
 });
 
-// GET /stocks - List stocks with pagination, filtering, and sorting
-stockRoutes.get('/', validateQuery(getStocksQuerySchema), async (c) => {
+// GET /stocks - List stocks with pagination, filtering, and sorting (auth required)
+stockRoutes.get('/', authMiddleware, validateQuery(getStocksQuerySchema), async (c) => {
   const query = c.req.query();
 
   const limit = Math.min(Math.max(parseInt(query.limit || '20', 10) || 20, 1), 100);
@@ -73,8 +99,8 @@ const searchStocksQuerySchema = z.object({
   limit: z.string().optional().default('10'),
 });
 
-// GET /stocks/search - Search stocks by name or ticker with caching
-stockRoutes.get('/search', validateQuery(searchStocksQuerySchema), async (c) => {
+// GET /stocks/search - Search stocks by name or ticker with caching (auth required)
+stockRoutes.get('/search', authMiddleware, validateQuery(searchStocksQuerySchema), async (c) => {
   const query = c.req.query();
 
   const q = query.q!;
@@ -96,6 +122,69 @@ stockRoutes.get('/search', validateQuery(searchStocksQuerySchema), async (c) => 
   }));
 
   return c.json(success(stockDtos), 200);
+});
+
+// GET /stocks/:ticker/preview - Public preview for guests (no auth)
+// Returns basic stock info + VETTR Score + 4 pillar scores (no sub-scores)
+stockRoutes.get('/:ticker/preview', async (c) => {
+  if (!db) {
+    throw new InternalError('Database not available');
+  }
+
+  const ticker = c.req.param('ticker').toUpperCase();
+
+  // Fetch basic stock data
+  const stockResults = await db
+    .select()
+    .from(stocks)
+    .where(eq(stocks.ticker, ticker))
+    .limit(1);
+
+  const stock = stockResults[0];
+  if (!stock) {
+    throw new NotFoundError(`Stock with ticker '${ticker}' not found`);
+  }
+
+  // Try to get pillar breakdown from VETTR score calculator
+  let pillars = null;
+  let nullPillars: string[] = [];
+  try {
+    const scoreResult = await calculateVetrScore(ticker);
+    pillars = {
+      financial_survival: {
+        score: scoreResult.components.financial_survival.score,
+        weight: scoreResult.components.financial_survival.weight,
+      },
+      operational_efficiency: {
+        score: scoreResult.components.operational_efficiency.score,
+        weight: scoreResult.components.operational_efficiency.weight,
+      },
+      shareholder_structure: {
+        score: scoreResult.components.shareholder_structure.score,
+        weight: scoreResult.components.shareholder_structure.weight,
+      },
+      market_sentiment: {
+        score: scoreResult.components.market_sentiment.score,
+        weight: scoreResult.components.market_sentiment.weight,
+      },
+    };
+    nullPillars = scoreResult.null_pillars;
+  } catch {
+    // If score calculation fails, return basic info without pillars
+  }
+
+  return c.json(success({
+    ticker: stock.ticker,
+    company_name: stock.name,
+    exchange: stock.exchange,
+    sector: stock.sector,
+    market_cap: stock.marketCap,
+    current_price: stock.price,
+    price_change_percent: stock.priceChange,
+    vetr_score: stock.vetrScore,
+    pillars,
+    null_pillars: nullPillars,
+  }), 200);
 });
 
 // Zod schema for GET /stocks/:ticker/filings query params
