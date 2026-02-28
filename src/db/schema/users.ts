@@ -10,6 +10,7 @@ export const users = pgTable('users', {
   avatarUrl: varchar('avatar_url', { length: 512 }),
   tier: varchar('tier', { length: 20 }).notNull().default('free'),
   passwordHash: varchar('password_hash', { length: 255 }),
+  clerkId: varchar('clerk_id', { length: 255 }).unique(),
   authProvider: varchar('auth_provider', { length: 50 }).notNull().default('email'),
   authProviderId: varchar('auth_provider_id', { length: 255 }),
   tosAcceptedAt: timestamp('tos_accepted_at'),

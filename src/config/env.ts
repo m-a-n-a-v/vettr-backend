@@ -10,8 +10,12 @@ const envSchema = z.object({
   // Database Configuration
   DATABASE_URL: z.string().optional(),
 
-  // JWT Configuration
+  // JWT Configuration (legacy — kept for password-reset tokens)
   JWT_SECRET: z.string().default('development-secret-change-in-production'),
+
+  // Clerk Configuration
+  CLERK_SECRET_KEY: z.string().optional(),
+  CLERK_PUBLISHABLE_KEY: z.string().optional(),
 
   // Redis Configuration
   // Option A (local): REDIS_URL=redis://localhost:6379 (uses ioredis TCP)
