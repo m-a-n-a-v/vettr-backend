@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { cronAuthMiddleware } from '../middleware/cron-auth.js';
-import { refreshMarketDataChunk, refreshScoresChunk, refreshRedFlagsChunk } from '../services/cron.service.js';
+import { refreshMarketDataChunk, refreshScoresChunk, refreshRedFlagsChunk, cleanupOrphanData } from '../services/cron.service.js';
 import { success } from '../utils/response.js';
 import * as cache from '../services/cache.service.js';
 import { db } from '../config/database.js';
@@ -407,6 +407,19 @@ cronRoutes.get('/portfolio-insights', async (c) => {
     portfolios_processed: allPortfolios.length,
     insights_created: totalInsights,
   }));
+});
+
+/**
+ * GET /cron/cleanup
+ * Deletes stale refresh tokens (expired or revoked, older than 7 days)
+ * and cron_job_runs rows older than 7 days.
+ * Returns deletion counts for observability.
+ *
+ * Protected by Authorization: Bearer <CRON_SECRET>
+ */
+cronRoutes.get('/cleanup', async (c) => {
+  const stats = await cleanupOrphanData();
+  return c.json(success(stats));
 });
 
 export { cronRoutes };

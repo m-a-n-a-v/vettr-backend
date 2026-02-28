@@ -240,6 +240,11 @@ aiAgentRoutes.post('/ask', async (c) => {
       throw new NotFoundError(`No responder found for question '${question_id}'`);
   }
 
+  // ─── Append financial disclaimer to AI-generated summary ─────────────────
+  const FINANCIAL_DISCLAIMER =
+    '\n\n---\n⚠️ *Disclaimer: This analysis is for informational and educational purposes only and does not constitute financial advice. Always consult a qualified financial advisor before making investment decisions.*';
+  response = { ...response, summary: response.summary + FINANCIAL_DISCLAIMER };
+
   // ─── Track usage after successful response ────────────────────────────────
   const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
   await db.insert(aiAgentUsage).values({

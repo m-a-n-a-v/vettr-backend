@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { authMiddleware } from '../middleware/auth.js';
 import type { AuthUser } from '../middleware/auth.js';
 import { validateBody } from '../middleware/validator.js';
-import { getProfile, updateProfile, getSettings, updateSettings } from '../services/user.service.js';
+import { getProfile, updateProfile, getSettings, updateSettings, deleteUserAccount, exportUserData } from '../services/user.service.js';
 import { success } from '../utils/response.js';
 
 type Variables = {
@@ -45,8 +45,12 @@ userRoutes.put('/me', validateBody(updateProfileSchema), async (c) => {
   const user = c.get('user');
   const body = await c.req.json();
 
+  // Sanitise free-text field — strip HTML tags and control characters
+  const sanitise = (s?: string) =>
+    s?.replace(/<[^>]*>/g, '').replace(/[\x00-\x1F\x7F]/g, '').trim();
+
   const updated = await updateProfile(user.id, {
-    displayName: body.display_name,
+    displayName: sanitise(body.display_name),
     avatarUrl: body.avatar_url,
   });
 
@@ -83,6 +87,23 @@ userRoutes.put('/me/settings', validateBody(updateSettingsSchema), async (c) => 
   const updated = await updateSettings(user.id, body);
 
   return c.json(success(updated), 200);
+});
+
+// DELETE /users/me - Soft-delete user account and anonymise PII (GDPR Art. 17 / App Store 4.7)
+userRoutes.delete('/me', async (c) => {
+  const user = c.get('user');
+  await deleteUserAccount(user.id);
+  return c.body(null, 204);
+});
+
+// GET /users/me/data-export - Export all user data as JSON (GDPR Art. 15 / Art. 20)
+userRoutes.get('/me/data-export', async (c) => {
+  const user = c.get('user');
+  const data = await exportUserData(user.id);
+
+  c.header('Content-Type', 'application/json');
+  c.header('Content-Disposition', 'attachment; filename="vettr-data-export.json"');
+  return c.json(data, 200);
 });
 
 export { userRoutes };

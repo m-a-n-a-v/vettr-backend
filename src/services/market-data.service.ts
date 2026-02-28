@@ -20,6 +20,25 @@ import { InternalError } from '../utils/errors.js';
 // TypeScript CJS types don't reflect this, so we cast
 const yf = new (YahooFinance as any)({ suppressNotices: ['yahooSurvey'] }) as InstanceType<any>;
 
+/**
+ * Retry a function with exponential backoff (1s, 2s delays).
+ * Prevents transient Yahoo Finance failures from causing permanent data gaps.
+ */
+async function withRetry<T>(fn: () => Promise<T>, maxAttempts = 3): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastError = err;
+      if (attempt < maxAttempts) {
+        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+      }
+    }
+  }
+  throw lastError;
+}
+
 /** Yahoo Finance ticker suffix by exchange */
 const EXCHANGE_SUFFIX: Record<string, string> = {
   TSX: '.TO',
@@ -60,11 +79,12 @@ export async function refreshMarketData(ticker: string, exchange: string): Promi
 
   try {
     // Fetch quote (price/volume/cap) and quoteSummary (financials) in parallel
+    // Both calls use retry with exponential backoff to handle transient Yahoo Finance errors
     const [quoteResult, summaryResult] = await Promise.all([
-      yf.quote(yfTicker).catch(() => null),
-      yf.quoteSummary(yfTicker, {
+      withRetry(() => yf.quote(yfTicker)).catch(() => null),
+      withRetry(() => yf.quoteSummary(yfTicker, {
         modules: ['financialData', 'defaultKeyStatistics'],
-      }).catch(() => null),
+      })).catch(() => null),
     ]);
 
     if (!quoteResult) {

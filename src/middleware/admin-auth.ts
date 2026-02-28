@@ -1,6 +1,7 @@
 import type { Context, Next } from 'hono';
 import { env } from '../config/env.js';
 import { AuthRequiredError } from '../utils/errors.js';
+import crypto from 'crypto';
 
 /**
  * Admin auth middleware that checks for admin secret token
@@ -26,7 +27,11 @@ export async function adminAuthMiddleware(c: Context, next: Next): Promise<void>
     throw new AuthRequiredError('X-Admin-Secret header is required for admin endpoints');
   }
 
-  if (providedSecret !== adminSecret) {
+  // Use timing-safe comparison to prevent timing attacks
+  const a = Buffer.from(providedSecret);
+  const b = Buffer.from(adminSecret);
+  const safe = a.length === b.length && crypto.timingSafeEqual(a, b);
+  if (!safe) {
     throw new AuthRequiredError('Invalid admin secret');
   }
 

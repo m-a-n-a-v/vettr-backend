@@ -30,8 +30,8 @@ function validateListParams(query: Record<string, string | undefined>) {
   const limit = query.limit ? parseInt(query.limit, 10) : 25;
   const offset = query.offset ? parseInt(query.offset, 10) : 0;
 
-  if (isNaN(limit) || limit <= 0 || limit > 2000) {
-    throw new ValidationError('Limit must be a positive integer between 1 and 2000');
+  if (isNaN(limit) || limit <= 0 || limit > 100) {
+    throw new ValidationError('Limit must be a positive integer between 1 and 100');
   }
 
   if (isNaN(offset) || offset < 0) {
@@ -64,6 +64,29 @@ function extractFilters(query: Record<string, string | undefined>): Record<strin
   }
 
   return filters;
+}
+
+/**
+ * Fields that must never appear in list or export responses
+ */
+const SENSITIVE_FIELDS = new Set([
+  'passwordHash',
+  'password_hash',
+  'tokenHash',
+  'token_hash',
+]);
+
+/**
+ * Strips sensitive fields from a record before returning it to admin clients
+ */
+function stripSensitiveFields(record: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(record)) {
+    if (!SENSITIVE_FIELDS.has(key)) {
+      result[key] = value;
+    }
+  }
+  return result;
 }
 
 /**
@@ -152,7 +175,8 @@ export function createAdminCrudRoutes(config: CrudRouteConfig): Hono {
       params
     );
 
-    return c.json(paginated(result.items, result.pagination));
+    const sanitized = result.items.map(stripSensitiveFields);
+    return c.json(paginated(sanitized, result.pagination));
   });
 
   /**
@@ -168,7 +192,7 @@ export function createAdminCrudRoutes(config: CrudRouteConfig): Hono {
       id
     );
 
-    return c.json(success(record));
+    return c.json(success(stripSensitiveFields(record as Record<string, unknown>)));
   });
 
   /**
@@ -327,7 +351,7 @@ export function createAdminCrudRoutes(config: CrudRouteConfig): Hono {
       params
     );
 
-    const records = result.items;
+    const records = result.items.map(stripSensitiveFields);
 
     // Generate appropriate format
     if (format === 'csv') {

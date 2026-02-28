@@ -25,7 +25,9 @@ const envSchema = z.object({
   APPLE_CLIENT_ID: z.string().optional(),
 
   // CORS Configuration
-  CORS_ORIGIN: z.string().default('*'),
+  // In production, set to comma-separated list of allowed origins
+  // e.g. "https://vettr.app,https://vettr.ca,https://vettr-web.vercel.app"
+  CORS_ORIGIN: z.string().default('https://vettr.app,https://vettr.ca,https://vettr-web.vercel.app'),
 
   // Admin Configuration
   ADMIN_SECRET: z.string().optional(),

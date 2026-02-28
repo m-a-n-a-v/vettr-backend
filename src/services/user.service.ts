@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { db } from '../config/database.js';
-import { users, userSettings } from '../db/schema/index.js';
+import { users, userSettings, watchlistItems, alertRules, portfolios, refreshTokens } from '../db/schema/index.js';
 import { InternalError, NotFoundError } from '../utils/errors.js';
 
 export type UserProfile = typeof users.$inferSelect;
@@ -146,6 +146,89 @@ export async function getSettings(userId: string): Promise<Record<string, any>> 
  * Creates settings record if none exists, then merges the provided updates.
  * Returns the full merged settings object.
  */
+/**
+ * Permanently delete a user account and anonymise their PII.
+ * All linked data (portfolios, watchlist, alerts, tokens) is cascade-deleted by the DB.
+ * Complies with GDPR Art. 17 (Right to Erasure) and App Store guideline 4.7.
+ */
+export async function deleteUserAccount(userId: string): Promise<void> {
+  if (!db) {
+    throw new InternalError('Database not available');
+  }
+
+  const [user] = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+
+  if (!user) {
+    throw new NotFoundError('User not found');
+  }
+
+  // Anonymise PII before deletion so the email slot is freed for re-registration
+  const anonymisedEmail = `deleted-${userId}@vettr.invalid`;
+  await db
+    .update(users)
+    .set({
+      email: anonymisedEmail,
+      displayName: 'Deleted User',
+      avatarUrl: null,
+      passwordHash: null,
+      authProviderId: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(users.id, userId));
+
+  // Hard delete — cascade handles all child rows (refresh tokens, watchlist, portfolios, alerts, etc.)
+  await db.delete(users).where(eq(users.id, userId));
+}
+
+/**
+ * Export all data belonging to a user as a portable JSON bundle.
+ * Complies with GDPR Art. 15 (Right of Access) and Art. 20 (Data Portability).
+ */
+export async function exportUserData(userId: string): Promise<Record<string, any>> {
+  if (!db) {
+    throw new InternalError('Database not available');
+  }
+
+  const [profile] = await db
+    .select()
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+
+  if (!profile) {
+    throw new NotFoundError('User not found');
+  }
+
+  const [settings, watchlist, userAlertRules, userPortfolios] = await Promise.all([
+    db.select().from(userSettings).where(eq(userSettings.userId, userId)),
+    db.select().from(watchlistItems).where(eq(watchlistItems.userId, userId)),
+    db.select().from(alertRules).where(eq(alertRules.userId, userId)),
+    db.select().from(portfolios).where(eq(portfolios.userId, userId)),
+  ]);
+
+  return {
+    exported_at: new Date().toISOString(),
+    profile: {
+      id: profile.id,
+      email: profile.email,
+      display_name: profile.displayName,
+      avatar_url: profile.avatarUrl,
+      tier: profile.tier,
+      auth_provider: profile.authProvider,
+      created_at: profile.createdAt,
+      updated_at: profile.updatedAt,
+    },
+    settings: settings[0]?.settings ?? null,
+    watchlist,
+    alert_rules: userAlertRules,
+    portfolios: userPortfolios,
+  };
+}
+
 export async function updateSettings(
   userId: string,
   settings: Record<string, any>,

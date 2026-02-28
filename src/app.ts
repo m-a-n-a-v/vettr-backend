@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { OpenAPIHono } from '@hono/zod-openapi';
 import { swaggerUI } from '@hono/swagger-ui';
 import { cors } from 'hono/cors';
+import { compress } from 'hono/compress';
 import { secureHeaders } from 'hono/secure-headers';
 import { bodyLimit } from 'hono/body-limit';
 import { errorHandler } from './middleware/error-handler.js';
@@ -99,6 +100,9 @@ app.use('*', metricsTracker);
 // Security headers middleware
 // Adds X-Content-Type-Options, X-Frame-Options, X-XSS-Protection, and more
 app.use('*', secureHeaders());
+
+// Response compression (gzip/deflate)
+app.use('*', compress());
 
 // Request body size limit (1MB)
 app.use('*', bodyLimit({ maxSize: 1024 * 1024 }));

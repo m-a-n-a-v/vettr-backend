@@ -1,6 +1,6 @@
-import { asc, eq } from 'drizzle-orm';
+import { asc, eq, lt, or, and } from 'drizzle-orm';
 import { db } from '../config/database.js';
-import { stocks, cronJobRuns } from '../db/schema/index.js';
+import { stocks, cronJobRuns, refreshTokens } from '../db/schema/index.js';
 import { calculateVetrScore } from './vetr-score.service.js';
 import { detectRedFlags } from './red-flag.service.js';
 import { refreshMarketData } from './market-data.service.js';
@@ -510,3 +510,53 @@ export async function refreshRedFlagsChunk(chunkSize: number = 2000): Promise<Cr
   }
 }
 
+
+// --- Orphan Data Cleanup ---
+
+export interface CleanupOrphanDataResult {
+  refresh_tokens_deleted: number;
+  cron_job_runs_deleted: number;
+}
+
+/**
+ * Deletes stale authentication tokens and old cron run history.
+ *
+ * Removes:
+ *  - refresh_tokens rows that are expired (expiresAt < now) OR revoked (isRevoked = true)
+ *    but only those created more than 7 days ago to avoid racing with active token rotation.
+ *  - cron_job_runs rows with startedAt older than 7 days.
+ *
+ * Returns counts of deleted rows for observability.
+ */
+export async function cleanupOrphanData(): Promise<CleanupOrphanDataResult> {
+  if (!db) {
+    throw new InternalError('Database not available');
+  }
+
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+  // Delete expired or revoked refresh tokens that are older than 7 days
+  const deletedTokens = await db
+    .delete(refreshTokens)
+    .where(
+      and(
+        lt(refreshTokens.createdAt, sevenDaysAgo),
+        or(
+          lt(refreshTokens.expiresAt, new Date()),
+          eq(refreshTokens.isRevoked, true)
+        )
+      )
+    )
+    .returning({ id: refreshTokens.id });
+
+  // Delete cron job run history older than 7 days
+  const deletedRuns = await db
+    .delete(cronJobRuns)
+    .where(lt(cronJobRuns.startedAt, sevenDaysAgo))
+    .returning({ id: cronJobRuns.id });
+
+  return {
+    refresh_tokens_deleted: deletedTokens.length,
+    cron_job_runs_deleted: deletedRuns.length,
+  };
+}

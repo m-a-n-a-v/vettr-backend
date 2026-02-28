@@ -1,6 +1,7 @@
 import type { Context, Next } from 'hono';
 import { env } from '../config/env.js';
 import { AuthRequiredError } from '../utils/errors.js';
+import crypto from 'crypto';
 
 /**
  * Cron auth middleware that verifies Vercel cron requests
@@ -30,7 +31,15 @@ export async function cronAuthMiddleware(c: Context, next: Next): Promise<void> 
     ? authHeader.substring(7)
     : null;
 
-  if (!token || token !== cronSecret) {
+  if (!token) {
+    throw new AuthRequiredError('Invalid cron secret');
+  }
+
+  // Use timing-safe comparison to prevent timing attacks
+  const a = Buffer.from(token);
+  const b = Buffer.from(cronSecret);
+  const safe = a.length === b.length && crypto.timingSafeEqual(a, b);
+  if (!safe) {
     throw new AuthRequiredError('Invalid cron secret');
   }
 
