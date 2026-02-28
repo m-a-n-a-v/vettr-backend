@@ -19,6 +19,7 @@ export const financialData = pgTable('financial_data', {
   totalShares: bigint('total_shares', { mode: 'number' }),
   avgVol30d: doublePrecision('avg_vol_30d'),
   daysSinceLastPr: integer('days_since_last_pr'),
+  warrantStrikePrice: doublePrecision('warrant_strike_price'),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 }, (table) => ({

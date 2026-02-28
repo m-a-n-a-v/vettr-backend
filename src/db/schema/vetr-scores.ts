@@ -18,8 +18,13 @@ export const vetrScoreHistory = pgTable('vetr_score_history', {
   pedigreeSubScore: integer('pedigree_sub_score'),
   dilutionPenaltyScore: integer('dilution_penalty_score'),
   insiderAlignmentScore: integer('insider_alignment_score'),
+  sediInsiderScore: integer('sedi_insider_score'),
+  warrantOverhangScore: integer('warrant_overhang_score'),
   liquidityScore: integer('liquidity_score'),
   newsVelocityScore: integer('news_velocity_score'),
+  technicalMomentumScore: integer('technical_momentum_score'),
+  shortSqueezeScore: integer('short_squeeze_score'),
+  analystConsensusScore: integer('analyst_consensus_score'),
 
   // Pillar Weights (nullable)
   p1Weight: doublePrecision('p1_weight'),

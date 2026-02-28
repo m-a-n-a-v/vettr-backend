@@ -1,6 +1,11 @@
-import { eq, desc, and, gte } from 'drizzle-orm';
+import { eq, desc, and, gte, sql } from 'drizzle-orm';
 import { db } from '../config/database.js';
-import { executives, filings, stocks, vetrScoreHistory, financialData } from '../db/schema/index.js';
+import {
+  executives, filings, stocks, vetrScoreHistory, financialData,
+  financialSummary, shortInterest as shortInterestTable,
+  analystConsensus as analystConsensusTable, valuationMetrics,
+  insiderTransactions,
+} from '../db/schema/index.js';
 import { InternalError, NotFoundError } from '../utils/errors.js';
 import * as cache from './cache.service.js';
 
@@ -140,15 +145,17 @@ export function financialSurvivalScore(financialData: {
   monthly_burn: number | null;
   total_debt: number | null;
   total_assets: number | null;
+  free_cash_flow: number | null;
 }): { score: number; cashRunway: number; solvency: number } | null {
-  const { cash, monthly_burn, total_debt, total_assets } = financialData;
+  const { cash, monthly_burn, total_debt, total_assets, free_cash_flow } = financialData;
 
   // Check if all inputs are null → return null (pillar skipped)
   if (
     cash === null &&
     monthly_burn === null &&
     total_debt === null &&
-    total_assets === null
+    total_assets === null &&
+    free_cash_flow === null
   ) {
     return null;
   }
@@ -156,7 +163,10 @@ export function financialSurvivalScore(financialData: {
   // --- Cash Runway Sub-Metric (60%) ---
   let cashRunwayScore: number | null = null;
 
-  if (cash !== null && monthly_burn !== null) {
+  // FCF Rule: If Free Cash Flow > 0 (self-sustaining producer), Score = 100
+  if (free_cash_flow !== null && free_cash_flow > 0) {
+    cashRunwayScore = 100;
+  } else if (cash !== null && monthly_burn !== null) {
     if (monthly_burn <= 0) {
       // Profitable (cash generation) → full score
       cashRunwayScore = 100;
@@ -239,25 +249,26 @@ export function operationalEfficiencyScore(
     exploration_exp: number | null;
     r_and_d_exp: number | null;
     total_opex: number | null;
-    g_and_a_expense: number | null;
+    gross_profit: number | null;
     revenue: number | null;
   },
   sector: string
 ): { score: number; efficiencyRatio: number } | null {
-  const { exploration_exp, r_and_d_exp, total_opex, g_and_a_expense, revenue } = financialData;
+  const { exploration_exp, r_and_d_exp, total_opex, gross_profit, revenue } = financialData;
 
   // Check if all inputs are null → return null (pillar skipped)
   if (
     exploration_exp === null &&
     r_and_d_exp === null &&
     total_opex === null &&
-    g_and_a_expense === null &&
+    gross_profit === null &&
     revenue === null
   ) {
     return null;
   }
 
   let ratio: number | null = null;
+  let isPreRevenue = false;
 
   // Determine sector-specific formula
   const sectorLower = sector.toLowerCase();
@@ -267,35 +278,35 @@ export function operationalEfficiencyScore(
     sectorLower.includes('gold') ||
     sectorLower.includes('resource')
   ) {
-    // Mining sector: exploration_exp / total_opex
+    // Mining (Pre-Revenue): exploration_exp / total_opex
+    isPreRevenue = true;
     if (exploration_exp !== null && total_opex !== null) {
       if (total_opex === 0) {
-        // Edge case: no operating expenses → neutral score
         return { score: 50, efficiencyRatio: 0 };
       }
       ratio = exploration_exp / total_opex;
     }
   } else if (sectorLower.includes('tech') || sectorLower.includes('software')) {
-    // Tech sector: r_and_d_exp / total_opex
+    // Tech (Pre-Revenue): r_and_d_exp / total_opex
+    isPreRevenue = true;
     if (r_and_d_exp !== null && total_opex !== null) {
       if (total_opex === 0) {
-        // Edge case: no operating expenses → neutral score
         return { score: 50, efficiencyRatio: 0 };
       }
       ratio = r_and_d_exp / total_opex;
     }
   } else {
-    // General/all other sectors: (revenue - g_and_a_expense) / revenue
-    if (revenue !== null && g_and_a_expense !== null) {
+    // Producer/General: Gross Profit / Total Revenue
+    isPreRevenue = false;
+    if (gross_profit !== null && revenue !== null) {
       if (revenue === 0) {
-        // Edge case: no revenue → score 0
-        return { score: 0, efficiencyRatio: 0 };
+        // Edge case: no revenue → neutral score (not zero)
+        return { score: 50, efficiencyRatio: 0 };
       }
-      ratio = (revenue - g_and_a_expense) / revenue;
+      ratio = gross_profit / revenue;
     }
   }
 
-  // If ratio is still null, all required inputs for this sector are missing
   if (ratio === null) {
     return null;
   }
@@ -305,8 +316,11 @@ export function operationalEfficiencyScore(
     return { score: 100, efficiencyRatio: ratio };
   }
 
-  // Normalize: target ratio of 0.70 = 100 score
-  const score = Math.min(100, Math.round((ratio / 0.7) * 100));
+  // Normalize with sector-appropriate target
+  // Pre-Revenue Target: > 0.70 = 100 score
+  // Producer Target: > 0.30 = 100 score
+  const target = isPreRevenue ? 0.70 : 0.30;
+  const score = Math.min(100, Math.round((ratio / target) * 100));
 
   return {
     score,
@@ -349,9 +363,12 @@ export function shareholderStructureScore(
     shares_1yr_ago: number | null;
     insider_shares: number | null;
     total_shares: number | null;
+    warrant_strike_price: number | null;
+    current_price: number | null;
+    insider_net_buying_60d: number | null;
   }
-): { score: number; pedigree: number; dilution: number; insider: number } | null {
-  const { shares_current, shares_1yr_ago, insider_shares, total_shares } = financialData;
+): { score: number; pedigree: number; dilution: number; sediInsider: number; warrantOverhang: number } | null {
+  const { shares_current, shares_1yr_ago, insider_shares, total_shares, warrant_strike_price, current_price, insider_net_buying_60d } = financialData;
 
   // Check if all inputs are null → return null (pillar skipped)
   if (
@@ -359,12 +376,13 @@ export function shareholderStructureScore(
     shares_current === null &&
     shares_1yr_ago === null &&
     insider_shares === null &&
-    total_shares === null
+    total_shares === null &&
+    warrant_strike_price === null
   ) {
     return null;
   }
 
-  // --- Pedigree Sub-Metric (50%) ---
+  // --- Executive Pedigree Sub-Metric (30%) ---
   // PG = E×0.40 + C×0.25 + A×0.20 + M×0.15
   let pedigreeScore: number;
 
@@ -373,10 +391,9 @@ export function shareholderStructureScore(
     pedigreeScore = 50;
   } else {
     // E (Experience): Average years of experience * 5, max 100
-    // Use yearsAtCompany + estimated previous experience from previousCompanies
     const avgExperience =
       execList.reduce((sum, exec) => {
-        const previousYears = (exec.previousCompanies ?? []).length * 3; // ~3 years per previous company
+        const previousYears = (exec.previousCompanies ?? []).length * 3;
         return sum + exec.yearsAtCompany + previousYears;
       }, 0) / execList.length;
     const experienceScore = Math.min(100, avgExperience * 5);
@@ -390,30 +407,17 @@ export function shareholderStructureScore(
         }
       });
     });
-    const careerDiversityScore = Math.min(100, allPreviousCompanies.size * 10); // 10 unique companies = 100
+    const careerDiversityScore = Math.min(100, allPreviousCompanies.size * 10);
 
     // A (Academic): Education field mapping
-    // Map common education keywords to scores
     const educationMapping: Record<string, number> = {
-      phd: 100,
-      doctorate: 100,
-      mba: 90,
-      'master': 85,
-      'p.eng': 85,
-      'p.geo': 85,
-      cpa: 80,
-      cfa: 80,
-      fca: 80,
-      'bachelor': 70,
-      'b.sc': 70,
-      'b.a': 70,
-      'b.eng': 70,
-      'b.comm': 70,
-      diploma: 50,
-      certificate: 40,
+      phd: 100, doctorate: 100, mba: 90, 'master': 85,
+      'p.eng': 85, 'p.geo': 85, cpa: 80, cfa: 80, fca: 80,
+      'bachelor': 70, 'b.sc': 70, 'b.a': 70, 'b.eng': 70, 'b.comm': 70,
+      diploma: 50, certificate: 40,
     };
 
-    let academicScores: number[] = [];
+    const academicScores: number[] = [];
     execList.forEach((exec) => {
       if (exec.education) {
         const eduLower = exec.education.toLowerCase();
@@ -432,12 +436,11 @@ export function shareholderStructureScore(
     const academicScore =
       academicScores.length > 0
         ? academicScores.reduce((sum, s) => sum + s, 0) / academicScores.length
-        : 50; // Default 50 if no education data
+        : 50;
 
-    // M (Market Alignment): Default 50 (no market alignment data available)
+    // M (Market Alignment): Default 50
     const marketAlignmentScore = 50;
 
-    // Calculate Pedigree PG formula
     pedigreeScore = Math.round(
       experienceScore * 0.4 +
         careerDiversityScore * 0.25 +
@@ -450,46 +453,71 @@ export function shareholderStructureScore(
   let dilutionScore: number;
 
   if (shares_1yr_ago === null || shares_current === null) {
-    // No dilution data → default score 100 (benefit of the doubt)
     dilutionScore = 100;
   } else if (shares_1yr_ago === 0) {
-    // Edge case: avoid division by zero → score 100
     dilutionScore = 100;
   } else {
-    const dilutionPct = (shares_current - shares_1yr_ago) / shares_1yr_ago;
-
-    if (dilutionPct < 0) {
-      // Buyback (negative dilution) → full score
-      dilutionScore = 100;
+    const dilutionRate = (shares_current - shares_1yr_ago) / shares_1yr_ago;
+    if (dilutionRate < 0) {
+      dilutionScore = 100; // Buybacks
     } else {
-      // Dilution penalty: score = max(0, 100 - dilution_pct * 200)
-      // 50% dilution = 0 score, 0% dilution = 100 score
-      dilutionScore = Math.max(0, Math.round(100 - dilutionPct * 200));
+      dilutionScore = Math.max(0, Math.round(100 - dilutionRate * 200));
     }
   }
 
-  // --- Insider Alignment Sub-Metric (20%) ---
-  let insiderScore: number;
+  // --- SEDI Insider Conviction Sub-Metric (20%) - Daily Dynamic ---
+  let sediInsiderScore: number;
 
   if (insider_shares === null || total_shares === null || total_shares === 0) {
-    // No insider ownership data → default score 50
-    insiderScore = 50;
+    sediInsiderScore = 50;
   } else {
     const ownershipPct = insider_shares / total_shares;
-    // Target 20% ownership = 100 score
-    insiderScore = Math.min(100, Math.round((ownershipPct / 0.2) * 100));
+    // Base score: target 20% ownership = 100
+    sediInsiderScore = Math.min(100, Math.round((ownershipPct / 0.2) * 100));
   }
 
-  // --- Combine Sub-Metrics ---
+  // Dynamic Adjuster: Track Net Open Market Buying over trailing 60 days
+  if (insider_net_buying_60d !== null) {
+    if (insider_net_buying_60d > 50000) {
+      // C-Suite Net Buying > $50,000 → add 20 points
+      sediInsiderScore = Math.min(100, sediInsiderScore + 20);
+    } else if (insider_net_buying_60d < -50000) {
+      // Net Selling > $50,000 → subtract 20 points
+      sediInsiderScore = Math.max(0, sediInsiderScore - 20);
+    }
+  }
+
+  // --- Warrant Overhang Proximity Sub-Metric (20%) - Hourly Dynamic ---
+  let warrantOverhangScore: number;
+
+  if (warrant_strike_price === null || current_price === null || current_price === 0) {
+    // No warrant data → default 100 (no overhang penalty)
+    warrantOverhangScore = 100;
+  } else {
+    const distance = (warrant_strike_price - current_price) / current_price;
+    if (distance < 0) {
+      // In The Money (ITM) → score = 0
+      warrantOverhangScore = 0;
+    } else if (distance <= 0.15) {
+      // Within 15% → linear score
+      warrantOverhangScore = Math.round((distance / 0.15) * 100);
+    } else {
+      // Far out of money → no overhang concern
+      warrantOverhangScore = 100;
+    }
+  }
+
+  // --- Combine Sub-Metrics (30/30/20/20 weights) ---
   const finalScore = Math.round(
-    pedigreeScore * 0.5 + dilutionScore * 0.3 + insiderScore * 0.2
+    pedigreeScore * 0.30 + dilutionScore * 0.30 + sediInsiderScore * 0.20 + warrantOverhangScore * 0.20
   );
 
   return {
     score: finalScore,
     pedigree: pedigreeScore,
     dilution: dilutionScore,
-    insider: insiderScore,
+    sediInsider: sediInsiderScore,
+    warrantOverhang: warrantOverhangScore,
   };
 }
 
@@ -515,82 +543,131 @@ export function marketSentimentScore(
   financialData: {
     avg_vol_30d: number | null;
     days_since_last_pr: number | null;
+    twenty_dma: number | null;
+    short_interest: number | null;
+    total_float: number | null;
+    analyst_target_avg: number | null;
   },
   filingList: FilingRow[]
-): { score: number; liquidity: number; newsVelocity: number } | null {
-  const { avg_vol_30d, days_since_last_pr } = financialData;
+): { score: number; liquidity: number; technicalMomentum: number; newsVelocity: number; shortSqueeze: number; analystConsensus: number } | null {
+  const { avg_vol_30d, days_since_last_pr, twenty_dma, short_interest, total_float, analyst_target_avg } = financialData;
 
   // Check if all inputs are null → return null (pillar skipped)
-  if (avg_vol_30d === null && stock.price === null && days_since_last_pr === null && filingList.length === 0) {
+  if (
+    avg_vol_30d === null && stock.price === null &&
+    days_since_last_pr === null && filingList.length === 0 &&
+    twenty_dma === null && short_interest === null &&
+    analyst_target_avg === null
+  ) {
     return null;
   }
 
-  // --- Liquidity Health Sub-Metric (60%) ---
-  let liquidityScore: number | null = null;
+  // Sub-metric weights: Liquidity 20%, Tech Momentum 25%, News 15%, Short Squeeze 20%, Analyst 20%
+  const subWeights = {
+    liquidity: 0.20,
+    technicalMomentum: 0.25,
+    newsVelocity: 0.15,
+    shortSqueeze: 0.20,
+    analystConsensus: 0.20,
+  };
 
+  // --- Liquidity Health (20%) - Hourly Dynamic ---
+  let liquidityScore: number | null = null;
   if (avg_vol_30d !== null && stock.price !== null) {
-    // Daily volume value = avg_vol_30d * price
     const dailyVolValue = avg_vol_30d * stock.price;
-    // Normalize to $100k = 100 score
     liquidityScore = Math.min(100, Math.round((dailyVolValue / 100000) * 100));
   }
 
-  // --- News Velocity Sub-Metric (40%) ---
-  let newsVelocityScore: number | null = null;
-  let daysSinceNews: number | null = null;
-
-  // Use days_since_last_pr if available
-  if (days_since_last_pr !== null) {
-    daysSinceNews = days_since_last_pr;
-  } else if (filingList.length > 0) {
-    // Fallback: compute from most recent filing
-    const sortedByDate = [...filingList].sort((a, b) => b.date.getTime() - a.date.getTime());
-    const mostRecent = sortedByDate[0];
-    const now = new Date();
-    daysSinceNews = Math.round((now.getTime() - mostRecent.date.getTime()) / (1000 * 60 * 60 * 24));
-  } else {
-    // Default to 90 days if both are null
-    daysSinceNews = 90;
-  }
-
-  // Calculate News Velocity score based on days since last news
-  if (daysSinceNews !== null) {
-    if (daysSinceNews < 14) {
-      // Recent news → full score
-      newsVelocityScore = 100;
-    } else if (daysSinceNews > 60) {
-      // Stale news → zero score
-      newsVelocityScore = 0;
+  // --- Technical Momentum (25%) - Hourly Dynamic ---
+  let technicalMomentumScore: number | null = null;
+  if (stock.price !== null && twenty_dma !== null && twenty_dma > 0) {
+    const momentumRatio = stock.price / twenty_dma;
+    if (momentumRatio > 1.05) {
+      technicalMomentumScore = 100; // Strong Uptrend
+    } else if (momentumRatio < 0.95) {
+      technicalMomentumScore = 0; // Downtrend
     } else {
-      // Linear decay from 100 (14d) to 0 (60d)
-      // score = 100 - ((days - 14) * 100) / 46
-      newsVelocityScore = Math.max(0, Math.round(100 - ((daysSinceNews - 14) * 100) / 46));
+      technicalMomentumScore = Math.round(((momentumRatio - 0.95) / 0.10) * 100);
     }
   }
 
-  // --- Combine Sub-Metrics ---
-  // If both are null, return null
-  if (liquidityScore === null && newsVelocityScore === null) {
+  // --- News Velocity (15%) ---
+  let newsVelocityScore: number | null = null;
+  let daysSinceNews: number | null = null;
+
+  if (days_since_last_pr !== null) {
+    daysSinceNews = days_since_last_pr;
+  } else if (filingList.length > 0) {
+    const sortedByDate = [...filingList].sort((a, b) => b.date.getTime() - a.date.getTime());
+    const now = new Date();
+    daysSinceNews = Math.round((now.getTime() - sortedByDate[0].date.getTime()) / (1000 * 60 * 60 * 24));
+  } else {
+    daysSinceNews = 90; // Default to 90 days if null
+  }
+
+  if (daysSinceNews !== null) {
+    if (daysSinceNews < 14) {
+      newsVelocityScore = 100;
+    } else if (daysSinceNews > 60) {
+      newsVelocityScore = 0;
+    } else {
+      newsVelocityScore = Math.max(0, Math.round(100 - ((daysSinceNews - 14) / 46) * 100));
+    }
+  }
+
+  // --- Short Squeeze / Bear Risk (20%) - NEW ---
+  let shortSqueezeScore: number | null = null;
+  if (short_interest !== null && total_float !== null && total_float > 0) {
+    const shortRate = short_interest / total_float;
+    if (shortRate > 0.15) {
+      shortSqueezeScore = 0; // Severe institutional bearishness
+    } else {
+      shortSqueezeScore = Math.max(0, Math.round(100 - (shortRate / 0.15) * 100));
+    }
+  } else {
+    // Default to 100 if null (no penalty for missing data)
+    shortSqueezeScore = 100;
+  }
+
+  // --- Analyst Consensus Distance (20%) - NEW ---
+  let analystConsensusScore: number | null = null;
+  if (analyst_target_avg !== null && stock.price !== null && stock.price > 0) {
+    const upside = (analyst_target_avg - stock.price) / stock.price;
+    // Target is 50% upside from current price
+    analystConsensusScore = Math.max(0, Math.min(100, Math.round((upside / 0.50) * 100)));
+  } else {
+    // Default to 50 if null (don't penalize undiscovered microcaps)
+    analystConsensusScore = 50;
+  }
+
+  // --- Combine Sub-Metrics with proportional re-weighting for nulls ---
+  const subMetrics = [
+    { key: 'liquidity', score: liquidityScore, weight: subWeights.liquidity },
+    { key: 'technicalMomentum', score: technicalMomentumScore, weight: subWeights.technicalMomentum },
+    { key: 'newsVelocity', score: newsVelocityScore, weight: subWeights.newsVelocity },
+    { key: 'shortSqueeze', score: shortSqueezeScore, weight: subWeights.shortSqueeze },
+    { key: 'analystConsensus', score: analystConsensusScore, weight: subWeights.analystConsensus },
+  ];
+
+  const available = subMetrics.filter((m) => m.score !== null);
+  if (available.length === 0) {
     return null;
   }
 
-  // If one is null, use only the available metric
-  let finalScore: number;
-  if (liquidityScore !== null && newsVelocityScore !== null) {
-    // Both available → weighted combination
-    finalScore = Math.round(liquidityScore * 0.6 + newsVelocityScore * 0.4);
-  } else if (liquidityScore !== null) {
-    // Only liquidity available
-    finalScore = liquidityScore;
-  } else {
-    // Only news velocity available
-    finalScore = newsVelocityScore!;
+  const totalAvailableWeight = available.reduce((sum, m) => sum + m.weight, 0);
+  let finalScore = 0;
+  for (const m of available) {
+    finalScore += m.score! * (m.weight / totalAvailableWeight);
   }
+  finalScore = Math.round(finalScore);
 
   return {
     score: finalScore,
     liquidity: liquidityScore ?? 0,
+    technicalMomentum: technicalMomentumScore ?? 0,
     newsVelocity: newsVelocityScore ?? 0,
+    shortSqueeze: shortSqueezeScore ?? 0,
+    analystConsensus: analystConsensusScore ?? 0,
   };
 }
 
@@ -692,7 +769,8 @@ export interface VetrScoreResult {
       sub_scores: {
         pedigree: number;
         dilution_penalty: number;
-        insider_alignment: number;
+        sedi_insider_conviction: number;
+        warrant_overhang: number;
       };
     };
     market_sentiment: {
@@ -700,7 +778,10 @@ export interface VetrScoreResult {
       weight: number;
       sub_scores: {
         liquidity: number;
+        technical_momentum: number;
         news_velocity: number;
+        short_squeeze: number;
+        analyst_consensus: number;
       };
     };
   };
@@ -762,12 +843,45 @@ export async function calculateVetrScore(ticker: string): Promise<VetrScoreResul
     throw new NotFoundError(`Stock with ticker ${upperTicker} not found`);
   }
 
-  // Fetch financial_data, executives, and filings in parallel
-  const [financialDataRow, execList, filingList] = await Promise.all([
+  // Fetch all data sources in parallel
+  const stockId = stock.id;
+  const sixtyDaysAgo = new Date();
+  sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
+
+  const [financialDataRow, execList, filingList, finSummaryRow, shortInterestRow, analystRow, valuationRow, insiderTxns] = await Promise.all([
     getFinancialDataForTicker(upperTicker),
     getExecutivesForTicker(upperTicker),
     getFilingsForTicker(upperTicker),
+    // Sibling table queries
+    db ? db.select().from(financialSummary).where(eq(financialSummary.stockId, stockId)).limit(1).then(r => r[0] ?? null) : Promise.resolve(null),
+    db ? db.select().from(shortInterestTable).where(eq(shortInterestTable.stockId, stockId)).limit(1).then(r => r[0] ?? null) : Promise.resolve(null),
+    db ? db.select().from(analystConsensusTable).where(eq(analystConsensusTable.stockId, stockId)).limit(1).then(r => r[0] ?? null) : Promise.resolve(null),
+    db ? db.select().from(valuationMetrics).where(eq(valuationMetrics.stockId, stockId)).limit(1).then(r => r[0] ?? null) : Promise.resolve(null),
+    // Insider transactions from last 60 days for SEDI dynamic adjuster
+    db ? db.select().from(insiderTransactions).where(
+      and(
+        eq(insiderTransactions.stockId, stockId),
+        gte(insiderTransactions.transactionDate, sixtyDaysAgo)
+      )
+    ) : Promise.resolve([]),
   ]);
+
+  // Compute insider net buying over trailing 60 days
+  // Positive = net buying, negative = net selling
+  let insiderNetBuying60d: number | null = null;
+  if (insiderTxns && insiderTxns.length > 0) {
+    insiderNetBuying60d = 0;
+    for (const txn of insiderTxns) {
+      if (txn.value === null) continue;
+      const textLower = (txn.transactionText ?? '').toLowerCase();
+      // Identify buys vs sells from transaction text
+      if (textLower.includes('purchase') || textLower.includes('acquisition') || textLower.includes('buy')) {
+        insiderNetBuying60d += Math.abs(txn.value);
+      } else if (textLower.includes('sale') || textLower.includes('disposition') || textLower.includes('sell')) {
+        insiderNetBuying60d -= Math.abs(txn.value);
+      }
+    }
+  }
 
   // If no financial_data row exists, create a placeholder with all nulls
   const financialInputs = financialDataRow ?? {
@@ -786,6 +900,7 @@ export async function calculateVetrScore(ticker: string): Promise<VetrScoreResul
     totalShares: null,
     avgVol30d: null,
     daysSinceLastPr: null,
+    warrantStrikePrice: null,
   } as FinancialDataRow;
 
   // --- Calculate 4 Pillar Scores ---
@@ -796,6 +911,7 @@ export async function calculateVetrScore(ticker: string): Promise<VetrScoreResul
     monthly_burn: financialInputs.monthlyBurn,
     total_debt: financialInputs.totalDebt,
     total_assets: financialInputs.totalAssets,
+    free_cash_flow: finSummaryRow?.freeCashFlow ?? null,
   });
 
   // P2: Operational Efficiency (25%)
@@ -804,7 +920,7 @@ export async function calculateVetrScore(ticker: string): Promise<VetrScoreResul
       exploration_exp: financialInputs.explorationExp,
       r_and_d_exp: financialInputs.rAndDExp,
       total_opex: financialInputs.totalOpex,
-      g_and_a_expense: financialInputs.gAndAExpense,
+      gross_profit: finSummaryRow?.grossProfit ?? null,
       revenue: financialInputs.revenue,
     },
     stock.sector
@@ -816,6 +932,9 @@ export async function calculateVetrScore(ticker: string): Promise<VetrScoreResul
     shares_1yr_ago: financialInputs.shares1YrAgo,
     insider_shares: financialInputs.insiderShares,
     total_shares: financialInputs.totalShares,
+    warrant_strike_price: financialInputs.warrantStrikePrice ?? null,
+    current_price: stock.price,
+    insider_net_buying_60d: insiderNetBuying60d,
   });
 
   // P4: Market Sentiment (15%)
@@ -824,6 +943,10 @@ export async function calculateVetrScore(ticker: string): Promise<VetrScoreResul
     {
       avg_vol_30d: financialInputs.avgVol30d,
       days_since_last_pr: financialInputs.daysSinceLastPr,
+      twenty_dma: valuationRow?.fiftyDayAverage ?? null,
+      short_interest: shortInterestRow?.shortShares ?? null,
+      total_float: finSummaryRow?.floatShares ?? null,
+      analyst_target_avg: analystRow?.priceTarget ?? null,
     },
     filingList
   );
@@ -883,7 +1006,8 @@ export async function calculateVetrScore(ticker: string): Promise<VetrScoreResul
         sub_scores: {
           pedigree: p3Result?.pedigree ?? 0,
           dilution_penalty: p3Result?.dilution ?? 0,
-          insider_alignment: p3Result?.insider ?? 0,
+          sedi_insider_conviction: p3Result?.sediInsider ?? 0,
+          warrant_overhang: p3Result?.warrantOverhang ?? 0,
         },
       },
       market_sentiment: {
@@ -891,7 +1015,10 @@ export async function calculateVetrScore(ticker: string): Promise<VetrScoreResul
         weight: adjustedWeights.market_sentiment,
         sub_scores: {
           liquidity: p4Result?.liquidity ?? 0,
+          technical_momentum: p4Result?.technicalMomentum ?? 0,
           news_velocity: p4Result?.newsVelocity ?? 0,
+          short_squeeze: p4Result?.shortSqueeze ?? 0,
+          analyst_consensus: p4Result?.analystConsensus ?? 0,
         },
       },
     },
@@ -939,9 +1066,14 @@ async function saveScoreToHistory(ticker: string, result: VetrScoreResult): Prom
       efficiencyScore: Math.round(result.components.operational_efficiency.sub_scores.efficiency_ratio * 100), // Convert ratio to 0-100 score
       pedigreeSubScore: result.components.shareholder_structure.sub_scores.pedigree,
       dilutionPenaltyScore: result.components.shareholder_structure.sub_scores.dilution_penalty,
-      insiderAlignmentScore: result.components.shareholder_structure.sub_scores.insider_alignment,
+      insiderAlignmentScore: result.components.shareholder_structure.sub_scores.sedi_insider_conviction,
+      sediInsiderScore: result.components.shareholder_structure.sub_scores.sedi_insider_conviction,
+      warrantOverhangScore: result.components.shareholder_structure.sub_scores.warrant_overhang,
       liquidityScore: result.components.market_sentiment.sub_scores.liquidity,
       newsVelocityScore: result.components.market_sentiment.sub_scores.news_velocity,
+      technicalMomentumScore: result.components.market_sentiment.sub_scores.technical_momentum,
+      shortSqueezeScore: result.components.market_sentiment.sub_scores.short_squeeze,
+      analystConsensusScore: result.components.market_sentiment.sub_scores.analyst_consensus,
       // Weights
       p1Weight: result.components.financial_survival.weight,
       p2Weight: result.components.operational_efficiency.weight,
