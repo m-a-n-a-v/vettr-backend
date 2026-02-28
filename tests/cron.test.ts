@@ -20,18 +20,18 @@ vi.mock('../src/config/env.js', () => ({
 }));
 
 // Mock the cron service with hoisted functions to share across all test instances
-const { mockRefreshScoresChunk, mockRefreshRedFlagsChunk, mockRefreshAllChunked } = vi.hoisted(
+const { mockRefreshMarketDataChunk, mockRefreshScoresChunk, mockRefreshRedFlagsChunk } = vi.hoisted(
   () => ({
+    mockRefreshMarketDataChunk: vi.fn(),
     mockRefreshScoresChunk: vi.fn(),
     mockRefreshRedFlagsChunk: vi.fn(),
-    mockRefreshAllChunked: vi.fn(),
   })
 );
 
 vi.mock('../src/services/cron.service.js', () => ({
+  refreshMarketDataChunk: mockRefreshMarketDataChunk,
   refreshScoresChunk: mockRefreshScoresChunk,
   refreshRedFlagsChunk: mockRefreshRedFlagsChunk,
-  refreshAllChunked: mockRefreshAllChunked,
 }));
 
 // Mock cache service
@@ -91,7 +91,7 @@ describe('Cron Endpoints Integration Tests', () => {
 
   describe('Authentication', () => {
     it('should return 401 when CRON_SECRET is set and no Authorization header is provided', async () => {
-      const response = await app.request('/v1/cron/refresh-all', {
+      const response = await app.request('/v1/cron/scores', {
         method: 'GET',
       });
 
@@ -100,11 +100,11 @@ describe('Cron Endpoints Integration Tests', () => {
 
       expect(data.success).toBe(false);
       expect(data.error.code).toBe('AUTH_REQUIRED');
-      expect(mockRefreshAllChunked).not.toHaveBeenCalled();
+      expect(mockRefreshScoresChunk).not.toHaveBeenCalled();
     });
 
     it('should return 401 when Authorization header has wrong token', async () => {
-      const response = await app.request('/v1/cron/refresh-all', {
+      const response = await app.request('/v1/cron/scores', {
         method: 'GET',
         headers: {
           Authorization: 'Bearer wrong-token',
@@ -116,11 +116,11 @@ describe('Cron Endpoints Integration Tests', () => {
 
       expect(data.success).toBe(false);
       expect(data.error.code).toBe('AUTH_REQUIRED');
-      expect(mockRefreshAllChunked).not.toHaveBeenCalled();
+      expect(mockRefreshScoresChunk).not.toHaveBeenCalled();
     });
 
     it('should return 401 when Authorization header is missing Bearer prefix', async () => {
-      const response = await app.request('/v1/cron/refresh-all', {
+      const response = await app.request('/v1/cron/scores', {
         method: 'GET',
         headers: {
           Authorization: 'test-cron-secret',
@@ -135,41 +135,23 @@ describe('Cron Endpoints Integration Tests', () => {
     });
 
     it('should accept valid Bearer token', async () => {
-      mockRefreshAllChunked.mockResolvedValue({
-        scores: {
-          job: 'refresh-scores',
-          stocks_processed: 10,
-          succeeded: 10,
-          failed: 0,
-          failures: [],
-          duration_ms: 1500,
-          completed_at: new Date().toISOString(),
-          chunk_info: {
-            current_offset: 0,
-            chunk_size: 100,
-            total_stocks: 1300,
-            is_complete: false,
-          },
+      mockRefreshScoresChunk.mockResolvedValue({
+        job: 'refresh-scores',
+        stocks_processed: 10,
+        succeeded: 10,
+        failed: 0,
+        failures: [],
+        duration_ms: 1500,
+        completed_at: new Date().toISOString(),
+        chunk_info: {
+          current_offset: 0,
+          chunk_size: 100,
+          total_stocks: 1300,
+          is_complete: false,
         },
-        red_flags: {
-          job: 'refresh-red-flags',
-          stocks_processed: 10,
-          succeeded: 10,
-          failed: 0,
-          failures: [],
-          duration_ms: 1200,
-          completed_at: new Date().toISOString(),
-          chunk_info: {
-            current_offset: 0,
-            chunk_size: 100,
-            total_stocks: 1300,
-            is_complete: false,
-          },
-        },
-        total_duration_ms: 2700,
       });
 
-      const response = await app.request('/v1/cron/refresh-all', {
+      const response = await app.request('/v1/cron/scores', {
         method: 'GET',
         headers: {
           Authorization: `Bearer ${CRON_SECRET}`,
@@ -177,7 +159,7 @@ describe('Cron Endpoints Integration Tests', () => {
       });
 
       expect(response.status).toBe(200);
-      expect(mockRefreshAllChunked).toHaveBeenCalled();
+      expect(mockRefreshScoresChunk).toHaveBeenCalled();
     });
   });
 
@@ -366,123 +348,11 @@ describe('Cron Endpoints Integration Tests', () => {
     });
   });
 
-  describe('GET /v1/cron/refresh-all', () => {
-    it('should return 200 with combined scores and red_flags results', async () => {
-      const mockResult = {
-        scores: {
-          job: 'refresh-scores',
-          stocks_processed: 100,
-          succeeded: 99,
-          failed: 1,
-          failures: [{ ticker: 'MSFT', error: 'Timeout' }],
-          duration_ms: 42000,
-          completed_at: '2026-02-19T10:00:00.000Z',
-          chunk_info: {
-            current_offset: 200,
-            chunk_size: 100,
-            total_stocks: 1300,
-            is_complete: false,
-          },
-        },
-        red_flags: {
-          job: 'refresh-red-flags',
-          stocks_processed: 100,
-          succeeded: 100,
-          failed: 0,
-          failures: [],
-          duration_ms: 38000,
-          completed_at: '2026-02-19T10:01:00.000Z',
-          chunk_info: {
-            current_offset: 200,
-            chunk_size: 100,
-            total_stocks: 1300,
-            is_complete: false,
-          },
-        },
-        total_duration_ms: 80000,
-      };
-
-      mockRefreshAllChunked.mockResolvedValue(mockResult);
-
-      const response = await app.request('/v1/cron/refresh-all', {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${CRON_SECRET}`,
-        },
-      });
-
-      expect(response.status).toBe(200);
-      const data = await response.json();
-
-      expect(data.success).toBe(true);
-      expect(data.data).toHaveProperty('scores');
-      expect(data.data).toHaveProperty('red_flags');
-      expect(data.data).toHaveProperty('total_duration_ms');
-      expect(data.data.total_duration_ms).toBe(80000);
-      expect(data.data.scores.job).toBe('refresh-scores');
-      expect(data.data.red_flags.job).toBe('refresh-red-flags');
-
-      expect(mockRefreshAllChunked).toHaveBeenCalled();
-    });
-
-    it('should propagate chunk_info from both jobs', async () => {
-      const mockResult = {
-        scores: {
-          job: 'refresh-scores',
-          stocks_processed: 50,
-          succeeded: 50,
-          failed: 0,
-          failures: [],
-          duration_ms: 20000,
-          completed_at: new Date().toISOString(),
-          chunk_info: {
-            current_offset: 50,
-            chunk_size: 100,
-            total_stocks: 1300,
-            is_complete: false,
-          },
-        },
-        red_flags: {
-          job: 'refresh-red-flags',
-          stocks_processed: 50,
-          succeeded: 50,
-          failed: 0,
-          failures: [],
-          duration_ms: 18000,
-          completed_at: new Date().toISOString(),
-          chunk_info: {
-            current_offset: 50,
-            chunk_size: 100,
-            total_stocks: 1300,
-            is_complete: false,
-          },
-        },
-        total_duration_ms: 38000,
-      };
-
-      mockRefreshAllChunked.mockResolvedValue(mockResult);
-
-      const response = await app.request('/v1/cron/refresh-all', {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${CRON_SECRET}`,
-        },
-      });
-
-      expect(response.status).toBe(200);
-      const data = await response.json();
-
-      expect(data.data.scores.chunk_info).toBeDefined();
-      expect(data.data.red_flags.chunk_info).toBeDefined();
-      expect(data.data.scores.chunk_info.current_offset).toBe(50);
-      expect(data.data.red_flags.chunk_info.current_offset).toBe(50);
-    });
-  });
-
   describe('GET /v1/cron/status', () => {
     it('should return 200 with progress information', async () => {
-      // Mock cache.get to return offsets
+      // Mock cache.get to return offsets (order: market-data, scores, red-flags)
       mockGet
+        .mockResolvedValueOnce(200) // market_data_offset
         .mockResolvedValueOnce(300) // scores_offset
         .mockResolvedValueOnce(400); // red_flags_offset
 
@@ -497,13 +367,16 @@ describe('Cron Endpoints Integration Tests', () => {
       const data = await response.json();
 
       expect(data.success).toBe(true);
+      expect(data.data).toHaveProperty('market_data_offset');
       expect(data.data).toHaveProperty('scores_offset');
       expect(data.data).toHaveProperty('red_flags_offset');
       expect(data.data).toHaveProperty('total_stocks');
+      expect(data.data).toHaveProperty('market_data_progress_pct');
       expect(data.data).toHaveProperty('scores_progress_pct');
       expect(data.data).toHaveProperty('red_flags_progress_pct');
 
-      // Verify cache.get was called for both offsets
+      // Verify cache.get was called for all three offsets
+      expect(mockGet).toHaveBeenCalledWith('cron:market-data:offset');
       expect(mockGet).toHaveBeenCalledWith('cron:scores:offset');
       expect(mockGet).toHaveBeenCalledWith('cron:red-flags:offset');
     });
@@ -522,16 +395,19 @@ describe('Cron Endpoints Integration Tests', () => {
       expect(response.status).toBe(200);
       const data = await response.json();
 
+      expect(data.data.market_data_offset).toBe(0);
       expect(data.data.scores_offset).toBe(0);
       expect(data.data.red_flags_offset).toBe(0);
+      expect(data.data.market_data_progress_pct).toBe(0);
       expect(data.data.scores_progress_pct).toBe(0);
       expect(data.data.red_flags_progress_pct).toBe(0);
     });
 
     it('should calculate progress percentages correctly', async () => {
-      // Mock offsets: 650 out of 1300 = 50%
+      // Mock offsets: market-data 325/1300=25%, scores 650/1300=50%, red-flags 1300/1300=100%
       mockGet
-        .mockResolvedValueOnce(650) // scores_offset
+        .mockResolvedValueOnce(325)  // market_data_offset (25%)
+        .mockResolvedValueOnce(650)  // scores_offset (50%)
         .mockResolvedValueOnce(1300); // red_flags_offset (100%)
 
       const response = await app.request('/v1/cron/status', {
@@ -544,6 +420,7 @@ describe('Cron Endpoints Integration Tests', () => {
       expect(response.status).toBe(200);
       const data = await response.json();
 
+      expect(data.data.market_data_progress_pct).toBe(25);
       expect(data.data.scores_progress_pct).toBe(50);
       expect(data.data.red_flags_progress_pct).toBe(100);
     });
@@ -576,10 +453,11 @@ describe('Cron Endpoints Integration Tests', () => {
       expect(data.data).toHaveProperty('message');
       expect(data.data.message).toContain('reset');
 
-      // Verify cache.del was called for both cursor keys
+      // Verify cache.del was called for all three cursor keys
+      expect(mockDel).toHaveBeenCalledWith('cron:market-data:offset');
       expect(mockDel).toHaveBeenCalledWith('cron:scores:offset');
       expect(mockDel).toHaveBeenCalledWith('cron:red-flags:offset');
-      expect(mockDel).toHaveBeenCalledTimes(2);
+      expect(mockDel).toHaveBeenCalledTimes(3);
     });
 
     it('should require authentication', async () => {
@@ -606,7 +484,7 @@ describe('Cron Endpoints Integration Tests', () => {
       });
 
       expect(response.status).toBe(200);
-      expect(mockDel).toHaveBeenCalledTimes(2);
+      expect(mockDel).toHaveBeenCalledTimes(3);
     });
   });
 
