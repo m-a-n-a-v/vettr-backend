@@ -316,6 +316,11 @@ export function operationalEfficiencyScore(
     return { score: 100, efficiencyRatio: ratio };
   }
 
+  // Edge case: negative ratio (e.g. negative gross profit) → floor at 0
+  if (ratio < 0) {
+    return { score: 0, efficiencyRatio: ratio };
+  }
+
   // Normalize with sector-appropriate target
   // Pre-Revenue Target: > 0.70 = 100 score
   // Producer Target: > 0.30 = 100 score
