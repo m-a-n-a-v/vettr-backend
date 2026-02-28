@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { authMiddleware } from '../middleware/auth.js';
 import type { AuthUser } from '../middleware/auth.js';
 import { validateBody } from '../middleware/validator.js';
-import { getProfile, updateProfile, getSettings, updateSettings, deleteUserAccount, exportUserData } from '../services/user.service.js';
+import { getProfile, updateProfile, getSettings, updateSettings, deleteUserAccount, exportUserData, acceptTerms } from '../services/user.service.js';
 import { success } from '../utils/response.js';
 
 type Variables = {
@@ -27,6 +27,9 @@ userRoutes.get('/me', async (c) => {
     avatar_url: profile.avatarUrl,
     tier: profile.tier,
     auth_provider: profile.authProvider,
+    tos_accepted_at: profile.tosAcceptedAt?.toISOString() ?? null,
+    privacy_accepted_at: profile.privacyAcceptedAt?.toISOString() ?? null,
+    tos_version: profile.tosVersion ?? null,
     created_at: profile.createdAt.toISOString(),
     updated_at: profile.updatedAt.toISOString(),
   };
@@ -94,6 +97,21 @@ userRoutes.delete('/me', async (c) => {
   const user = c.get('user');
   await deleteUserAccount(user.id);
   return c.body(null, 204);
+});
+
+// Zod schema for POST /users/me/accept-terms
+const acceptTermsSchema = z.object({
+  tos_version: z.string().min(1).max(20),
+  accept_tos: z.boolean(),
+  accept_privacy: z.boolean(),
+});
+
+// POST /users/me/accept-terms - Record ToS/Privacy consent (CASL, PIPEDA, App Store 3.1.1)
+userRoutes.post('/me/accept-terms', validateBody(acceptTermsSchema), async (c) => {
+  const user = c.get('user');
+  const body = await c.req.json();
+  await acceptTerms(user.id, body);
+  return c.json(success({ accepted: true }), 200);
 });
 
 // GET /users/me/data-export - Export all user data as JSON (GDPR Art. 15 / Art. 20)

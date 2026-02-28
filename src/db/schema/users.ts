@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, timestamp, boolean } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, timestamp, boolean, text } from 'drizzle-orm/pg-core';
 
 /**
  * Users table - stores user accounts with support for multiple auth providers
@@ -12,6 +12,9 @@ export const users = pgTable('users', {
   passwordHash: varchar('password_hash', { length: 255 }),
   authProvider: varchar('auth_provider', { length: 50 }).notNull().default('email'),
   authProviderId: varchar('auth_provider_id', { length: 255 }),
+  tosAcceptedAt: timestamp('tos_accepted_at'),
+  privacyAcceptedAt: timestamp('privacy_accepted_at'),
+  tosVersion: varchar('tos_version', { length: 20 }),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });

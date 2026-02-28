@@ -16,7 +16,7 @@ const startupLog = {
 
 console.log(JSON.stringify(startupLog));
 
-serve({
+const server = serve({
   fetch: app.fetch,
   port,
 });
@@ -32,3 +32,22 @@ const readyLog = {
 };
 
 console.log(JSON.stringify(readyLog));
+
+// Graceful shutdown — closes the HTTP server so in-flight requests can finish.
+// On Vercel serverless the function is ephemeral so SIGTERM is a no-op there,
+// but this protects local dev, Docker, and any future long-running deployments.
+function shutdown(signal: string) {
+  console.log(JSON.stringify({ timestamp: new Date().toISOString(), event: 'shutdown_signal', signal }));
+  server.close(() => {
+    console.log(JSON.stringify({ timestamp: new Date().toISOString(), event: 'server_closed' }));
+    process.exit(0);
+  });
+  // Force-exit after 10 s if requests don't drain in time
+  setTimeout(() => {
+    console.log(JSON.stringify({ timestamp: new Date().toISOString(), event: 'shutdown_timeout', signal }));
+    process.exit(1);
+  }, 10_000).unref();
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT',  () => shutdown('SIGINT'));

@@ -229,6 +229,44 @@ export async function exportUserData(userId: string): Promise<Record<string, any
   };
 }
 
+export interface AcceptTermsInput {
+  tos_version: string;
+  accept_tos: boolean;
+  accept_privacy: boolean;
+}
+
+/**
+ * Record user's acceptance of Terms of Service and Privacy Policy.
+ * Complies with CASL, PIPEDA, and App Store guideline 3.1.1.
+ * Stores the accepted version and timestamps for auditability.
+ */
+export async function acceptTerms(userId: string, input: AcceptTermsInput): Promise<void> {
+  if (!db) {
+    throw new InternalError('Database not available');
+  }
+
+  const now = new Date();
+  const updateData: Record<string, any> = { updatedAt: now };
+
+  if (input.accept_tos) {
+    updateData.tosAcceptedAt = now;
+    updateData.tosVersion = input.tos_version;
+  }
+  if (input.accept_privacy) {
+    updateData.privacyAcceptedAt = now;
+  }
+
+  const [updated] = await db
+    .update(users)
+    .set(updateData)
+    .where(eq(users.id, userId))
+    .returning({ id: users.id });
+
+  if (!updated) {
+    throw new NotFoundError('User not found');
+  }
+}
+
 export async function updateSettings(
   userId: string,
   settings: Record<string, any>,
