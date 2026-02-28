@@ -60,6 +60,8 @@ export interface HoldingDto {
   currency: string;
   exchange: string | null;
   sector: string | null;
+  vetr_score: number | null;
+  price_change_percent: number | null;
 }
 
 // --- Constants ---
@@ -197,12 +199,17 @@ export async function getPortfolioHoldings(userId: string, portfolioId: string) 
   await getPortfolioById(userId, portfolioId);
 
   const holdings = await db
-    .select()
+    .select({
+      holding: portfolioHoldings,
+      vetrScore: stocks.vetrScore,
+      priceChange: stocks.priceChange,
+    })
     .from(portfolioHoldings)
+    .leftJoin(stocks, eq(portfolioHoldings.stockId, stocks.id))
     .where(eq(portfolioHoldings.portfolioId, portfolioId))
     .orderBy(desc(portfolioHoldings.currentValue));
 
-  return holdings.map(toHoldingDto);
+  return holdings.map((row) => toHoldingDto(row.holding, row.vetrScore, row.priceChange));
 }
 
 export async function getAllUserHoldings(userId: string): Promise<HoldingDto[]> {
@@ -214,12 +221,17 @@ export async function getAllUserHoldings(userId: string): Promise<HoldingDto[]> 
   const portfolioIds = userPortfolios.map((p) => p.id);
 
   const holdings = await db
-    .select()
+    .select({
+      holding: portfolioHoldings,
+      vetrScore: stocks.vetrScore,
+      priceChange: stocks.priceChange,
+    })
     .from(portfolioHoldings)
+    .leftJoin(stocks, eq(portfolioHoldings.stockId, stocks.id))
     .where(sql`${portfolioHoldings.portfolioId} IN ${portfolioIds}`)
     .orderBy(desc(portfolioHoldings.currentValue));
 
-  return holdings.map(toHoldingDto);
+  return holdings.map((row) => toHoldingDto(row.holding, row.vetrScore, row.priceChange));
 }
 
 export async function getCategorizedHoldings(userId: string): Promise<CategorizedHoldings> {
@@ -421,7 +433,7 @@ export async function importHoldingsFromCsv(
 
 // --- Helpers ---
 
-function toHoldingDto(h: any): HoldingDto {
+function toHoldingDto(h: any, vetrScore?: number | null, priceChange?: number | null): HoldingDto {
   return {
     id: h.id,
     ticker: h.ticker,
@@ -437,5 +449,7 @@ function toHoldingDto(h: any): HoldingDto {
     currency: h.currency,
     exchange: h.exchange,
     sector: h.sector,
+    vetr_score: vetrScore ?? null,
+    price_change_percent: priceChange ?? null,
   };
 }

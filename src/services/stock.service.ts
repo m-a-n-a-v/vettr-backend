@@ -205,3 +205,27 @@ export async function searchStocks(query: string, limit: number = 10): Promise<(
 
   return results;
 }
+
+/**
+ * Returns all distinct sector values from the stocks table, sorted alphabetically.
+ * Used by the frontend to render sector filter chips.
+ */
+export async function getDistinctSectors(): Promise<string[]> {
+  if (!db) throw new InternalError('Database not available');
+
+  const cacheKey = 'stocks:sectors';
+  const cached = await cache.get<string[]>(cacheKey);
+  if (cached) return cached;
+
+  const result = await db
+    .selectDistinct({ sector: stocks.sector })
+    .from(stocks)
+    .orderBy(asc(stocks.sector));
+
+  const sectors = result.map((r) => r.sector).filter((s) => s && s.length > 0);
+
+  // Cache for 10 minutes — sectors change rarely
+  await cache.set(cacheKey, sectors, 600);
+
+  return sectors;
+}

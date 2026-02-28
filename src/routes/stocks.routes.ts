@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { validateQuery } from '../middleware/validator.js';
 import { authMiddleware } from '../middleware/auth.js';
 import type { AuthUser } from '../middleware/auth.js';
-import { getStocks, getStockByTicker, searchStocks } from '../services/stock.service.js';
+import { getStocks, getStockByTicker, searchStocks, getDistinctSectors } from '../services/stock.service.js';
 import { getFilingsByStock } from '../services/filing.service.js';
 import { getExecutivesForStock } from '../services/executive.service.js';
 import { calculateVetrScore } from '../services/vetr-score.service.js';
@@ -46,6 +46,12 @@ stockRoutes.get('/autocomplete', validateQuery(autocompleteQuerySchema), async (
   }));
 
   return c.json(success(autocompleteDtos), 200);
+});
+
+// GET /stocks/sectors - Public endpoint returning distinct sector values for filter chips
+stockRoutes.get('/sectors', async (c) => {
+  const sectors = await getDistinctSectors();
+  return c.json(success(sectors), 200);
 });
 
 // Zod schema for GET /stocks query params
