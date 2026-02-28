@@ -1,6 +1,6 @@
 import type { Context, Next } from 'hono';
-import { createClerkClient } from '@clerk/backend';
-import { db } from '../db/index.js';
+import { createClerkClient, verifyToken } from '@clerk/backend';
+import { db } from '../config/database.js';
 import { users } from '../db/schema/users.js';
 import { eq } from 'drizzle-orm';
 import { env } from '../config/env.js';
@@ -12,7 +12,7 @@ export interface AuthUser {
   tier: string;
 }
 
-// Initialise Clerk client once at module level — it caches JWKS internally.
+// Initialise Clerk client once at module level for user profile fetching.
 const clerkClient = env.CLERK_SECRET_KEY
   ? createClerkClient({ secretKey: env.CLERK_SECRET_KEY })
   : null;
@@ -48,7 +48,7 @@ export async function authMiddleware(c: Context, next: Next): Promise<void> {
 
   try {
     // Verify the Clerk session token — throws if invalid or expired.
-    const payload = await clerkClient.verifyToken(token);
+    const payload = await verifyToken(token, { secretKey: env.CLERK_SECRET_KEY! });
 
     // payload.sub is the Clerk user ID (e.g. "user_2NNEqL2nrIRdJ...")
     const clerkId = payload.sub;
@@ -77,11 +77,16 @@ export async function authMiddleware(c: Context, next: Next): Promise<void> {
  * their profile from Clerk and create a record automatically.
  */
 async function findOrProvisionUser(clerkId: string): Promise<AuthUser> {
+  if (!db) {
+    throw new AuthRequiredError('Database not available');
+  }
+
   // Fast path: user already exists in our DB.
-  const existing = await db.query.users.findFirst({
-    where: eq(users.clerkId, clerkId),
-    columns: { id: true, email: true, tier: true },
-  });
+  const [existing] = await db
+    .select({ id: users.id, email: users.email, tier: users.tier })
+    .from(users)
+    .where(eq(users.clerkId, clerkId))
+    .limit(1);
 
   if (existing) {
     return { id: existing.id, email: existing.email, tier: existing.tier };
