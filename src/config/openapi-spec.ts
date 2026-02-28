@@ -13,31 +13,7 @@ export const openApiSpec = {
     title: 'VETTR API',
     version: '2.0.0',
     description:
-      'VETTR Backend API — AI-powered stock due diligence for Canadian small-cap investors.\n\n' +
-      '## Authentication\n\n' +
-      'Most endpoints require JWT authentication via Bearer token:\n' +
-      '```\nAuthorization: Bearer <access_token>\n```\n\n' +
-      'Access tokens (15 min) are obtained from `/auth/login`, `/auth/signup`, `/auth/google`, or `/auth/apple`.\n' +
-      'Refresh tokens (30 days, with rotation) are used at `/auth/refresh`.\n\n' +
-      '## Rate Limiting\n\n' +
-      '| Tier | Read | Write |\n' +
-      '|------|------|-------|\n' +
-      '| Unauthenticated | 5/min | N/A |\n' +
-      '| Free | 60/min | 30/min |\n' +
-      '| Pro | 120/min | 60/min |\n' +
-      '| Premium | 300/min | 120/min |\n\n' +
-      'Rate limit headers: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`, `Retry-After`\n\n' +
-      '## VETR Score V2 — 4-Pillar System\n\n' +
-      '| Pillar | Weight | Sub-Metrics |\n' +
-      '|--------|--------|-------------|\n' +
-      '| Financial Survival | 35% | Cash Runway, Solvency |\n' +
-      '| Operational Efficiency | 25% | Sector-specific efficiency ratio |\n' +
-      '| Shareholder Structure | 25% | Pedigree, Dilution, SEDI Insider, Warrant Overhang |\n' +
-      '| Market Sentiment | 15% | Liquidity, Technical Momentum, News, Short Squeeze, Analyst Consensus |\n\n' +
-      'Pillars with insufficient data are excluded and their weights redistributed.\n\n' +
-      '## Error Format\n\n' +
-      '```json\n{ "success": false, "error": { "code": "ERROR_CODE", "message": "..." }, "meta": { "timestamp": "...", "request_id": "..." } }\n```\n\n' +
-      'Codes: `AUTH_REQUIRED`, `AUTH_EXPIRED`, `AUTH_INVALID_CREDENTIALS`, `FORBIDDEN`, `TIER_LIMIT_EXCEEDED`, `NOT_FOUND`, `CONFLICT`, `VALIDATION_ERROR`, `RATE_LIMITED`, `INTERNAL_ERROR`',
+      'AI-powered stock due diligence REST API for Canadian small-cap mining and resource investors. JWT authentication, tiered rate limiting, and VETR Score V2 4-pillar analysis.',
   },
   servers: [
     { url: 'https://vettr-backend.vercel.app/v1', description: 'Production' },
