@@ -22,6 +22,7 @@
     "db:recalculate-scores": "node --env-file=.env node_modules/.bin/tsx scripts/ingest/04_recalculate_scores.ts"
   },
   "dependencies": {
+    "@clerk/backend": "^2.33.0",
     "@hono/node-server": "^1.13.0",
     "@hono/swagger-ui": "^0.4.0",
     "@hono/zod-openapi": "^0.18.0",
