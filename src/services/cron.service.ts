@@ -3,7 +3,7 @@ import { db } from '../config/database.js';
 import { stocks, cronJobRuns, refreshTokens } from '../db/schema/index.js';
 import { calculateVetrScore } from './vetr-score.service.js';
 import { detectRedFlags } from './red-flag.service.js';
-import { refreshMarketData } from './market-data.service.js';
+import { refreshMarketData, fetchAndStoreOHLC } from './market-data.service.js';
 import { InternalError } from '../utils/errors.js';
 import * as cache from './cache.service.js';
 import { upsertSnapshotsBatch } from './snapshot.service.js';
@@ -92,7 +92,7 @@ export async function refreshMarketDataChunk(chunkSize: number = 2000): Promise<
   }
 
   const allStocks = await db
-    .select({ ticker: stocks.ticker, exchange: stocks.exchange })
+    .select({ id: stocks.id, ticker: stocks.ticker, exchange: stocks.exchange })
     .from(stocks)
     .orderBy(asc(stocks.ticker));
 
@@ -146,6 +146,25 @@ export async function refreshMarketDataChunk(chunkSize: number = 2000): Promise<
         }
       });
     }
+
+    // --- Fetch OHLC data for ATR calculation (Hourly Action Overlay) ---
+    // Runs after price updates; failures don't block the main cron
+    let ohlcSucceeded = 0;
+    let ohlcFailed = 0;
+    for (let i = 0; i < chunk.length; i += MARKET_DATA_CONCURRENCY) {
+      const ohlcBatch = chunk.slice(i, i + MARKET_DATA_CONCURRENCY);
+      const ohlcResults = await Promise.allSettled(
+        ohlcBatch.map((s) => fetchAndStoreOHLC(s.ticker, s.exchange, s.id))
+      );
+      ohlcResults.forEach((result) => {
+        if (result.status === 'fulfilled' && result.value.days > 0) {
+          ohlcSucceeded++;
+        } else {
+          ohlcFailed++;
+        }
+      });
+    }
+    console.log(`Cron ${jobName}: OHLC fetch - ${ohlcSucceeded} succeeded, ${ohlcFailed} failed`);
 
     const nextOffset = currentOffset + chunk.length;
     const isComplete = nextOffset >= totalStocks;

@@ -26,6 +26,13 @@ export const vetrScoreHistory = pgTable('vetr_score_history', {
   shortSqueezeScore: integer('short_squeeze_score'),
   analystConsensusScore: integer('analyst_consensus_score'),
 
+  // Hourly Action Overlay fields
+  hourlyReturnPct: doublePrecision('hourly_return_pct'),
+  zScore: doublePrecision('z_score'),
+  atrPct: doublePrecision('atr_pct'),
+  dynamicTilt: doublePrecision('dynamic_tilt'),
+  baseScore: integer('base_score'),
+
   // Pillar Weights (nullable)
   p1Weight: doublePrecision('p1_weight'),
   p2Weight: doublePrecision('p2_weight'),

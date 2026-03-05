@@ -13,8 +13,9 @@
 import YahooFinance from 'yahoo-finance2';
 import { eq } from 'drizzle-orm';
 import { db } from '../config/database.js';
-import { stocks, financialData } from '../db/schema/index.js';
+import { stocks, financialData, stockDailyPrices } from '../db/schema/index.js';
 import { InternalError } from '../utils/errors.js';
+import { calculateTrueRange } from '../utils/atr.js';
 
 // yahoo-finance2 v3 exports a class constructor as default
 // TypeScript CJS types don't reflect this, so we cast
@@ -193,5 +194,100 @@ export async function refreshMarketData(ticker: string, exchange: string): Promi
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     return { ticker, updated: false, error: msg };
+  }
+}
+
+/**
+ * Fetch 30 days of historical daily OHLC data from Yahoo Finance
+ * and upsert into stock_daily_prices table.
+ * Calculates True Range for each day during storage.
+ */
+export async function fetchAndStoreOHLC(
+  ticker: string,
+  exchange: string,
+  stockId: string
+): Promise<{ ticker: string; days: number; error?: string }> {
+  if (!db) {
+    throw new InternalError('Database not available');
+  }
+
+  const suffix = EXCHANGE_SUFFIX[exchange] || '.TO';
+  const yfTicker = `${ticker}${suffix}`;
+
+  try {
+    // Fetch 30 days of historical data
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - 35); // extra buffer for weekends/holidays
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const chartResult: any = await withRetry(() =>
+      yf.chart(yfTicker, {
+        period1: startDate,
+        period2: endDate,
+        interval: '1d',
+      })
+    );
+
+    if (!chartResult?.quotes || chartResult.quotes.length === 0) {
+      return { ticker, days: 0, error: 'No historical data returned' };
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const quotes: any[] = chartResult.quotes;
+    let insertedDays = 0;
+
+    for (let i = 0; i < quotes.length; i++) {
+      const q = quotes[i];
+      const high = safeNum(q.high);
+      const low = safeNum(q.low);
+      const close = safeNum(q.close);
+      const open = safeNum(q.open);
+      const volume = safeNum(q.volume);
+
+      if (close === null || high === null || low === null) continue;
+
+      // Previous close is either from previous day's quote or null for first day
+      const prevClose = i > 0 ? safeNum(quotes[i - 1].close) : null;
+      const trueRange = prevClose !== null ? calculateTrueRange(high, low, prevClose) : high - low;
+
+      // Convert date to YYYY-MM-DD string
+      const dateObj = new Date(q.date);
+      const dateStr = dateObj.toISOString().split('T')[0];
+
+      await db
+        .insert(stockDailyPrices)
+        .values({
+          stockId,
+          ticker,
+          date: dateStr,
+          open,
+          high,
+          low,
+          close,
+          previousClose: prevClose,
+          volume,
+          trueRange,
+        })
+        .onConflictDoUpdate({
+          target: [stockDailyPrices.ticker, stockDailyPrices.date],
+          set: {
+            open,
+            high,
+            low,
+            close,
+            previousClose: prevClose,
+            volume,
+            trueRange,
+          },
+        });
+
+      insertedDays++;
+    }
+
+    return { ticker, days: insertedDays };
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    return { ticker, days: 0, error: msg };
   }
 }

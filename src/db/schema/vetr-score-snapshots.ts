@@ -18,6 +18,9 @@ export const vetrScoreSnapshots = pgTable('vetr_score_snapshots', {
   // Stock price snapshot at this hour (nullable)
   price: doublePrecision('price'),
 
+  // Hourly Action Overlay
+  dynamicTilt: doublePrecision('dynamic_tilt'),
+
   recordedAt: timestamp('recorded_at').notNull().defaultNow(),
 }, (table) => ({
   // Composite index for fast time-series queries per ticker

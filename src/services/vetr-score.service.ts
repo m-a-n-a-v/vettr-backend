@@ -4,10 +4,12 @@ import {
   executives, filings, stocks, vetrScoreHistory, financialData,
   financialSummary, shortInterest as shortInterestTable,
   analystConsensus as analystConsensusTable, valuationMetrics,
-  insiderTransactions,
+  insiderTransactions, stockDailyPrices,
 } from '../db/schema/index.js';
 import { InternalError, NotFoundError } from '../utils/errors.js';
 import * as cache from './cache.service.js';
+import { calculateATR, calculateATRPercent, calculateHourlyActionOverlay, applyOverlayToScore } from '../utils/atr.js';
+import type { DailyPrice } from '../utils/atr.js';
 
 // Types for component inputs
 type ExecutiveRow = typeof executives.$inferSelect;
@@ -529,74 +531,63 @@ export function shareholderStructureScore(
 /**
  * Market Sentiment Pillar (P4) - Base Weight: 15%
  *
- * Calculates the Market Sentiment score based on two sub-metrics:
- * - Liquidity Health (60%): Daily volume value (avg_vol_30d * price) normalized to $100k = 100
- * - News Velocity (40%): Recency of last press release or filing, linear decay from 100 (14d) to 0 (60d)
+ * Calculates the Market Sentiment score based on 4 sub-metrics
+ * (Technical Momentum removed — replaced by Hourly Action Overlay applied post-calculation):
+ * - Liquidity Health (26.67%): Daily volume value normalized to $100k = 100
+ * - News Velocity (20%): Recency of last press release/filing, linear decay
+ * - Short Squeeze / Bear Risk (26.67%): Short interest vs float
+ * - Analyst Consensus Distance (26.67%): Analyst target upside
  *
- * Edge cases:
- * - If days < 14 → News Velocity = 100
- * - If days > 60 → News Velocity = 0
- * - If all inputs are null → return null (pillar skipped for weight redistribution)
+ * Original weights before Technical Momentum removal:
+ *   Liquidity 20%, News 15%, Short Squeeze 20%, Analyst 20% (sum=75%)
+ * Re-weighted proportionally to 100%: 26.67%, 20%, 26.67%, 26.67%
  *
  * @param stock - Stock data with price (nullable)
- * @param financialData - Financial data with avg_vol_30d, days_since_last_pr
+ * @param financialData - Financial data with avg_vol_30d, days_since_last_pr, short_interest, total_float, analyst_target_avg
  * @param filingList - Array of filing records for fallback news velocity calculation
- * @returns { score, liquidity, newsVelocity } or null if all inputs are null
+ * @returns { score, liquidity, newsVelocity, shortSqueeze, analystConsensus } or null if all inputs are null
  */
 export function marketSentimentScore(
   stock: { price: number | null },
   financialData: {
     avg_vol_30d: number | null;
     days_since_last_pr: number | null;
-    twenty_dma: number | null;
     short_interest: number | null;
     total_float: number | null;
     analyst_target_avg: number | null;
   },
   filingList: FilingRow[]
-): { score: number; liquidity: number; technicalMomentum: number; newsVelocity: number; shortSqueeze: number; analystConsensus: number } | null {
-  const { avg_vol_30d, days_since_last_pr, twenty_dma, short_interest, total_float, analyst_target_avg } = financialData;
+): { score: number; liquidity: number; newsVelocity: number; shortSqueeze: number; analystConsensus: number } | null {
+  const { avg_vol_30d, days_since_last_pr, short_interest, total_float, analyst_target_avg } = financialData;
 
   // Check if all inputs are null → return null (pillar skipped)
   if (
     avg_vol_30d === null && stock.price === null &&
     days_since_last_pr === null && filingList.length === 0 &&
-    twenty_dma === null && short_interest === null &&
+    short_interest === null &&
     analyst_target_avg === null
   ) {
     return null;
   }
 
-  // Sub-metric weights: Liquidity 20%, Tech Momentum 25%, News 15%, Short Squeeze 20%, Analyst 20%
+  // Sub-metric weights: re-weighted after Technical Momentum removal
+  // Original: Liquidity 20%, News 15%, Short Squeeze 20%, Analyst 20% = 75%
+  // Re-weighted to 100%: 20/75, 15/75, 20/75, 20/75
   const subWeights = {
-    liquidity: 0.20,
-    technicalMomentum: 0.25,
-    newsVelocity: 0.15,
-    shortSqueeze: 0.20,
-    analystConsensus: 0.20,
+    liquidity: 20 / 75,       // ~0.2667
+    newsVelocity: 15 / 75,    // ~0.2000
+    shortSqueeze: 20 / 75,    // ~0.2667
+    analystConsensus: 20 / 75, // ~0.2667
   };
 
-  // --- Liquidity Health (20%) - Hourly Dynamic ---
+  // --- Liquidity Health (26.67%) - Hourly Dynamic ---
   let liquidityScore: number | null = null;
   if (avg_vol_30d !== null && stock.price !== null) {
     const dailyVolValue = avg_vol_30d * stock.price;
     liquidityScore = Math.min(100, Math.round((dailyVolValue / 100000) * 100));
   }
 
-  // --- Technical Momentum (25%) - Hourly Dynamic ---
-  let technicalMomentumScore: number | null = null;
-  if (stock.price !== null && twenty_dma !== null && twenty_dma > 0) {
-    const momentumRatio = stock.price / twenty_dma;
-    if (momentumRatio > 1.05) {
-      technicalMomentumScore = 100; // Strong Uptrend
-    } else if (momentumRatio < 0.95) {
-      technicalMomentumScore = 0; // Downtrend
-    } else {
-      technicalMomentumScore = Math.round(((momentumRatio - 0.95) / 0.10) * 100);
-    }
-  }
-
-  // --- News Velocity (15%) ---
+  // --- News Velocity (20%) ---
   let newsVelocityScore: number | null = null;
   let daysSinceNews: number | null = null;
 
@@ -620,7 +611,7 @@ export function marketSentimentScore(
     }
   }
 
-  // --- Short Squeeze / Bear Risk (20%) - NEW ---
+  // --- Short Squeeze / Bear Risk (26.67%) ---
   let shortSqueezeScore: number | null = null;
   if (short_interest !== null && total_float !== null && total_float > 0) {
     const shortRate = short_interest / total_float;
@@ -630,25 +621,21 @@ export function marketSentimentScore(
       shortSqueezeScore = Math.max(0, Math.round(100 - (shortRate / 0.15) * 100));
     }
   } else {
-    // Default to 100 if null (no penalty for missing data)
     shortSqueezeScore = 100;
   }
 
-  // --- Analyst Consensus Distance (20%) - NEW ---
+  // --- Analyst Consensus Distance (26.67%) ---
   let analystConsensusScore: number | null = null;
   if (analyst_target_avg !== null && stock.price !== null && stock.price > 0) {
     const upside = (analyst_target_avg - stock.price) / stock.price;
-    // Target is 50% upside from current price
     analystConsensusScore = Math.max(0, Math.min(100, Math.round((upside / 0.50) * 100)));
   } else {
-    // Default to 50 if null (don't penalize undiscovered microcaps)
     analystConsensusScore = 50;
   }
 
   // --- Combine Sub-Metrics with proportional re-weighting for nulls ---
   const subMetrics = [
     { key: 'liquidity', score: liquidityScore, weight: subWeights.liquidity },
-    { key: 'technicalMomentum', score: technicalMomentumScore, weight: subWeights.technicalMomentum },
     { key: 'newsVelocity', score: newsVelocityScore, weight: subWeights.newsVelocity },
     { key: 'shortSqueeze', score: shortSqueezeScore, weight: subWeights.shortSqueeze },
     { key: 'analystConsensus', score: analystConsensusScore, weight: subWeights.analystConsensus },
@@ -669,7 +656,6 @@ export function marketSentimentScore(
   return {
     score: finalScore,
     liquidity: liquidityScore ?? 0,
-    technicalMomentum: technicalMomentumScore ?? 0,
     newsVelocity: newsVelocityScore ?? 0,
     shortSqueeze: shortSqueezeScore ?? 0,
     analystConsensus: analystConsensusScore ?? 0,
@@ -752,6 +738,13 @@ export function redistributeWeights(
 export interface VetrScoreResult {
   ticker: string;
   overall_score: number;
+  base_score: number; // Score before Hourly Action Overlay
+  hourly_action_overlay: {
+    return_pct: number;
+    z_score: number;
+    atr_pct: number;
+    dynamic_tilt: number;
+  };
   components: {
     financial_survival: {
       score: number;
@@ -783,7 +776,6 @@ export interface VetrScoreResult {
       weight: number;
       sub_scores: {
         liquidity: number;
-        technical_momentum: number;
         news_velocity: number;
         short_squeeze: number;
         analyst_consensus: number;
@@ -942,19 +934,42 @@ export async function calculateVetrScore(ticker: string): Promise<VetrScoreResul
     insider_net_buying_60d: insiderNetBuying60d,
   });
 
-  // P4: Market Sentiment (15%)
+  // P4: Market Sentiment (15%) — Technical Momentum removed, replaced by Hourly Action Overlay
   const p4Result = marketSentimentScore(
     { price: stock.price },
     {
       avg_vol_30d: financialInputs.avgVol30d,
       days_since_last_pr: financialInputs.daysSinceLastPr,
-      twenty_dma: valuationRow?.fiftyDayAverage ?? null,
       short_interest: shortInterestRow?.shortShares ?? null,
       total_float: finSummaryRow?.floatShares ?? null,
       analyst_target_avg: analystRow?.priceTarget ?? null,
     },
     filingList
   );
+
+  // --- Fetch daily prices for ATR / Hourly Action Overlay ---
+  let dailyPriceRows: DailyPrice[] = [];
+  let previousClosePrice: number | null = null;
+  if (db) {
+    const rawRows = await db
+      .select({
+        high: stockDailyPrices.high,
+        low: stockDailyPrices.low,
+        close: stockDailyPrices.close,
+        previousClose: stockDailyPrices.previousClose,
+      })
+      .from(stockDailyPrices)
+      .where(eq(stockDailyPrices.ticker, upperTicker))
+      .orderBy(stockDailyPrices.date)
+      .limit(30);
+
+    dailyPriceRows = rawRows;
+
+    // Previous close = most recent day's close price
+    if (rawRows.length > 0) {
+      previousClosePrice = rawRows[rawRows.length - 1].close;
+    }
+  }
 
   // --- Apply Null Pillar Weight Redistribution ---
   const pillarResults = [
@@ -966,29 +981,44 @@ export async function calculateVetrScore(ticker: string): Promise<VetrScoreResul
 
   const { adjustedWeights, nullPillars } = redistributeWeights(pillarResults);
 
-  // --- Calculate Overall Score ---
-  let overallScore = 0;
+  // --- Calculate Base Score (before Hourly Action Overlay) ---
+  let baseScore = 0;
   if (p1Result !== null) {
-    overallScore += p1Result.score * adjustedWeights.financial_survival;
+    baseScore += p1Result.score * adjustedWeights.financial_survival;
   }
   if (p2Result !== null) {
-    overallScore += p2Result.score * adjustedWeights.operational_efficiency;
+    baseScore += p2Result.score * adjustedWeights.operational_efficiency;
   }
   if (p3Result !== null) {
-    overallScore += p3Result.score * adjustedWeights.shareholder_structure;
+    baseScore += p3Result.score * adjustedWeights.shareholder_structure;
   }
   if (p4Result !== null) {
-    overallScore += p4Result.score * adjustedWeights.market_sentiment;
+    baseScore += p4Result.score * adjustedWeights.market_sentiment;
   }
+  baseScore = Math.round(baseScore);
 
-  // Clamp to 0-100 and round
-  overallScore = Math.max(0, Math.min(100, Math.round(overallScore)));
+  // --- Hourly Action Overlay ---
+  // Step A: Return% = (currentPrice - previousClose) / previousClose * 100
+  // Step B: Z-Score = Return% / ATR%
+  // Step C: Dynamic Tilt = 15 * (sigmoid(Z) - 0.5) → max ±7.5
+  // Step D: Final = clamp(baseScore + dynamicTilt, 0, 100)
+  const atr = calculateATR(dailyPriceRows);
+  const atrPct = calculateATRPercent(atr, previousClosePrice);
+  const overlay = calculateHourlyActionOverlay(stock.price, previousClosePrice, atrPct);
+  const overallScore = applyOverlayToScore(baseScore, overlay.dynamicTilt);
 
   const calculatedAt = new Date().toISOString();
 
   const result: VetrScoreResult = {
     ticker: upperTicker,
     overall_score: overallScore,
+    base_score: baseScore,
+    hourly_action_overlay: {
+      return_pct: Math.round(overlay.returnPct * 100) / 100,
+      z_score: Math.round(overlay.zScore * 100) / 100,
+      atr_pct: Math.round(atrPct * 100) / 100,
+      dynamic_tilt: Math.round(overlay.dynamicTilt * 100) / 100,
+    },
     components: {
       financial_survival: {
         score: p1Result?.score ?? 0,
@@ -1020,7 +1050,6 @@ export async function calculateVetrScore(ticker: string): Promise<VetrScoreResul
         weight: adjustedWeights.market_sentiment,
         sub_scores: {
           liquidity: p4Result?.liquidity ?? 0,
-          technical_momentum: p4Result?.technicalMomentum ?? 0,
           news_velocity: p4Result?.newsVelocity ?? 0,
           short_squeeze: p4Result?.shortSqueeze ?? 0,
           analyst_consensus: p4Result?.analystConsensus ?? 0,
@@ -1076,9 +1105,15 @@ async function saveScoreToHistory(ticker: string, result: VetrScoreResult): Prom
       warrantOverhangScore: result.components.shareholder_structure.sub_scores.warrant_overhang,
       liquidityScore: result.components.market_sentiment.sub_scores.liquidity,
       newsVelocityScore: result.components.market_sentiment.sub_scores.news_velocity,
-      technicalMomentumScore: result.components.market_sentiment.sub_scores.technical_momentum,
+      technicalMomentumScore: 0, // Deprecated: replaced by Hourly Action Overlay
       shortSqueezeScore: result.components.market_sentiment.sub_scores.short_squeeze,
       analystConsensusScore: result.components.market_sentiment.sub_scores.analyst_consensus,
+      // Hourly Action Overlay
+      hourlyReturnPct: result.hourly_action_overlay.return_pct,
+      zScore: result.hourly_action_overlay.z_score,
+      atrPct: result.hourly_action_overlay.atr_pct,
+      dynamicTilt: result.hourly_action_overlay.dynamic_tilt,
+      baseScore: result.base_score,
       // Weights
       p1Weight: result.components.financial_survival.weight,
       p2Weight: result.components.operational_efficiency.weight,
