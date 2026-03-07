@@ -32,9 +32,11 @@ vetrScoreRoutes.get('/:ticker/vetr-score/chart', validateQuery(chartQuerySchema)
   const query = c.req.query();
 
   // Validate and normalize range parameter
-  const allowedRanges = ['24h', '7d', '30d', '90d'] as const;
+  const allowedRanges = ['7d', '30d', '90d', '6m'] as const;
   type Range = typeof allowedRanges[number];
-  const range: Range = (allowedRanges.includes(query.range as Range) ? query.range : '7d') as Range;
+  // Map legacy '24h' to '7d' for backward compatibility with old clients
+  const rawRange = query.range === '24h' ? '7d' : query.range;
+  const range: Range = (allowedRanges.includes(rawRange as Range) ? rawRange : '7d') as Range;
 
   const upperTicker = ticker.toUpperCase();
   const snapshots = await getSnapshotsForTicker(upperTicker, range);

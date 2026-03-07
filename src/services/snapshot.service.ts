@@ -5,7 +5,7 @@ import { InternalError } from '../utils/errors.js';
 
 /**
  * Snapshot service for VETR Score time-series data
- * Manages hourly snapshots optimized for charting and trend analysis
+ * Manages daily snapshots optimized for charting and trend analysis
  */
 
 interface SnapshotScores {
@@ -34,7 +34,7 @@ interface SnapshotRow {
 
 /**
  * Upsert a single snapshot for a ticker
- * Truncates recorded_at to the current hour to ensure exactly one row per ticker per hour
+ * Truncates recorded_at to the current day to ensure exactly one row per ticker per day
  */
 export async function upsertSnapshot(
   ticker: string,
@@ -55,7 +55,7 @@ export async function upsertSnapshot(
       shareholderStructureScore: scores.p3,
       marketSentimentScore: scores.p4,
       price: price,
-      recordedAt: sql`date_trunc('hour', now())`,
+      recordedAt: sql`date_trunc('day', now())`,
     })
     .onConflictDoUpdate({
       target: [vetrScoreSnapshots.stockTicker, vetrScoreSnapshots.recordedAt],
@@ -99,25 +99,25 @@ export async function upsertSnapshotsBatch(
 
 /**
  * Get snapshots for a ticker within a time range
- * Returns hourly data points ordered chronologically
+ * Returns daily data points ordered chronologically
  */
 export async function getSnapshotsForTicker(
   ticker: string,
-  range: '24h' | '7d' | '30d' | '90d'
+  range: '7d' | '30d' | '90d' | '6m'
 ): Promise<SnapshotRow[]> {
   if (!db) {
     throw new InternalError('Database not available');
   }
 
-  const rangeHours: Record<typeof range, number> = {
-    '24h': 24,
-    '7d': 168,
-    '30d': 720,
-    '90d': 2160,
+  const rangeDays: Record<typeof range, number> = {
+    '7d': 7,
+    '30d': 30,
+    '90d': 90,
+    '6m': 180,
   };
 
-  const hoursAgo = rangeHours[range];
-  const cutoff = new Date(Date.now() - hoursAgo * 60 * 60 * 1000);
+  const daysAgo = rangeDays[range];
+  const cutoff = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
 
   const results = await db
     .select({

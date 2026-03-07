@@ -10,7 +10,7 @@ export interface GetStocksOptions {
   offset: number;
   sector?: string;
   exchange?: string;
-  sort?: 'ticker' | 'name' | 'vetr_score' | 'market_cap' | 'price';
+  sort?: 'ticker' | 'name' | 'vetr_score' | 'market_cap' | 'price' | 'price_change';
   order?: 'asc' | 'desc';
   search?: string;
 }
@@ -26,6 +26,7 @@ const sortColumnMap = {
   vetr_score: stocks.vetrScore,
   market_cap: stocks.marketCap,
   price: stocks.price,
+  price_change: stocks.priceChange,
 } as const;
 
 export async function getStocks(options: GetStocksOptions): Promise<GetStocksResult> {

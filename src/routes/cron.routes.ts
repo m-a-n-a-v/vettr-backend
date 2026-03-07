@@ -197,113 +197,135 @@ cronRoutes.get('/news', async (c) => {
 
   let articlesAdded = 0;
   let filingsAdded = 0;
+  const sourcesChecked: string[] = [];
+
+  // ── Helper: decode HTML entities ──
+  const decodeEntities = (str: string) =>
+    str.replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&#x27;/g, "'").replace(/&nbsp;/g, ' ').trim();
+
+  // ── Helper: parse RSS XML into items ──
+  const parseRSS = (xml: string): Array<{ title: string; link: string; description: string; pubDate: string; imageUrl: string | null }> => {
+    const items: Array<{ title: string; link: string; description: string; pubDate: string; imageUrl: string | null }> = [];
+    const itemRegex = /<item>([\s\S]*?)<\/item>/g;
+    let match: RegExpExecArray | null;
+
+    while ((match = itemRegex.exec(xml)) !== null) {
+      const block = match[1];
+
+      const titleMatch = block.match(/<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>/) ||
+                        block.match(/<title>([\s\S]*?)<\/title>/);
+      const linkMatch = block.match(/<link>([\s\S]*?)<\/link>/) ||
+                       block.match(/<guid[^>]*>(https?:\/\/[^<]+)<\/guid>/);
+      const descMatch = block.match(/<description><!\[CDATA\[([\s\S]*?)\]\]><\/description>/) ||
+                       block.match(/<description>([\s\S]*?)<\/description>/);
+      const dateMatch = block.match(/<pubDate>([\s\S]*?)<\/pubDate>/);
+      const mediaMatch = block.match(/<media:content[^>]+url="([^"]+)"/) ||
+                        block.match(/<enclosure[^>]+url="([^"]+)"/);
+
+      const title = titleMatch?.[1] ? decodeEntities(titleMatch[1]) : '';
+      const link = linkMatch?.[1]?.trim() ?? '';
+
+      if (title && link) {
+        items.push({
+          title,
+          link,
+          description: descMatch?.[1] ? decodeEntities(descMatch[1]) : '',
+          pubDate: dateMatch?.[1]?.trim() ?? '',
+          imageUrl: mediaMatch?.[1]?.replace(/&amp;/g, '&') ?? null,
+        });
+      }
+    }
+    return items;
+  };
+
+  // ── Helper: fetch an RSS feed with timeout ──
+  const fetchFeed = async (url: string): Promise<string | null> => {
+    try {
+      const res = await fetch(url, {
+        headers: { 'User-Agent': 'VETTR/1.0 (https://vettr.app)' },
+        signal: AbortSignal.timeout(15000),
+      });
+      if (res.ok) return res.text();
+      console.error(`Feed ${url} returned ${res.status}`);
+      return null;
+    } catch (err) {
+      console.error(`Feed fetch failed: ${url}`, err);
+      return null;
+    }
+  };
+
+  // Material keyword detection
+  const materialKeywords = ['material change', 'acquisition', 'merger', 'bankruptcy', 'delisted', 'halt', 'cease trade', 'insider', 'takeover', 'buyout', 'hostile bid'];
+
+  // Sector keyword detection
+  const sectorKeywords: Record<string, string> = {
+    'mining': 'Mining', 'gold': 'Mining', 'copper': 'Mining', 'lithium': 'Mining', 'silver': 'Mining', 'zinc': 'Mining', 'nickel': 'Mining', 'uranium': 'Mining', 'cobalt': 'Mining', 'rare earth': 'Mining',
+    'oil': 'Energy', 'gas': 'Energy', 'energy': 'Energy', 'pipeline': 'Energy', 'petroleum': 'Energy',
+    'cannabis': 'Cannabis', 'marijuana': 'Cannabis',
+    'tech': 'Technology', 'software': 'Technology', 'ai': 'Technology',
+  };
+
+  // Get all known tickers from DB for matching (shared across all sources)
+  const allStocks = await db.select({ ticker: stocks.ticker }).from(stocks);
+  const tickerSet = new Set(allStocks.map((s) => s.ticker.toUpperCase()));
+
+  // ── Helper: process parsed items and insert into DB ──
+  const insertArticles = async (items: Array<{ title: string; link: string; description: string; pubDate: string; imageUrl: string | null }>, source: string) => {
+    let count = 0;
+    for (const item of items) {
+      try {
+        const existing = await db!
+          .select({ id: newsArticles.id })
+          .from(newsArticles)
+          .where(eq(newsArticles.sourceUrl, item.link))
+          .limit(1);
+
+        if (existing.length > 0) continue;
+
+        const combinedText = `${item.title} ${item.description}`.toUpperCase();
+        const detectedTickers = Array.from(tickerSet).filter((t) =>
+          t.length >= 2 && new RegExp(`\\b${t.replace('.', '\\.')}\\b`).test(combinedText)
+        );
+
+        const isMaterial = materialKeywords.some((kw) => combinedText.toLowerCase().includes(kw));
+
+        const detectedSectors = new Set<string>();
+        for (const [kw, sector] of Object.entries(sectorKeywords)) {
+          if (combinedText.toLowerCase().includes(kw)) detectedSectors.add(sector);
+        }
+
+        await db!.insert(newsArticles).values({
+          source,
+          sourceUrl: item.link,
+          title: item.title.substring(0, 500),
+          summary: item.description.substring(0, 2000) || null,
+          imageUrl: item.imageUrl,
+          publishedAt: item.pubDate ? new Date(item.pubDate) : new Date(),
+          tickers: detectedTickers.length > 0 ? detectedTickers.join(',') : null,
+          sectors: detectedSectors.size > 0 ? Array.from(detectedSectors).join(',') : null,
+          isMaterial,
+        });
+
+        count++;
+      } catch (err) {
+        console.error(`Failed to insert ${source} article:`, item.title.substring(0, 50), err);
+      }
+    }
+    return count;
+  };
 
   // ── 1. Fetch BNN Bloomberg RSS ──
   try {
-    const RSS_URL = 'https://www.bnnbloomberg.ca/arc/outboundfeeds/rss/';
-    const res = await fetch(RSS_URL, {
-      headers: { 'User-Agent': 'VETTR/1.0' },
-      signal: AbortSignal.timeout(15000),
-    });
-
-    if (res.ok) {
-      const xml = await res.text();
-
-      // Parse RSS items
-      const itemRegex = /<item>([\s\S]*?)<\/item>/g;
-      let match: RegExpExecArray | null;
-      const parsedItems: Array<{
-        title: string;
-        link: string;
-        description: string;
-        pubDate: string;
-        imageUrl: string | null;
-      }> = [];
-
-      while ((match = itemRegex.exec(xml)) !== null) {
-        const block = match[1];
-
-        const titleMatch = block.match(/<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>/) ||
-                          block.match(/<title>([\s\S]*?)<\/title>/);
-        const linkMatch = block.match(/<link>([\s\S]*?)<\/link>/);
-        const descMatch = block.match(/<description><!\[CDATA\[([\s\S]*?)\]\]><\/description>/) ||
-                         block.match(/<description>([\s\S]*?)<\/description>/);
-        const dateMatch = block.match(/<pubDate>([\s\S]*?)<\/pubDate>/);
-        const mediaMatch = block.match(/<media:content[^>]+url="([^"]+)"/);
-
-        const title = titleMatch?.[1]?.replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").trim() ?? '';
-        const link = linkMatch?.[1]?.trim() ?? '';
-
-        if (title && link) {
-          parsedItems.push({
-            title,
-            link,
-            description: descMatch?.[1]?.replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').trim() ?? '',
-            pubDate: dateMatch?.[1]?.trim() ?? '',
-            imageUrl: mediaMatch?.[1]?.replace(/&amp;/g, '&') ?? null,
-          });
-        }
-      }
-
-      // Get all known tickers from DB for matching
-      const allStocks = await db.select({ ticker: stocks.ticker }).from(stocks);
-      const tickerSet = new Set(allStocks.map((s) => s.ticker.toUpperCase()));
-
-      // Insert articles (dedup by source_url)
-      for (const item of parsedItems) {
-        try {
-          // Check if article already exists by source_url
-          const existing = await db
-            .select({ id: newsArticles.id })
-            .from(newsArticles)
-            .where(eq(newsArticles.sourceUrl, item.link))
-            .limit(1);
-
-          if (existing.length > 0) continue;
-
-          // Detect tickers mentioned in title or description
-          const combinedText = `${item.title} ${item.description}`.toUpperCase();
-          const detectedTickers = Array.from(tickerSet).filter((t) =>
-            t.length >= 2 && new RegExp(`\\b${t.replace('.', '\\.')}\\b`).test(combinedText)
-          );
-
-          // Detect if it might be material (keywords)
-          const materialKeywords = ['material change', 'acquisition', 'merger', 'bankruptcy', 'delisted', 'halt', 'cease trade', 'insider'];
-          const isMaterial = materialKeywords.some((kw) => combinedText.toLowerCase().includes(kw));
-
-          // Detect sectors
-          const sectorKeywords: Record<string, string> = {
-            'mining': 'Mining', 'gold': 'Mining', 'copper': 'Mining', 'lithium': 'Mining',
-            'oil': 'Energy', 'gas': 'Energy', 'energy': 'Energy', 'pipeline': 'Energy',
-            'cannabis': 'Cannabis', 'marijuana': 'Cannabis',
-            'tech': 'Technology', 'software': 'Technology', 'ai': 'Technology',
-          };
-          const detectedSectors = new Set<string>();
-          for (const [kw, sector] of Object.entries(sectorKeywords)) {
-            if (combinedText.toLowerCase().includes(kw)) detectedSectors.add(sector);
-          }
-
-          await db.insert(newsArticles).values({
-            source: 'bnn',
-            sourceUrl: item.link,
-            title: item.title.substring(0, 500),
-            summary: item.description.substring(0, 2000) || null,
-            imageUrl: item.imageUrl,
-            publishedAt: item.pubDate ? new Date(item.pubDate) : new Date(),
-            tickers: detectedTickers.length > 0 ? detectedTickers.join(',') : null,
-            sectors: detectedSectors.size > 0 ? Array.from(detectedSectors).join(',') : null,
-            isMaterial,
-          });
-
-          articlesAdded++;
-        } catch (err) {
-          // Skip individual article errors (e.g., constraint violations)
-          console.error('Failed to insert article:', item.title.substring(0, 50), err);
-        }
-      }
+    const xml = await fetchFeed('https://www.bnnbloomberg.ca/arc/outboundfeeds/rss/');
+    if (xml) {
+      const items = parseRSS(xml);
+      const added = await insertArticles(items, 'bnn');
+      articlesAdded += added;
+      console.log(`BNN Bloomberg: parsed ${items.length}, added ${added}`);
     }
+    sourcesChecked.push('bnn');
   } catch (err) {
-    console.error('BNN RSS fetch failed:', err);
+    console.error('BNN RSS scrape failed:', err);
   }
 
   // ── 2. Generate filing calendar entries for tracked stocks ──
@@ -368,7 +390,7 @@ cronRoutes.get('/news', async (c) => {
   }
 
   return c.json(success({
-    sources_checked: ['bnn'],
+    sources_checked: sourcesChecked,
     articles_added: articlesAdded,
     filings_added: filingsAdded,
   }));

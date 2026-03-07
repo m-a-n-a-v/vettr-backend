@@ -37,7 +37,7 @@ const envSchema = z.object({
   ADMIN_SECRET: z.string().optional(),
 
   // Cron Configuration
-  CRON_SECRET: z.string().optional(),
+  CRON_SECRET: z.string().min(1, 'CRON_SECRET is required'),
 
   // Email Configuration (Resend)
   RESEND_API_KEY: z.string().optional(),

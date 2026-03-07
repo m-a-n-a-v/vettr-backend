@@ -1,6 +1,6 @@
 import { asc, eq, lt, or, and } from 'drizzle-orm';
 import { db } from '../config/database.js';
-import { stocks, cronJobRuns, refreshTokens } from '../db/schema/index.js';
+import { stocks, cronJobRuns, refreshTokens, redFlagHistory } from '../db/schema/index.js';
 import { calculateVetrScore } from './vetr-score.service.js';
 import { detectRedFlags } from './red-flag.service.js';
 import { refreshMarketData, fetchAndStoreOHLC } from './market-data.service.js';
@@ -81,7 +81,7 @@ async function processBatch<T>(
  * Uses Redis cursor to track progress across multiple invocations.
  * Lower concurrency (5) to respect Yahoo Finance rate limits.
  */
-export async function refreshMarketDataChunk(chunkSize: number = 2000): Promise<CronJobResult> {
+export async function refreshMarketDataChunk(chunkSize: number = 200): Promise<CronJobResult> {
   const startTime = Date.now();
   const jobName = 'refresh-market-data';
 
@@ -234,7 +234,7 @@ export async function refreshMarketDataChunk(chunkSize: number = 2000): Promise<
  * Refresh VETR scores for a chunk of stocks.
  * Uses Redis cursor to track progress across multiple invocations.
  */
-export async function refreshScoresChunk(chunkSize: number = 2000): Promise<CronJobResult> {
+export async function refreshScoresChunk(chunkSize: number = 200): Promise<CronJobResult> {
   const startTime = Date.now();
   const jobName = 'refresh-scores';
 
@@ -408,7 +408,7 @@ export async function refreshScoresChunk(chunkSize: number = 2000): Promise<Cron
  * Refresh red flags for a chunk of stocks.
  * Uses Redis cursor to track progress across multiple invocations.
  */
-export async function refreshRedFlagsChunk(chunkSize: number = 2000): Promise<CronJobResult> {
+export async function refreshRedFlagsChunk(chunkSize: number = 200): Promise<CronJobResult> {
   const startTime = Date.now();
   const jobName = 'refresh-red-flags';
 
@@ -535,6 +535,7 @@ export async function refreshRedFlagsChunk(chunkSize: number = 2000): Promise<Cr
 export interface CleanupOrphanDataResult {
   refresh_tokens_deleted: number;
   cron_job_runs_deleted: number;
+  red_flag_history_deleted: number;
 }
 
 /**
@@ -574,8 +575,16 @@ export async function cleanupOrphanData(): Promise<CleanupOrphanDataResult> {
     .where(lt(cronJobRuns.startedAt, sevenDaysAgo))
     .returning({ id: cronJobRuns.id });
 
+  // Delete red flag history older than 30 days
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const deletedFlags = await db
+    .delete(redFlagHistory)
+    .where(lt(redFlagHistory.detectedAt, thirtyDaysAgo))
+    .returning({ id: redFlagHistory.id });
+
   return {
     refresh_tokens_deleted: deletedTokens.length,
     cron_job_runs_deleted: deletedRuns.length,
+    red_flag_history_deleted: deletedFlags.length,
   };
 }

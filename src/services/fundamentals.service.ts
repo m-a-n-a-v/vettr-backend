@@ -159,6 +159,24 @@ interface InsiderActivity {
   }>;
 }
 
+interface ValuationMetricsData {
+  priceToBook: number | null;
+  priceToSales: number | null;
+  enterpriseToRevenue: number | null;
+  enterpriseToEbitda: number | null;
+  enterpriseValue: number | null;
+  profitMargins: number | null;
+  returnOnEquity: number | null;
+  returnOnAssets: number | null;
+  beta: number | null;
+  weeks52High: number | null;
+  weeks52Low: number | null;
+  fiftyDayAverage: number | null;
+  twoHundredDayAverage: number | null;
+  trailingEps: number | null;
+  forwardEps: number | null;
+}
+
 export interface FundamentalsData {
   ticker: string;
   financialHealth: FinancialHealth;
@@ -171,6 +189,7 @@ export interface FundamentalsData {
   dividendYield: number;
   shortInterest: ShortInterestData;
   insiderActivity: InsiderActivity;
+  valuationMetrics: ValuationMetricsData;
   metricTrends: {
     marketCap: number[];
     peRatio: number[];
@@ -286,6 +305,24 @@ export async function getFundamentals(ticker: string): Promise<FundamentalsData>
 
     shortInterest: buildShortInterest(siData),
     insiderActivity: buildInsiderActivity(holders, insTrans),
+
+    valuationMetrics: {
+      priceToBook: vm?.priceToBook ?? null,
+      priceToSales: vm?.priceToSales ?? null,
+      enterpriseToRevenue: vm?.enterpriseToRevenue ?? null,
+      enterpriseToEbitda: vm?.enterpriseToEbitda ?? null,
+      enterpriseValue: vm?.enterpriseValue ?? null,
+      profitMargins: vm?.profitMargins ?? null,
+      returnOnEquity: vm?.returnOnEquity ?? null,
+      returnOnAssets: vm?.returnOnAssets ?? null,
+      beta: vm?.beta ?? null,
+      weeks52High: vm?.weeks52High ?? null,
+      weeks52Low: vm?.weeks52Low ?? null,
+      fiftyDayAverage: vm?.fiftyDayAverage ?? null,
+      twoHundredDayAverage: vm?.twoHundredDayAverage ?? null,
+      trailingEps: vm?.trailingEps ?? null,
+      forwardEps: vm?.forwardEps ?? null,
+    },
 
     metricTrends: {
       marketCap: [marketCap],

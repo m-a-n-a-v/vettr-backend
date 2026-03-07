@@ -19,6 +19,10 @@
     {
       "path": "/v1/cron/red-flags",
       "schedule": "30 * * * *"
+    },
+    {
+      "path": "/v1/cron/news",
+      "schedule": "0,30 * * * *"
     }
   ]
 }

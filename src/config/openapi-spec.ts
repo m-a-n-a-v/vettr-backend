@@ -668,7 +668,7 @@ export const openApiSpec = {
         security: [{ BearerAuth: [] }],
         parameters: [
           { name: 'ticker', in: 'path', required: true, schema: { type: 'string' } },
-          { name: 'range', in: 'query', schema: { type: 'string', enum: ['24h', '7d', '30d', '90d'], default: '7d' } },
+          { name: 'range', in: 'query', schema: { type: 'string', enum: ['7d', '30d', '90d', '6m'], default: '7d' } },
         ],
         responses: { '200': { description: 'Chart data points' } },
       },

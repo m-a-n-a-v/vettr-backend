@@ -9,9 +9,9 @@ import { getExecutivesForStock } from '../services/executive.service.js';
 import { calculateVetrScore } from '../services/vetr-score.service.js';
 import { paginated, success } from '../utils/response.js';
 import { NotFoundError, InternalError } from '../utils/errors.js';
-import { eq } from 'drizzle-orm';
+import { eq, and, gte, asc } from 'drizzle-orm';
 import { db } from '../config/database.js';
-import { stocks } from '../db/schema/index.js';
+import { stocks, stockDailyPrices } from '../db/schema/index.js';
 
 type Variables = {
   user: AuthUser;
@@ -60,7 +60,7 @@ const getStocksQuerySchema = z.object({
   offset: z.string().optional().default('0'),
   sector: z.string().optional(),
   exchange: z.string().optional(),
-  sort: z.enum(['ticker', 'name', 'vetr_score', 'market_cap', 'price']).optional(),
+  sort: z.enum(['ticker', 'name', 'vetr_score', 'market_cap', 'price', 'price_change']).optional(),
   order: z.enum(['asc', 'desc']).optional(),
   search: z.string().optional(),
 });
@@ -77,7 +77,7 @@ stockRoutes.get('/', authMiddleware, validateQuery(getStocksQuerySchema), async 
     offset,
     sector: query.sector,
     exchange: query.exchange,
-    sort: query.sort as 'ticker' | 'name' | 'vetr_score' | 'market_cap' | 'price' | undefined,
+    sort: query.sort as 'ticker' | 'name' | 'vetr_score' | 'market_cap' | 'price' | 'price_change' | undefined,
     order: query.order as 'asc' | 'desc' | undefined,
     search: query.search,
   });
@@ -175,8 +175,8 @@ stockRoutes.get('/:ticker/preview', async (c) => {
       },
     };
     nullPillars = scoreResult.null_pillars;
-  } catch {
-    // If score calculation fails, return basic info without pillars
+  } catch (error) {
+    console.error(`Score calculation failed for ${ticker}:`, error instanceof Error ? error.message : error);
   }
 
   return c.json(success({
@@ -308,6 +308,62 @@ stockRoutes.get('/:ticker/executives', authMiddleware, async (c) => {
     limit: executiveDtos.length,
     offset: 0,
     has_more: false,
+  }), 200);
+});
+
+// Zod schema for GET /stocks/:ticker/price-history query params
+const priceHistoryQuerySchema = z.object({
+  range: z.enum(['1m', '3m', '6m']).optional().default('3m'),
+});
+
+// GET /stocks/:ticker/price-history - Historical OHLC price data (auth required)
+stockRoutes.get('/:ticker/price-history', authMiddleware, validateQuery(priceHistoryQuerySchema), async (c) => {
+  if (!db) {
+    throw new InternalError('Database not available');
+  }
+
+  const ticker = c.req.param('ticker').toUpperCase();
+  const query = c.req.query();
+  const range = query.range || '3m';
+
+  // Calculate start date based on range
+  const now = new Date();
+  const startDate = new Date(now);
+  if (range === '1m') startDate.setMonth(startDate.getMonth() - 1);
+  else if (range === '3m') startDate.setMonth(startDate.getMonth() - 3);
+  else startDate.setMonth(startDate.getMonth() - 6);
+
+  const dateStr = startDate.toISOString().slice(0, 10);
+
+  const prices = await db
+    .select({
+      date: stockDailyPrices.date,
+      open: stockDailyPrices.open,
+      high: stockDailyPrices.high,
+      low: stockDailyPrices.low,
+      close: stockDailyPrices.close,
+      volume: stockDailyPrices.volume,
+    })
+    .from(stockDailyPrices)
+    .where(
+      and(
+        eq(stockDailyPrices.ticker, ticker),
+        gte(stockDailyPrices.date, dateStr),
+      )
+    )
+    .orderBy(asc(stockDailyPrices.date));
+
+  return c.json(success({
+    ticker,
+    range,
+    prices: prices.map((p) => ({
+      date: typeof p.date === 'string' ? p.date.slice(0, 10) : new Date(p.date).toISOString().slice(0, 10),
+      open: p.open,
+      high: p.high,
+      low: p.low,
+      close: p.close,
+      volume: p.volume,
+    })),
   }), 200);
 });
 

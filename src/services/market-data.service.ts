@@ -13,7 +13,7 @@
 import YahooFinance from 'yahoo-finance2';
 import { eq } from 'drizzle-orm';
 import { db } from '../config/database.js';
-import { stocks, financialData, stockDailyPrices } from '../db/schema/index.js';
+import { stocks, financialData, stockDailyPrices, financialSummary } from '../db/schema/index.js';
 import { InternalError } from '../utils/errors.js';
 import { calculateTrueRange } from '../utils/atr.js';
 
@@ -85,7 +85,7 @@ export async function refreshMarketData(ticker: string, exchange: string): Promi
     const [quoteResult, summaryResult]: [any, any] = await Promise.all([
       withRetry(() => yf.quote(yfTicker)).catch(() => null),
       withRetry(() => yf.quoteSummary(yfTicker, {
-        modules: ['financialData', 'defaultKeyStatistics'],
+        modules: ['financialData', 'defaultKeyStatistics', 'balanceSheetHistory'],
       })).catch(() => null),
     ]);
 
@@ -101,8 +101,8 @@ export async function refreshMarketData(ticker: string, exchange: string): Promi
       return { ticker, updated: false, error: 'No market data' };
     }
 
-    const priceChange = currentPrice !== null && previousClose !== null
-      ? Math.round((currentPrice - previousClose) * 10000) / 10000
+    const priceChange = currentPrice !== null && previousClose !== null && previousClose !== 0
+      ? Math.round(((currentPrice - previousClose) / previousClose) * 10000) / 100
       : null;
 
     // Extract financial data from quoteSummary
@@ -135,6 +135,25 @@ export async function refreshMarketData(ticker: string, exchange: string): Promi
       (quoteResult as Record<string, unknown>).averageDailyVolume3Month
       ?? (quoteResult as Record<string, unknown>).averageDailyVolume10Day
     );
+
+    // Extract totalAssets from balance sheet history
+    const bsHistory = summaryResult?.balanceSheetHistory?.balanceSheetStatements;
+    const latestBs = Array.isArray(bsHistory) && bsHistory.length > 0 ? bsHistory[0] : null;
+    const totalAssets = safeNum(latestBs?.totalAssets);
+
+    // Extract key financial summary fields
+    const freeCashFlow = safeNum(fd?.freeCashflow);
+    const grossProfit = safeNum(fd?.grossProfits);
+    const grossMargins = safeNum(fd?.grossMargins);
+    const operatingMargins = safeNum(fd?.operatingMargins);
+    const ebitdaMargins = safeNum(fd?.ebitdaMargins);
+    const currentRatio = safeNum(fd?.currentRatio);
+    const quickRatio = safeNum(fd?.quickRatio);
+    const revenueGrowth = safeNum(fd?.revenueGrowth);
+    const earningsGrowth = safeNum(fd?.earningsGrowth);
+    const revenuePerShare = safeNum(fd?.revenuePerShare);
+    const totalCashPerShare = safeNum(fd?.totalCashPerShare);
+    const floatShares = safeInt(ks?.floatShares);
 
     // 1. Update stocks table
     const nameUpdate = quoteResult.shortName || quoteResult.longName;
@@ -170,6 +189,7 @@ export async function refreshMarketData(ticker: string, exchange: string): Promi
         cash: totalCash,
         monthlyBurn,
         totalDebt,
+        totalAssets,
         revenue: totalRevenue,
         sharesCurrent: sharesOutstanding,
         insiderShares,
@@ -182,10 +202,60 @@ export async function refreshMarketData(ticker: string, exchange: string): Promi
           ...(totalCash !== null ? { cash: totalCash } : {}),
           ...(monthlyBurn !== null ? { monthlyBurn } : {}),
           ...(totalDebt !== null ? { totalDebt } : {}),
+          ...(totalAssets !== null ? { totalAssets } : {}),
           ...(totalRevenue !== null ? { revenue: totalRevenue } : {}),
           ...(sharesOutstanding !== null ? { sharesCurrent: sharesOutstanding, totalShares: sharesOutstanding } : {}),
           ...(insiderShares !== null ? { insiderShares } : {}),
           ...(avgVol30d !== null ? { avgVol30d } : {}),
+          updatedAt: new Date(),
+        },
+      });
+
+    // 4. Upsert financial_summary — key metrics for VETR Score pillars
+    await db
+      .insert(financialSummary)
+      .values({
+        stockId,
+        totalRevenue,
+        grossProfit,
+        ebitda,
+        operatingCashFlow: operatingCashflow,
+        freeCashFlow,
+        totalCash,
+        totalCashPerShare,
+        totalDebt,
+        revenuePerShare,
+        grossMargins,
+        operatingMargins,
+        ebitdaMargins,
+        revenueGrowth,
+        earningsGrowth,
+        currentRatio,
+        quickRatio,
+        sharesOutstanding,
+        floatShares,
+      })
+      .onConflictDoUpdate({
+        target: financialSummary.stockId,
+        set: {
+          ...(totalRevenue !== null ? { totalRevenue } : {}),
+          ...(grossProfit !== null ? { grossProfit } : {}),
+          ...(ebitda !== null ? { ebitda } : {}),
+          ...(operatingCashflow !== null ? { operatingCashFlow: operatingCashflow } : {}),
+          ...(freeCashFlow !== null ? { freeCashFlow } : {}),
+          ...(totalCash !== null ? { totalCash } : {}),
+          ...(totalCashPerShare !== null ? { totalCashPerShare } : {}),
+          ...(totalDebt !== null ? { totalDebt } : {}),
+          ...(revenuePerShare !== null ? { revenuePerShare } : {}),
+          ...(grossMargins !== null ? { grossMargins } : {}),
+          ...(operatingMargins !== null ? { operatingMargins } : {}),
+          ...(ebitdaMargins !== null ? { ebitdaMargins } : {}),
+          ...(revenueGrowth !== null ? { revenueGrowth } : {}),
+          ...(earningsGrowth !== null ? { earningsGrowth } : {}),
+          ...(currentRatio !== null ? { currentRatio } : {}),
+          ...(quickRatio !== null ? { quickRatio } : {}),
+          ...(sharesOutstanding !== null ? { sharesOutstanding } : {}),
+          ...(floatShares !== null ? { floatShares } : {}),
           updatedAt: new Date(),
         },
       });
@@ -215,10 +285,10 @@ export async function fetchAndStoreOHLC(
   const yfTicker = `${ticker}${suffix}`;
 
   try {
-    // Fetch 30 days of historical data
+    // Fetch 200 days of historical data (covers 6m chart + ATR calculation)
     const endDate = new Date();
     const startDate = new Date();
-    startDate.setDate(startDate.getDate() - 35); // extra buffer for weekends/holidays
+    startDate.setDate(startDate.getDate() - 210); // ~7 months buffer for weekends/holidays
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const chartResult: any = await withRetry(() =>

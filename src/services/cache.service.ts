@@ -33,9 +33,9 @@ export async function set<T = unknown>(
   try {
     if (redisMode === 'upstash' && upstashRedis) {
       if (ttlSeconds !== undefined) {
-        await upstashRedis.set(key, JSON.stringify(value), { ex: ttlSeconds });
+        await upstashRedis.set(key, value, { ex: ttlSeconds });
       } else {
-        await upstashRedis.set(key, JSON.stringify(value));
+        await upstashRedis.set(key, value);
       }
       return true;
     }
