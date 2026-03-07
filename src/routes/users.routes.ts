@@ -118,10 +118,7 @@ userRoutes.post('/me/accept-terms', validateBody(acceptTermsSchema), async (c) =
 userRoutes.get('/me/data-export', async (c) => {
   const user = c.get('user');
   const data = await exportUserData(user.id);
-
-  c.header('Content-Type', 'application/json');
-  c.header('Content-Disposition', 'attachment; filename="vettr-data-export.json"');
-  return c.json(data, 200);
+  return c.json(success(data), 200);
 });
 
 export { userRoutes };

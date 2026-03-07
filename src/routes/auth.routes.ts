@@ -21,6 +21,7 @@ import { signAccessToken, signResetToken, verifyResetToken } from '../utils/jwt.
 import { sendPasswordResetEmail } from '../services/email.service.js';
 import { AuthInvalidCredentialsError, ValidationError, NotFoundError } from '../utils/errors.js';
 import { success } from '../utils/response.js';
+import { applyReferralCode } from '../services/referral.service.js';
 
 const authRoutes = new Hono();
 
@@ -32,12 +33,13 @@ const signupSchema = z.object({
   email: z.string().email('Invalid email address'),
   password: z.string().min(1, 'Password is required'),
   display_name: z.string().min(1, 'Display name is required').max(255),
+  referral_code: z.string().max(20).optional(),
 });
 
 // POST /auth/signup - Create a new user account
 authRoutes.post('/signup', validateBody(signupSchema), async (c) => {
   const body = await c.req.json();
-  const { email, password, display_name } = body;
+  const { email, password, display_name, referral_code } = body;
 
   // Validate password strength
   const passwordCheck = validatePasswordStrength(password);
@@ -57,6 +59,15 @@ authRoutes.post('/signup', validateBody(signupSchema), async (c) => {
     passwordHash,
     authProvider: 'email',
   });
+
+  // Apply referral code if provided
+  if (referral_code) {
+    try {
+      await applyReferralCode(user.id, referral_code);
+    } catch {
+      // Non-critical: don't fail signup if referral fails
+    }
+  }
 
   // Generate access token
   const accessToken = signAccessToken({

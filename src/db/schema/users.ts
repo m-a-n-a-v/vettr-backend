@@ -16,6 +16,7 @@ export const users = pgTable('users', {
   tosAcceptedAt: timestamp('tos_accepted_at'),
   privacyAcceptedAt: timestamp('privacy_accepted_at'),
   tosVersion: varchar('tos_version', { length: 20 }),
+  referralCode: varchar('referral_code', { length: 20 }).unique(),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });

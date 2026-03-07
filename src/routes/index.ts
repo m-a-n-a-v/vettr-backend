@@ -26,3 +26,4 @@ export { portfolioInsightsRoutes } from './portfolio-insights.routes.js';
 export { publicRoutes } from './public.routes.js';
 export { samplePortfolioRoutes } from './sample-portfolios.routes.js';
 export { deviceRoutes } from './devices.routes.js';
+export { referralRoutes } from './referral.routes.js';
